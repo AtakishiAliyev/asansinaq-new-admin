@@ -1,0 +1,216 @@
+# Asansinaq - Admin — Frontend
+
+## Project overview
+
+Admin panel for Asansinaq — a platform where students take practice exams
+(sınaqlar). This app is the internal/staff side; no student-facing UI here.
+Core flow: admins upload PDF or scanned exam papers → the system crops and
+extracts questions → AI recreates each question as a clean structured entry
+(category/subcategory, difficulty, correct answer, optional image). Admins
+review the extracted questions, then assemble exams from the question bank.
+Also: user management, credits, and general operations. Heavy processing
+(PDF extraction, AI generation) runs server-side — this frontend only
+uploads files, shows progress, and provides review/edit UIs. Fresh build,
+no legacy code.
+
+## Stack
+
+- React + TypeScript (strict) + Vite
+- React Router (SPA)
+- TanStack Query (server state) + Zustand (client state)
+- React Hook Form + Zod (forms & validation)
+- Tailwind CSS + shadcn/ui (`src/components/ui/`)
+- Supabase (`@supabase/supabase-js`) — DB, Auth, Storage
+- Axios — external (non-Supabase) APIs only
+- Deploy: Vercel
+
+## Commands
+
+- `npm run dev` — dev server
+- `npm run typecheck` — TS check (hooks run this automatically after edits)
+- `npm run lint` / `npm run lint:fix` — ESLint
+- `npm run format` — Prettier write
+- `npm run build` — typecheck + production build
+- `npm run types:gen` — regenerate `src/types/database.ts` from Supabase schema
+
+## Source of truth
+
+Supabase is the source of truth. This file may be outdated; the schema is not.
+
+- **DB shapes** → generated types in `src/types/database.ts` (`npm run types:gen`).
+  Never handwrite row types. Never edit the generated file.
+- **Access rules** → RLS policies. The client is untrusted: client-side checks
+  are UX, never security.
+- Before implementing a feature that touches a table: inspect its actual schema
+  and RLS (via Supabase MCP). Do not infer column names or relationships.
+- After any schema change: run `npm run types:gen`, then fix resulting type errors.
+- If the schema contradicts this file, the schema wins — flag the mismatch.
+
+## Auth
+
+- Supabase Auth via `supabase-js`. The client manages session and refresh —
+  never store or refresh tokens manually.
+- Auth state is exposed through a single `use-auth` hook backed by
+  `onAuthStateChange`. Components read from it, never from `supabase.auth` directly.
+- Route protection lives in the router layer (a protected layout route),
+  not scattered per-component.
+
+## State management
+
+- **Server state**: anything from Supabase or external APIs → TanStack Query.
+  Every call goes through a query/mutation hook in `src/features/<feature>/api/`.
+  Components never import the supabase client or axios directly.
+- **Client state**: Zustand. Stores in `src/stores/`, one store per concern.
+  Persist only what must survive reload.
+- **Local UI state**: useState/useReducer. Modal-open booleans and hover
+  states never go into Zustand.
+- Server data never lives in Zustand. It lives in the Query cache.
+
+## TanStack Query conventions
+
+- **Query keys**: per-feature key factory in `src/features/<feature>/api/keys.ts`:
+  ```ts
+  export const productKeys = {
+    all: ["products"] as const,
+    lists: () => [...productKeys.all, "list"] as const,
+    list: (filters: ProductFilters) =>
+      [...productKeys.lists(), filters] as const,
+    detail: (id: string) => [...productKeys.all, "detail", id] as const,
+  };
+  ```
+  No inline array keys in components or hooks.
+- **Invalidation**: mutations invalidate the narrowest sufficient key in
+  `onSuccess` (e.g. `lists()` after create, `detail(id)` + `lists()` after update).
+- **Defaults**: `staleTime: 60_000` set globally on the QueryClient;
+  override per-query only with a reason.
+- **Parsing**: every fetch function parses the response with the feature's
+  Zod schema before returning. Types come from `z.infer`, not hand-written.
+
+## Error handling
+
+- `src/lib/errors.ts` exports a normalizer: PostgrestError / AuthError /
+  AxiosError / ZodError → `AppError { code, message, cause }`.
+- **Queries**: render an inline error state (early return in the component).
+- **Mutations**: toast (sonner) with the normalized message.
+- **Routes**: React Router `errorElement` per route branch as the boundary.
+- Never show raw server error messages to users. Never swallow errors silently.
+
+## File structure
+
+```
+src/
+├── app/                    # routing, providers, root setup
+│   ├── providers.tsx       # QueryClient, theme, auth
+│   ├── router.tsx
+│   └── App.tsx
+├── features/
+│   └── <feature-name>/
+│       ├── api/            # query/mutation hooks + keys.ts
+│       ├── components/     # feature-specific components
+│       ├── hooks/          # feature-specific hooks
+│       ├── schemas.ts      # Zod schemas
+│       ├── types.ts
+│       └── index.ts        # public API (only entry for other features)
+├── components/
+│   ├── ui/                 # shadcn primitives — NO business logic
+│   └── layout/             # Header, Sidebar, Shell
+├── hooks/                  # cross-feature hooks
+├── lib/
+│   ├── supabase.ts         # supabase client (created once, exported)
+│   ├── api-client.ts       # axios instance for external APIs
+│   ├── errors.ts           # error normalizer
+│   ├── env.ts              # Zod-validated import.meta.env
+│   └── utils.ts
+├── stores/                 # Zustand stores
+├── types/
+│   └── database.ts         # GENERATED — never edit by hand
+└── styles/
+```
+
+Decision rules:
+
+- Used in 1 feature only → `features/<name>/`
+- Used across features → `components/`, `hooks/`, or `lib/`
+- Pure presentation, no logic → `components/ui/`
+- Has business logic → `features/<name>/components/`
+
+## Naming
+
+- **Files**: kebab-case — `generation-card.tsx`, `use-auth.ts`, `format-date.ts`
+- Booleans: `is/has/can/should` prefix
+- Event handlers: `handleX` inside the component, `onX` as a prop
+- Hooks: `use` prefix; constants: SCREAMING_SNAKE_CASE
+
+## Patterns we follow
+
+- **Zod schemas as the single source of truth for shapes** — types via
+  `z.infer`, applied at every boundary (API responses, forms, env, URL params).
+- **Early returns for guards**: loading/error/empty at the top, happy path
+  below. No deeply nested ternaries in JSX.
+- **Discriminated unions over boolean flags** for multi-state logic.
+- **Composition over prop explosion**: `<Card><Card.Header/></Card>` over
+  one component with 15 props.
+- **Custom hooks for hard-to-read logic**: >~20 lines of state/effect logic
+  in a component → extract into a `use-x` hook.
+
+## Security
+
+- Only `VITE_`-prefixed env vars reach the client. All of them are validated
+  in `src/lib/env.ts` with Zod — fail fast on missing vars.
+- The Supabase anon key is public by design. The `service_role` key must
+  NEVER appear anywhere in this repo. Not in code, not in `.env`, nowhere.
+- Every table has RLS enabled. If a query fails with a permission error,
+  the fix is a policy change — never a client-side workaround.
+- Validate all external input (forms, URL params, API responses) with Zod.
+
+## Workflow
+
+- Before any non-trivial feature: state the plan (files to create/modify,
+  data flow) and wait for approval. Use plan mode for larger tasks.
+- Hooks automatically run typecheck + lint after every edit and block
+  `git commit` while checks fail. When errors surface, fix them immediately —
+  a task is not done until checks pass.
+- New UI primitive → check `src/components/ui/` and shadcn first. Never
+  build a primitive from scratch if shadcn provides one.
+- One concern per file. A component past ~150 lines → propose a split.
+- Imports from `src/` use the `@/` alias. Never `../../`.
+
+## What NOT to do
+
+- Don't use `any`. Use `unknown` and narrow. Last resort: ask.
+- Don't call supabase/axios/fetch from components — only through feature
+  api hooks.
+- Don't store server data in Zustand. Don't put modal booleans in Zustand.
+- Don't import another feature's internals — cross-feature imports go
+  through its `index.ts`.
+- Don't add a dependency without checking package.json and asking first.
+- Don't put business logic in `src/components/ui/`.
+- Don't edit `src/types/database.ts` by hand.
+- Don't commit secrets or `.env` files.
+- Don't write comments that restate the code. Comments explain "why".
+
+## Testing
+
+No unit tests in the current phase; revisit once the UI stabilizes.
+If asked to write a test ad-hoc (tricky utility, recurring bug), write it;
+otherwise skip test files.
+
+## Git & commits
+
+- Conventional Commits required: `feat:`, `fix:`, `chore:`, `refactor:`,
+  `docs:`, `style:`, `test:`
+- Imperative, lowercase after the prefix. One commit = one logical change;
+  if the message needs "and", split it.
+- Commits are blocked by hooks while typecheck/lint fail.
+
+## Maintaining this file
+
+When a new convention or architecture decision is made in conversation,
+propose updating this file in the same session (ask, then edit). Remove
+rules that become obsolete. This file must never describe a state that
+no longer exists.
+
+## When in doubt
+
+Ask before architectural decisions, new dependencies, or unclear
+requirements. One extra question beats ten lines of wrong code.
