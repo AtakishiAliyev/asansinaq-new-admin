@@ -1,0 +1,8 @@
+dist
+node_modules
+package-lock.json
+src/types/database.ts
+src/components/ui
+.claude
+CLAUDE.md
+.mcp.json
