@@ -10,7 +10,9 @@ import { LoginStep } from '@/features/auth/components/login-step'
 import { OtpStep } from '@/features/auth/components/otp-step'
 import { useCooldown } from '@/features/auth/hooks/use-cooldown'
 
-// Matches smtp_max_frequency on the Supabase project.
+// Mirrors auth.email.max_frequency in supabase/config.toml, which is the
+// source of truth — Supabase rejects a second email inside that window, so
+// the button counts down rather than letting the user click into an error.
 const RESEND_COOLDOWN_SECONDS = 20
 
 type Step = { name: 'email'; email: string } | { name: 'otp'; email: string }

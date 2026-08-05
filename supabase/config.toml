@@ -231,11 +231,14 @@ enable_confirmations = true
 # If enabled, users will need to reauthenticate or have logged in recently to change their password.
 secure_password_change = false
 # Controls the minimum amount of time that must pass before sending another signup confirmation or password reset email.
-max_frequency = "1s"
+# Paired with RESEND_COOLDOWN_SECONDS in features/auth: the resend button counts
+# down for exactly this long, so a user never clicks into a rate-limit error.
+max_frequency = "20s"
 # Number of characters used in the email OTP.
 otp_length = 6
-# Number of seconds before the email OTP expires (defaults to 1 hour).
-otp_expiry = 3600
+# Number of seconds before the email OTP expires.
+# The login screen states this validity in words — change both together.
+otp_expiry = 900
 
 # Use a production-ready SMTP server
 # [auth.email.smtp]
