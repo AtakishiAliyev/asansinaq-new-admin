@@ -8,10 +8,25 @@ Core flow: admins upload PDF or scanned exam papers → the system crops and
 extracts questions → AI recreates each question as a clean structured entry
 (category/subcategory, difficulty, correct answer, optional image). Admins
 review the extracted questions, then assemble exams from the question bank.
-Also: user management, credits, and general operations. Heavy processing
-(PDF extraction, AI generation) runs server-side — this frontend only
-uploads files, shows progress, and provides review/edit UIs. Fresh build,
+Also: user management, credits, and general operations. Fresh build,
 no legacy code.
+
+## Where work runs
+
+There is no separate backend service. The split is by what each stage needs:
+
+- **Segmentation and cropping** run in the browser, in a Web Worker (pdf.js +
+  canvas). Deterministic, no secrets, no per-page cost.
+- **Every AI model call** goes through a Supabase Edge Function. Model API keys
+  live in function secrets and never reach the client bundle.
+- Pipeline logic (segmentation, the figure DSL, lint/verify) is written as
+  pure, runtime-agnostic modules — no DOM, no `import.meta.env` — so the same
+  code runs in the browser, in a function, and in Node for evals, and a queue
+  worker can be added later without a rewrite.
+
+The sibling `exam/` folder is a throwaway MVP kept as reference for its
+algorithms only. Its architecture — API keys in the browser, anon-writable
+tables — is deliberately not carried over.
 
 ## Stack
 
@@ -20,18 +35,20 @@ no legacy code.
 - TanStack Query (server state) + Zustand (client state)
 - React Hook Form + Zod (forms & validation)
 - Tailwind CSS + shadcn/ui (`src/components/ui/`)
-- Supabase (`@supabase/supabase-js`) — DB, Auth, Storage
+- Supabase (`@supabase/supabase-js`) — DB, Auth, Storage, Edge Functions
 - Axios — external (non-Supabase) APIs only
 - Deploy: Vercel
 
 ## Commands
 
 - `npm run dev` — dev server
-- `npm run typecheck` — TS check (hooks run this automatically after edits)
-- `npm run lint` / `npm run lint:fix` — ESLint
+- `npm run typecheck` — TS check (a hook runs this automatically after edits)
+- `npm run lint` / `npm run lint:fix` — oxlint
 - `npm run format` — Prettier write
 - `npm run build` — typecheck + production build
 - `npm run types:gen` — regenerate `src/types/database.ts` from Supabase schema
+- `npx supabase migration new <name>` — start a migration in `supabase/migrations/`
+- `npx supabase db push` — apply pending migrations to the linked project
 
 ## Source of truth
 
@@ -48,6 +65,17 @@ Supabase is the source of truth. This file may be outdated; the schema is not.
 
 ## Auth
 
+- Email OTP only — a six-digit code, no passwords. Signup is disabled; admins
+  are provisioned through the Auth admin API, never self-created.
+- Access is an email allowlist, not roles. `public.admin_emails` holds the
+  addresses and `public.is_admin()` is the single predicate **every** RLS policy
+  resolves through, so removing a row revokes access on the next request rather
+  than when the session expires.
+- The allowlist is data, so it lives in `supabase/seed.sql`, never in a
+  migration. Seeds do not run on `db push`: a new hosted project needs that row
+  inserted once by hand, or nobody can get in.
+- The client's `is_admin` call only decides which screen to render. RLS is the
+  boundary: a signed-in non-admin must see no data regardless of the UI.
 - Supabase Auth via `supabase-js`. The client manages session and refresh —
   never store or refresh tokens manually.
 - Auth state is exposed through a single `use-auth` hook backed by
@@ -98,11 +126,18 @@ Supabase is the source of truth. This file may be outdated; the schema is not.
 ## File structure
 
 ```
+supabase/
+├── config.toml             # local dev config; mirror hosted auth settings here
+├── seed.sql                # data, not schema — e.g. the admin allowlist
+└── migrations/             # the schema and RLS — committed, never ad-hoc SQL
 src/
 ├── app/                    # routing, providers, root setup
-│   ├── providers.tsx       # QueryClient, theme, auth
+│   ├── providers.tsx       # QueryClient, auth bootstrap, toaster
 │   ├── router.tsx
+│   ├── protected-layout.tsx # the one route guard
 │   └── App.tsx
+├── core/                   # pure pipeline logic: no DOM, no env, no React.
+│                           # Shared by the app, Edge Functions, and evals.
 ├── features/
 │   └── <feature-name>/
 │       ├── api/            # query/mutation hooks + keys.ts
@@ -124,7 +159,7 @@ src/
 ├── stores/                 # Zustand stores
 ├── types/
 │   └── database.ts         # GENERATED — never edit by hand
-└── styles/
+└── index.css               # Tailwind v4 theme tokens live here
 ```
 
 Decision rules:
@@ -133,6 +168,8 @@ Decision rules:
 - Used across features → `components/`, `hooks/`, or `lib/`
 - Pure presentation, no logic → `components/ui/`
 - Has business logic → `features/<name>/components/`
+- Must also run outside the browser → `core/` (then it may not import React,
+  `@/lib/supabase`, or `import.meta.env`)
 
 ## Naming
 
@@ -159,6 +196,11 @@ Decision rules:
   in `src/lib/env.ts` with Zod — fail fast on missing vars.
 - The Supabase anon key is public by design. The `service_role` key must
   NEVER appear anywhere in this repo. Not in code, not in `.env`, nowhere.
+- Model API keys (Gemini, OpenAI) belong in Edge Function secrets. A model key
+  behind a `VITE_` prefix is a published key.
+- Three auth settings are load-bearing for `is_admin()`. Do not relax one
+  without re-auditing that function: `disable_signup = true`,
+  `mailer_autoconfirm = false`, `mailer_secure_email_change_enabled = true`.
 - Every table has RLS enabled. If a query fails with a permission error,
   the fix is a policy change — never a client-side workaround.
 - Validate all external input (forms, URL params, API responses) with Zod.
@@ -170,6 +212,11 @@ Decision rules:
 - Hooks automatically run typecheck + lint after every edit and block
   `git commit` while checks fail. When errors surface, fix them immediately —
   a task is not done until checks pass.
+- **Open the session in `admin/`, not its parent folder.** Hooks, permissions
+  and the `/commit`, `/review`, `/new-feature` commands are all read from
+  `admin/.claude/`, and `$CLAUDE_PROJECT_DIR` in the hook commands resolves to
+  the session root. Start one level up and none of it loads — silently, since
+  skills still get picked up and everything looks normal.
 - New UI primitive → check `src/components/ui/` and shadcn first. Never
   build a primitive from scratch if shadcn provides one.
 - One concern per file. A component past ~150 lines → propose a split.
@@ -202,6 +249,8 @@ otherwise skip test files.
 - Imperative, lowercase after the prefix. One commit = one logical change;
   if the message needs "and", split it.
 - Commits are blocked by hooks while typecheck/lint fail.
+- `supabase/migrations/` is part of the codebase, not scratch work: a migration
+  is committed together with the code that depends on it.
 
 ## Maintaining this file
 
