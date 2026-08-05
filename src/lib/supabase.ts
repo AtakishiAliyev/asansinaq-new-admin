@@ -1,9 +1,8 @@
 import { createClient } from '@supabase/supabase-js'
 import { env } from '@/lib/env'
+import type { Database } from '@/types/database'
 
-// Untyped until `npm run types:gen` generates src/types/database.ts —
-// then switch to createClient<Database>.
-export const supabase = createClient(
+export const supabase = createClient<Database>(
   env.VITE_SUPABASE_URL,
   env.VITE_SUPABASE_ANON_KEY,
 )

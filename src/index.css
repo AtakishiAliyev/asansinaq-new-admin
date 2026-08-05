@@ -47,10 +47,14 @@
   --color-sidebar-ring: var(--sidebar-ring);
   --font-heading: var(--font-sans);
   --font-sans: 'Geist Variable', sans-serif;
+  --color-paper-rule: var(--paper-rule);
 }
 
 :root {
   --radius: 0.625rem;
+  /* The red margin rule of a squared exercise book — the paper this question
+     bank is copied from. Decorative only; never use it to signal an error. */
+  --paper-rule: oklch(0.7 0.13 22);
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -85,6 +89,7 @@
 }
 
 .dark {
+  --paper-rule: oklch(0.52 0.12 22);
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
@@ -128,4 +133,23 @@
   html {
     @apply font-sans;
   }
+}
+
+@utility paper-grid {
+  /* Squared-notebook surface. The 24px module is the same rhythm the login
+     card lays its rows out on, so the form reads as written onto the page.
+     Masked to a soft centre so it stays texture rather than wireframe. */
+  background-image:
+    linear-gradient(
+      to right,
+      color-mix(in oklch, var(--foreground) 8%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      to bottom,
+      color-mix(in oklch, var(--foreground) 8%, transparent) 1px,
+      transparent 1px
+    );
+  background-size: 24px 24px;
+  mask-image: radial-gradient(ellipse 90% 70% at 50% 45%, black, transparent);
 }

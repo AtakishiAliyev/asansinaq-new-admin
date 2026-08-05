@@ -1,6 +1,12 @@
-import type { ReactNode } from 'react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { type ReactNode, useEffect, useRef } from 'react'
+import {
+  QueryClient,
+  QueryClientProvider,
+  useQueryClient,
+} from '@tanstack/react-query'
 import { Toaster } from '@/components/ui/sonner'
+import { useAuth } from '@/hooks/use-auth'
+import { initAuth } from '@/stores/auth-store'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -10,10 +16,34 @@ const queryClient = new QueryClient({
   },
 })
 
+// Cached rows belong to the account that fetched them. This watches the account
+// itself rather than the sign-out mutation, because a session also ends through
+// paths that mutation never sees: an expired refresh token, a deleted user, or
+// a sign-out in another tab.
+function useResetCacheOnAccountChange() {
+  const queryClient = useQueryClient()
+  const { session } = useAuth()
+  const userId = session?.user.id ?? null
+  const previousUserId = useRef(userId)
+
+  useEffect(() => {
+    if (previousUserId.current === userId) return
+    previousUserId.current = userId
+    queryClient.clear()
+  }, [queryClient, userId])
+}
+
+function AuthCacheBoundary({ children }: { children: ReactNode }) {
+  useResetCacheOnAccountChange()
+  return children
+}
+
 export function Providers({ children }: { children: ReactNode }) {
+  useEffect(() => initAuth(), [])
+
   return (
     <QueryClientProvider client={queryClient}>
-      {children}
+      <AuthCacheBoundary>{children}</AuthCacheBoundary>
       <Toaster />
     </QueryClientProvider>
   )
