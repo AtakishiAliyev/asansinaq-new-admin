@@ -49,6 +49,8 @@ tables — is deliberately not carried over.
 - `npm run types:gen` — regenerate `src/types/database.ts` from Supabase schema
 - `npx supabase migration new <name>` — start a migration in `supabase/migrations/`
 - `npx supabase db push` — apply pending migrations to the linked project
+- `npx supabase config push` — apply `supabase/config.toml` to the linked
+  project (needs `RESEND_API_KEY` in the environment: `set -a; . ./.env; set +a`)
 
 ## Source of truth
 
@@ -127,8 +129,9 @@ Supabase is the source of truth. This file may be outdated; the schema is not.
 
 ```
 supabase/
-├── config.toml             # local dev config; mirror hosted auth settings here
+├── config.toml             # the project's settings — pushed, not just local
 ├── seed.sql                # data, not schema — e.g. the admin allowlist
+├── templates/              # auth email bodies, referenced from config.toml
 └── migrations/             # the schema and RLS — committed, never ad-hoc SQL
 src/
 ├── app/                    # routing, providers, root setup
@@ -198,9 +201,17 @@ Decision rules:
   NEVER appear anywhere in this repo. Not in code, not in `.env`, nowhere.
 - Model API keys (Gemini, OpenAI) belong in Edge Function secrets. A model key
   behind a `VITE_` prefix is a published key.
-- Three auth settings are load-bearing for `is_admin()`. Do not relax one
-  without re-auditing that function: `disable_signup = true`,
-  `mailer_autoconfirm = false`, `mailer_secure_email_change_enabled = true`.
+- `supabase/config.toml` is the source of truth for project settings, including
+  auth. Change a setting there and run `config push` — never in the dashboard,
+  or the repo and the project drift apart silently (it has happened twice).
+- Three auth settings are load-bearing for `is_admin()`. In `config.toml` they
+  read `[auth] enable_signup = false`, `[auth.email] enable_confirmations = true`
+  and `double_confirm_changes = true`. Do not relax one without re-auditing that
+  function.
+- `[auth.email] enable_signup` is **not** a signup policy — it is the email
+  provider switch. Setting it false disables logins entirely ("Email logins are
+  disabled"). It must stay `true`; new accounts are blocked by `[auth]
+  enable_signup = false` one level up.
 - Every table has RLS enabled. If a query fails with a permission error,
   the fix is a policy change — never a client-side workaround.
 - Validate all external input (forms, URL params, API responses) with Zod.
