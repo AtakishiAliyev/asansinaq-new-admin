@@ -1,9 +1,11 @@
-import { createBrowserRouter } from 'react-router'
-import { HomePage } from '@/app/home-page'
+import { createBrowserRouter, Navigate } from 'react-router'
 import { ProtectedLayout } from '@/app/protected-layout'
 import { RootLayout } from '@/app/root-layout'
 import { RouteError } from '@/app/route-error'
+import { Shell } from '@/components/layout/shell'
 import { LoginPage } from '@/features/auth'
+import { ProfilePage } from '@/features/profile'
+import { TaxonomyPage } from '@/features/taxonomy'
 
 export const router = createBrowserRouter([
   {
@@ -14,10 +16,17 @@ export const router = createBrowserRouter([
       { path: 'login', element: <LoginPage />, errorElement: <RouteError /> },
       {
         element: <ProtectedLayout />,
-        // Its own boundary, so a crash inside the admin area does not take
-        // the whole tree down with it.
         errorElement: <RouteError />,
-        children: [{ index: true, element: <HomePage /> }],
+        children: [
+          {
+            element: <Shell />,
+            children: [
+              { index: true, element: <Navigate to="/taxonomy" replace /> },
+              { path: 'taxonomy', element: <TaxonomyPage /> },
+              { path: 'profile', element: <ProfilePage /> },
+            ],
+          },
+        ],
       },
     ],
   },
