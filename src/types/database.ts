@@ -32,6 +32,131 @@ export type Database = {
         }
         Relationships: []
       }
+      categories: {
+        Row: {
+          created_at: string
+          id: number
+          name: string
+          parent_id: number | null
+          sort_order: number
+          subject_id: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: never
+          name: string
+          parent_id?: number | null
+          sort_order?: number
+          subject_id: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: never
+          name?: string
+          parent_id?: number | null
+          sort_order?: number
+          subject_id?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "categories_parent_same_subject"
+            columns: ["parent_id", "subject_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["id", "subject_id"]
+          },
+          {
+            foreignKeyName: "categories_subject_id_fkey"
+            columns: ["subject_id"]
+            isOneToOne: false
+            referencedRelation: "subjects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          full_name: string
+          id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          full_name?: string
+          id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          full_name?: string
+          id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      programs: {
+        Row: {
+          created_at: string
+          id: number
+          name: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: never
+          name: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: never
+          name?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      subjects: {
+        Row: {
+          created_at: string
+          id: number
+          name: string
+          program_id: number
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: never
+          name: string
+          program_id: number
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: never
+          name?: string
+          program_id?: number
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "subjects_program_id_fkey"
+            columns: ["program_id"]
+            isOneToOne: false
+            referencedRelation: "programs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
