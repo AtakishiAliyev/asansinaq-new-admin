@@ -39,6 +39,7 @@ export function DeleteCategoryDialog({
         <AlertDialogFooter>
           <AlertDialogCancel disabled={isPending}>İmtina</AlertDialogCancel>
           <AlertDialogAction
+            variant="destructive"
             disabled={isPending}
             onClick={(event) => {
               event.preventDefault()

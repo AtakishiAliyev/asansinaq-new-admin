@@ -76,7 +76,9 @@ export function SubjectList({
               onClick={() => onSelect(subject.id)}
               className="flex flex-1 items-center justify-between gap-2 px-2.5 py-2 text-left text-sm"
             >
-              <span className={cn(subject.id === activeSubjectId && 'font-medium')}>
+              <span
+                className={cn(subject.id === activeSubjectId && 'font-medium')}
+              >
                 {subject.name}
               </span>
               {subject.category_count > 0 ? (
@@ -97,6 +99,7 @@ export function SubjectList({
               <Button
                 variant="ghost"
                 size="icon-sm"
+                className="text-destructive hover:text-destructive hover:bg-destructive/10"
                 aria-label={`${subject.name} sil`}
                 onClick={() => setPendingDelete(subject)}
               >
@@ -141,7 +144,9 @@ export function SubjectList({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>«{pendingDelete?.name}» silinsin?</AlertDialogTitle>
+            <AlertDialogTitle>
+              «{pendingDelete?.name}» silinsin?
+            </AlertDialogTitle>
             <AlertDialogDescription>
               {pendingDelete && pendingDelete.category_count > 0
                 ? `İçindəki ${pendingDelete.category_count} kateqoriya da silinəcək. Bu əməliyyat geri qaytarıla bilməz.`
@@ -153,6 +158,7 @@ export function SubjectList({
               İmtina
             </AlertDialogCancel>
             <AlertDialogAction
+              variant="destructive"
               disabled={deleteSubject.isPending}
               onClick={(event) => {
                 event.preventDefault()

@@ -1,5 +1,12 @@
 import { useState } from 'react'
-import { Check, ChevronDown, Pencil, Plus, Settings2, Trash2 } from 'lucide-react'
+import {
+  Check,
+  ChevronDown,
+  Pencil,
+  Plus,
+  Settings2,
+  Trash2,
+} from 'lucide-react'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -95,6 +102,7 @@ function ManageProgramsDialog() {
                 <Button
                   variant="ghost"
                   size="icon-sm"
+                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
                   aria-label={`${program.name} sil`}
                   onClick={() => setPendingDelete(program)}
                 >
@@ -135,7 +143,9 @@ function ManageProgramsDialog() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>«{pendingDelete?.name}» silinsin?</AlertDialogTitle>
+            <AlertDialogTitle>
+              «{pendingDelete?.name}» silinsin?
+            </AlertDialogTitle>
             <AlertDialogDescription>
               Proqramın fənnləri varsa, əvvəlcə onlar silinməlidir. Bu əməliyyat
               geri qaytarıla bilməz.
@@ -146,6 +156,7 @@ function ManageProgramsDialog() {
               İmtina
             </AlertDialogCancel>
             <AlertDialogAction
+              variant="destructive"
               disabled={deleteProgram.isPending}
               onClick={(event) => {
                 event.preventDefault()
@@ -164,7 +175,11 @@ function ManageProgramsDialog() {
   )
 }
 
-export function ProgramMenu({ programs, activeProgramId, onSelect }: ProgramMenuProps) {
+export function ProgramMenu({
+  programs,
+  activeProgramId,
+  onSelect,
+}: ProgramMenuProps) {
   const active = programs.find((p) => p.id === activeProgramId)
 
   return (
@@ -196,7 +211,11 @@ export function ProgramMenu({ programs, activeProgramId, onSelect }: ProgramMenu
 
       <Dialog>
         <DialogTrigger asChild>
-          <Button variant="ghost" size="icon-sm" aria-label="Proqramları idarə et">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Proqramları idarə et"
+          >
             <Settings2 />
           </Button>
         </DialogTrigger>

@@ -93,6 +93,7 @@ export function CategoryRow({
         <Button
           variant="ghost"
           size="icon-sm"
+          className="text-destructive hover:text-destructive hover:bg-destructive/10"
           aria-label={`${node.name} sil`}
           onClick={onDelete}
         >
@@ -109,7 +110,11 @@ interface SubCategoryRowProps {
   onDelete: () => void
 }
 
-export function SubCategoryRow({ node, subjectId, onDelete }: SubCategoryRowProps) {
+export function SubCategoryRow({
+  node,
+  subjectId,
+  onDelete,
+}: SubCategoryRowProps) {
   const [editing, setEditing] = useState(false)
   const editButtonRef = useRef<HTMLButtonElement>(null)
   const renameCategory = useRenameCategory()
@@ -154,6 +159,7 @@ export function SubCategoryRow({ node, subjectId, onDelete }: SubCategoryRowProp
         <Button
           variant="ghost"
           size="icon-sm"
+          className="text-destructive hover:text-destructive hover:bg-destructive/10"
           aria-label={`${node.name} sil`}
           onClick={onDelete}
         >
