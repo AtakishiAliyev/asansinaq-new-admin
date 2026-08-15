@@ -32,6 +32,82 @@ export type Database = {
         }
         Relationships: []
       }
+      books: {
+        Row: {
+          content_hash: string | null
+          created_at: string
+          created_by: string | null
+          file_size: number
+          id: number
+          note: string | null
+          original_name: string
+          page_count: number | null
+          program_id: number
+          storage_path: string | null
+          subject_id: number | null
+          tags: string[]
+          title: string
+          updated_at: string
+          worked_pages: number[]
+        }
+        Insert: {
+          content_hash?: string | null
+          created_at?: string
+          created_by?: string | null
+          file_size: number
+          id?: never
+          note?: string | null
+          original_name: string
+          page_count?: number | null
+          program_id: number
+          storage_path?: string | null
+          subject_id?: number | null
+          tags?: string[]
+          title: string
+          updated_at?: string
+          worked_pages?: number[]
+        }
+        Update: {
+          content_hash?: string | null
+          created_at?: string
+          created_by?: string | null
+          file_size?: number
+          id?: never
+          note?: string | null
+          original_name?: string
+          page_count?: number | null
+          program_id?: number
+          storage_path?: string | null
+          subject_id?: number | null
+          tags?: string[]
+          title?: string
+          updated_at?: string
+          worked_pages?: number[]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "books_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "books_program_id_fkey"
+            columns: ["program_id"]
+            isOneToOne: false
+            referencedRelation: "programs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "books_subject_same_program"
+            columns: ["subject_id", "program_id"]
+            isOneToOne: false
+            referencedRelation: "subjects"
+            referencedColumns: ["id", "program_id"]
+          },
+        ]
+      }
       categories: {
         Row: {
           created_at: string
@@ -163,6 +239,10 @@ export type Database = {
     }
     Functions: {
       is_admin: { Args: never; Returns: boolean }
+      mark_pages_worked: {
+        Args: { p_book_id: number; p_pages: number[] }
+        Returns: undefined
+      }
     }
     Enums: {
       [_ in never]: never
