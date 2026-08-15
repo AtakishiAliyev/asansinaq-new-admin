@@ -1,4 +1,4 @@
-import { ListTree, LogOut, User } from 'lucide-react'
+import { FileUp, Library, ListTree, LogOut, User } from 'lucide-react'
 import { NavLink, useLocation } from 'react-router'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
@@ -25,6 +25,8 @@ import { useProfile } from '@/features/profile'
 
 // Profile is reachable from the user menu below, so it stays out of the main nav.
 const NAV_ITEMS = [
+  { to: '/import', label: 'İmport', icon: FileUp },
+  { to: '/books', label: 'Kitablar', icon: Library },
   { to: '/taxonomy', label: 'Fənn və kateqoriyalar', icon: ListTree },
 ]
 

@@ -1,0 +1,477 @@
+import { useEffect, useRef, useState } from 'react'
+import { FileUp, Play } from 'lucide-react'
+import { useSearchParams } from 'react-router'
+import { toast } from 'sonner'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
+import { Input } from '@/components/ui/input'
+import { Spinner } from '@/components/ui/spinner'
+import { normalizeError } from '@/lib/errors'
+import {
+  formatPages,
+  parsePageRange,
+  parsePagesLenient,
+} from '@/core/segment/page-range'
+import {
+  BookFormDialog,
+  findBookByHash,
+  sha256Hex,
+  titleFromFilename,
+  useBackfillPageCount,
+  useBooks,
+  useCreateBook,
+  useMarkPagesWorked,
+  type Book,
+} from '@/features/books'
+import { useDownloadPdf } from '@/features/import/api/use-download-pdf'
+import { BookPicker } from '@/features/import/components/book-picker'
+import { CropGrid } from '@/features/import/components/crop-grid'
+import { PagePreviewDialog } from '@/features/import/components/page-preview-dialog'
+import { ThumbnailStrip } from '@/features/import/components/thumbnail-strip'
+import { useSegmentation } from '@/features/import/hooks/use-segmentation'
+import { loadPdf, type PDFDocumentProxy } from '@/features/import/lib/pdf'
+
+interface PendingBook {
+  file: File
+  hash: string
+  pageCount: number | null
+}
+
+interface DuplicateHit {
+  book: Book
+  file: File
+}
+
+export function ImportPage() {
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [fileName, setFileName] = useState<string | null>(null)
+  const [doc, setDoc] = useState<PDFDocumentProxy | null>(null)
+  const [docSeq, setDocSeq] = useState(0)
+  const loadSeq = useRef(0)
+  const docRef = useRef<PDFDocumentProxy | null>(null)
+  // The parse started at file-pick time; committed to the viewer only after
+  // the metadata dialog is confirmed.
+  const pendingDocRef = useRef<Promise<PDFDocumentProxy> | null>(null)
+  // ?book=ID auto-open bookkeeping — reset on unmount so a remount (incl.
+  // StrictMode's simulated one) handles the param again.
+  const handledBook = useRef<number | null>(null)
+  const [pendingBook, setPendingBook] = useState<PendingBook | null>(null)
+  const [duplicate, setDuplicate] = useState<DuplicateHit | null>(null)
+  const [archiveBadge, setArchiveBadge] = useState<
+    'uploaded' | 'skipped-size' | null
+  >(null)
+  const [previewPage, setPreviewPage] = useState<number | null>(null)
+  // The book the open document belongs to — the processing trail hangs off it.
+  const [currentBook, setCurrentBook] = useState<Book | null>(null)
+  const [rangeInput, setRangeInput] = useState('')
+  const [rangeError, setRangeError] = useState<string | null>(null)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const books = useBooks()
+  const createBook = useCreateBook()
+  const backfillPageCount = useBackfillPageCount()
+  const markPagesWorked = useMarkPagesWorked()
+  const download = useDownloadPdf()
+  const segmentation = useSegmentation()
+
+  useEffect(
+    () => () => {
+      // Supersede any in-flight load so a parse resolving after unmount
+      // destroys itself in commitLoaded instead of repopulating a dead ref.
+      loadSeq.current += 1
+      handledBook.current = null
+      void docRef.current?.loadingTask.destroy().catch(() => {})
+      const pending = pendingDocRef.current
+      pendingDocRef.current = null
+      void pending?.then((d) => d.loadingTask.destroy()).catch(() => {})
+    },
+    [],
+  )
+
+  function commitLoaded(
+    seq: number,
+    name: string,
+    loaded: PDFDocumentProxy,
+    opts: {
+      badge?: 'uploaded' | 'skipped-size' | null
+      book?: Book | null
+      initialRange?: string
+    } = {},
+  ) {
+    if (seq !== loadSeq.current) {
+      void loaded.loadingTask.destroy().catch(() => {})
+      return
+    }
+    void docRef.current?.loadingTask.destroy().catch(() => {})
+    docRef.current = loaded
+    segmentation.reset()
+    setRangeInput(opts.initialRange ?? '')
+    setRangeError(null)
+    setFileName(name)
+    setDoc(loaded)
+    setDocSeq(seq)
+    setArchiveBadge(opts.badge ?? null)
+    setCurrentBook(opts.book ?? null)
+    setPreviewPage(null)
+  }
+
+  async function openBuffer(
+    seq: number,
+    name: string,
+    buffer: Promise<ArrayBuffer>,
+    opts: { book?: Book | null; initialRange?: string } = {},
+  ) {
+    try {
+      const loaded = await loadPdf(await buffer)
+      commitLoaded(seq, name, loaded, opts)
+    } catch (error) {
+      if (seq !== loadSeq.current) return
+      toast.error(normalizeError(error).message)
+    }
+  }
+
+  // New file: hash → duplicate check → metadata dialog. The PDF parse runs in
+  // parallel so the page count is ready by the time the admin fills the form.
+  async function handleFile(file: File) {
+    let docPromise: Promise<PDFDocumentProxy> | undefined
+    try {
+      const buffer = await file.arrayBuffer()
+      const hash = await sha256Hex(buffer)
+      const existing = await findBookByHash(hash).catch(() => null)
+      if (existing) {
+        setDuplicate({ book: existing, file })
+        return
+      }
+      // Release a previous still-pending parse before replacing it.
+      const previous = pendingDocRef.current
+      if (previous)
+        void previous.then((d) => d.loadingTask.destroy()).catch(() => {})
+      docPromise = loadPdf(buffer)
+      pendingDocRef.current = docPromise
+      setPendingBook({ file, hash, pageCount: null })
+      const loaded = await docPromise
+      setPendingBook((current) =>
+        current && current.file === file
+          ? { ...current, pageCount: loaded.numPages }
+          : current,
+      )
+    } catch (error) {
+      // Only the call that still owns the pending state may clear it — a late
+      // rejection from an older pick must not close a newer pick's dialog.
+      if (docPromise && pendingDocRef.current !== docPromise) return
+      pendingDocRef.current = null
+      setPendingBook((current) =>
+        current && current.file === file ? null : current,
+      )
+      toast.error(normalizeError(error).message)
+    }
+  }
+
+  function cancelPending() {
+    const promise = pendingDocRef.current
+    pendingDocRef.current = null
+    setPendingBook(null)
+    void promise?.then((d) => d.loadingTask.destroy()).catch(() => {})
+  }
+
+  // First page the operator has not touched yet — the "continue from" hint.
+  function nextUnworkedPage(book: Book): number | null {
+    if (!book.page_count) return null
+    const worked = new Set(book.worked_pages)
+    for (let p = 1; p <= book.page_count; p++) {
+      if (!worked.has(p)) return p
+    }
+    return null
+  }
+
+  function openStoredBook(book: Book) {
+    if (!book.storage_path) return
+    const seq = ++loadSeq.current
+    setArchiveBadge(null)
+    const next = nextUnworkedPage(book)
+    void openBuffer(seq, book.title, download.mutateAsync(book.storage_path), {
+      book,
+      initialRange:
+        next !== null && book.worked_pages.length > 0 ? String(next) : '',
+    })
+  }
+
+  // /import?book=ID — the Kitablar page's "open in import" action.
+  useEffect(() => {
+    const id = Number(searchParams.get('book'))
+    if (!id || !books.data) return
+    if (handledBook.current === id) return
+    handledBook.current = id
+    const book = books.data.find((b) => b.id === id)
+    setSearchParams({}, { replace: true })
+    if (book?.storage_path) openStoredBook(book)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fires when the list arrives
+  }, [books.data, searchParams])
+
+  function toggleThumb(page: number) {
+    if (!doc) return
+    const strict = parsePageRange(rangeInput, doc.numPages)
+    if (strict.ok || rangeInput.trim() === '') {
+      const pages = parsePagesLenient(rangeInput, doc.numPages)
+      if (pages.has(page)) pages.delete(page)
+      else pages.add(page)
+      setRangeInput(formatPages([...pages]))
+    } else {
+      setRangeInput(rangeInput.trim() ? `${rangeInput}, ${page}` : String(page))
+    }
+    setRangeError(null)
+  }
+
+  function startSegmentation() {
+    if (!doc || segmentation.status === 'running') return
+    const parsed = parsePageRange(rangeInput, doc.numPages)
+    if (!parsed.ok) {
+      setRangeError(parsed.error)
+      return
+    }
+    setRangeError(null)
+    const book = currentBook
+    void segmentation.run(doc, parsed.pages).then((results) => {
+      if (!book || !results) return
+      const pages = results.filter((r) => !r.isScan).map((r) => r.pageNumber)
+      if (pages.length) markPagesWorked.mutate({ bookId: book.id, pages })
+    })
+  }
+
+  const running = segmentation.status === 'running'
+
+  return (
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
+      <h1 className="text-2xl font-semibold tracking-tight">İmport</h1>
+
+      <Card>
+        <CardContent className="flex flex-col gap-4">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="application/pdf"
+            className="sr-only"
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              if (file) void handleFile(file)
+              e.target.value = ''
+            }}
+          />
+          <div className="flex flex-wrap items-center gap-3">
+            <Button onClick={() => fileInputRef.current?.click()}>
+              <FileUp data-icon="inline-start" />
+              PDF yüklə
+            </Button>
+            <BookPicker disabled={download.isPending} onPick={openStoredBook} />
+            {download.isPending ? (
+              <Badge variant="secondary">arxivdən endirilir…</Badge>
+            ) : null}
+            {fileName ? (
+              <span className="min-w-0 truncate text-sm">{fileName}</span>
+            ) : (
+              <span className="text-muted-foreground text-sm">
+                Yeni PDF yükləyin və ya arxivdən kitab seçin.
+              </span>
+            )}
+            {archiveBadge === 'uploaded' ? (
+              <Badge variant="secondary">arxivləndi</Badge>
+            ) : null}
+            {archiveBadge === 'skipped-size' ? (
+              <Badge variant="outline">
+                arxivlənmədi — 50MB limitindən böyükdür
+              </Badge>
+            ) : null}
+          </div>
+
+          {doc ? (
+            <>
+              <ThumbnailStrip
+                key={docSeq}
+                doc={doc}
+                pageCount={doc.numPages}
+                selected={parsePagesLenient(rangeInput, doc.numPages)}
+                onOpen={setPreviewPage}
+              />
+              <Field data-invalid={rangeError ? true : undefined}>
+                <FieldLabel htmlFor="range">Səhifə aralığı</FieldLabel>
+                <div className="flex gap-2">
+                  <Input
+                    id="range"
+                    value={rangeInput}
+                    placeholder="məs. 4-8, 11"
+                    className="max-w-60"
+                    aria-invalid={rangeError ? true : undefined}
+                    onChange={(e) => {
+                      setRangeInput(e.target.value)
+                      setRangeError(null)
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') startSegmentation()
+                    }}
+                  />
+                  <Button onClick={startSegmentation} disabled={running}>
+                    {running ? (
+                      <Spinner data-icon="inline-start" />
+                    ) : (
+                      <Play data-icon="inline-start" />
+                    )}
+                    Crop çıxar
+                  </Button>
+                </div>
+                {rangeError ? (
+                  <p className="text-destructive text-sm">{rangeError}</p>
+                ) : (
+                  <FieldDescription>
+                    Yazı ilə (4-8, 11) və ya yuxarıdakı səhifələrə kliklə seçin
+                    — cəmi {doc.numPages} səhifə.
+                  </FieldDescription>
+                )}
+              </Field>
+              <PagePreviewDialog
+                doc={doc}
+                pageCount={doc.numPages}
+                page={previewPage}
+                isSelected={(page) =>
+                  parsePagesLenient(rangeInput, doc.numPages).has(page)
+                }
+                onToggleSelected={toggleThumb}
+                onNavigate={setPreviewPage}
+                onClose={() => setPreviewPage(null)}
+              />
+            </>
+          ) : null}
+        </CardContent>
+      </Card>
+
+      {running ? (
+        <Alert>
+          <AlertDescription>
+            Emal olunur: {segmentation.current}/{segmentation.total} səhifə…
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      {segmentation.results.length > 0 ? (
+        <CropGrid results={segmentation.results} />
+      ) : null}
+
+      {segmentation.status === 'done' &&
+      segmentation.results.every((r) => r.crops.length === 0) ? (
+        <Alert>
+          <AlertDescription>
+            Seçilən səhifələrdə sual tapılmadı.
+            {segmentation.results.some((r) => r.isScan)
+              ? ' Skan səhifələr AI yolunu gözləyir — o, növbəti addımda qurulacaq.'
+              : ' Fərqli aralıq yoxlayın və ya səhifə strukturu dəstəklənmir.'}
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      {pendingBook ? (
+        <BookFormDialog
+          open
+          title="Yeni kitab"
+          description={`${pendingBook.file.name} — ${(pendingBook.file.size / 1024 / 1024).toFixed(1)} MB${pendingBook.pageCount ? `, ${pendingBook.pageCount} səhifə` : ''}`}
+          submitLabel="Yüklə və aç"
+          isPending={createBook.isPending}
+          defaults={{
+            title: titleFromFilename(pendingBook.file.name),
+            program_id: 0,
+            subject_id: null,
+            tags: [],
+            note: '',
+          }}
+          onCancel={cancelPending}
+          onSubmit={(form) =>
+            createBook.mutate(
+              {
+                form,
+                file: pendingBook.file,
+                contentHash: pendingBook.hash,
+                pageCount: pendingBook.pageCount,
+              },
+              {
+                onSuccess: async ({ book, archive }) => {
+                  const promise = pendingDocRef.current
+                  pendingDocRef.current = null
+                  setPendingBook(null)
+                  if (!promise) return
+                  const seq = ++loadSeq.current
+                  try {
+                    const loaded = await promise
+                    // The dialog can be submitted before the parse resolves;
+                    // fill the page count in once it is known.
+                    if (book.page_count === null) {
+                      backfillPageCount.mutate({
+                        id: book.id,
+                        pageCount: loaded.numPages,
+                      })
+                    }
+                    commitLoaded(seq, book.title, loaded, {
+                      badge: archive,
+                      book,
+                    })
+                  } catch (error) {
+                    toast.error(normalizeError(error).message)
+                  }
+                },
+              },
+            )
+          }
+        />
+      ) : null}
+
+      <AlertDialog
+        open={duplicate !== null}
+        onOpenChange={(open) => {
+          if (!open) setDuplicate(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Bu PDF artıq arxivdədir</AlertDialogTitle>
+            <AlertDialogDescription>
+              Eyni fayl «{duplicate?.book.title}» adı ilə qeydiyyatdadır —
+              yenidən yüklməyə ehtiyac yoxdur.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>İmtina</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (!duplicate) return
+                if (duplicate.book.storage_path) {
+                  openStoredBook(duplicate.book)
+                } else {
+                  const seq = ++loadSeq.current
+                  setArchiveBadge(null)
+                  void openBuffer(
+                    seq,
+                    duplicate.book.title,
+                    duplicate.file.arrayBuffer(),
+                    { book: duplicate.book },
+                  )
+                }
+                setDuplicate(null)
+              }}
+            >
+              Kitabı aç
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  )
+}
