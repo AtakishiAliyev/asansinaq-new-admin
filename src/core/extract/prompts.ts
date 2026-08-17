@@ -23,7 +23,8 @@ Qaydalar:
 5. Variantlar dəqiq A–E; məzmun qeyri-rəqəmi ola bilər (hərf, çoxluq, interval). Variant tex-ində $ işarəsi OLMASIN — sistem özü math rejimində göstərir. Çoxluq mötərizələri üçün \\{ və \\} yaz: "{e,m}" yox, "\\{e,m\\}".
 6. Əgər hər hansı hissə oxunmursa (üst-üstə çap və s.) illegible=true qoy və uydurma.
 7. Variantın MƏZMUNU şəkildirsə (fiqur, qrafik, forma): tex VERMƏ — is_image=true qoy və həmin variantın məzmun qutusunu box=[ymin,xmin,ymax,xmax] (0–1000 normallaşdırılmış) qaytar. Qutuya variant hərfi ("A)") DAXİL OLMASIN, yalnız fiqur. Mətnli variant üçün is_image və box vermə.
-8. difficulty: sualın YÖS imtahanı kontekstində çətinliyini 1–5 arası qiymətləndir (1=çox asan, 3=orta, 5=çox çətin).`
+8. difficulty: sualın YÖS imtahanı kontekstində çətinliyini 1–5 arası qiymətləndir (1=çox asan, 3=orta, 5=çox çətin).
+8b. Səhifədə çəkilmiş şəkil (diaqram, qrafik, cədvəl, sxem) varsa figure_box=[ymin,xmin,ymax,xmax] (0–1000) ver — YALNIZ rəsmin ətrafı. Sual mətni, "⇒ ... = ?" sətri və cavab variantları qutuya DAXİL OLMAMALIDIR. Şəkil yoxdursa figure_box vermə.`
 
 // Rules 9-11: the declarative FigSpec instructions — only for the DSL lanes.
 const SYSTEM_FIGURE_RULES = `9. Fiqurlar: deklarativ spec ver, şəkil çəkmə.

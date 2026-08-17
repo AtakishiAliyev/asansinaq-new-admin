@@ -205,6 +205,12 @@ export const extractResponseSchema = {
     foreign: { type: 'boolean', description: 'fragments of a neighbouring question visible in the crop' },
     confidence: { type: 'number' },
     difficulty: { type: 'integer', description: 'estimated difficulty 1-5 in the YÖS exam context' },
+    figure_box: {
+      type: 'array',
+      items: { type: 'number' },
+      description:
+        '[ymin,xmin,ymax,xmax] 0-1000 normalized box around ONLY the drawing (diagram/graph/table). Exclude the question text, the ⇒ ... = ? line and the answer options.',
+    },
     warnings: { type: 'array', items: T.str },
   },
   required: ['number_seen', 'stem', 'options', 'illegible', 'confidence', 'difficulty'],

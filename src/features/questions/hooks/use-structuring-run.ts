@@ -110,20 +110,28 @@ export function useStructuringRun() {
             ? ('dsl' as const)
             : ('raster' as const)
 
-      const extractOnce = (repairNotes?: string, withHint = true) => {
+      const extractOnce = async (repairNotes?: string, withHint = true) => {
         checkCancelled()
-        return opExtract({
-          image,
-          mime,
-          figureMode,
-          textLayerHint: withHint ? crop.textLayer || undefined : undefined,
-          testNo: row.test_no ?? undefined,
-          expectedNumber: crop.number,
-          repairNotes,
-          // Scans have no hint to withhold, so the hint-free second read would
-          // be a byte-identical call — cross-model agreement replaces it.
-          modelSwap: !withHint && !crop.textLayer,
-        })
+        const call = () =>
+          opExtract({
+            image,
+            mime,
+            figureMode,
+            textLayerHint: withHint ? crop.textLayer || undefined : undefined,
+            testNo: row.test_no ?? undefined,
+            expectedNumber: crop.number,
+            repairNotes,
+            // Scans have no hint to withhold, so the hint-free second read
+            // would be a byte-identical call — a swapped model class restores
+            // the independence the missing hint used to provide.
+            modelSwap: !withHint && !crop.textLayer,
+          })
+        try {
+          return await call()
+        } catch {
+          checkCancelled()
+          return await call()
+        }
       }
 
       // Raster lane: the figure arrives from the image model AFTER this
@@ -225,24 +233,42 @@ export function useStructuringRun() {
         }
       }
 
-      // Figure lanes.
+      // Figure lanes. The reference is the figure's own region when the
+      // model reported one: a whole-question reference makes the image model
+      // redraw the stem and the options into the picture (duplicated content)
+      // and costs far more time than the drawing alone.
+      const figureBox = Array.isArray(wire.figure_box)
+        ? (wire.figure_box.slice(0, 4) as [number, number, number, number])
+        : null
+      const figureReference = async () => {
+        if (!figureBox) return original
+        try {
+          return splitDataUrl(await cropRegion(crop.dataUrl, figureBox))
+        } catch {
+          return original
+        }
+      }
+
       const rasterRedraw = async (): Promise<void> => {
-        const redrawn = await redrawSafe(original)
+        const reference = await figureReference()
+        const redrawn = await redrawSafe(reference)
         const item: FigItem = {
           kind: 'image',
           src: `data:${redrawn.mime};base64,${redrawn.image}`,
         }
         question.figures = { v: 1, items: [item] } as FigureDoc
-        const cmp = await opCompareFigures(original, {
+        // Compare against the same region that was redrawn, or the comparison
+        // reports the missing stem and options as differences.
+        const cmp = await opCompareFigures(reference, {
           image: redrawn.image,
           mime: redrawn.mime as 'image/png' | 'image/jpeg',
         })
         if (!cmp.match) {
           // attempt=1 busts the op cache — a retry that replays the same
           // cached image could never produce a different figure.
-          const retry = await redrawSafe(original, 1)
+          const retry = await redrawSafe(reference, 1)
           const retryDataUrl = `data:${retry.mime};base64,${retry.image}`
-          const cmp2 = await opCompareFigures(original, {
+          const cmp2 = await opCompareFigures(reference, {
             image: retry.image,
             mime: retry.mime as 'image/png' | 'image/jpeg',
           })
@@ -279,7 +305,10 @@ export function useStructuringRun() {
             } else {
               try {
                 const snapshot = await snapshotFigure(figures)
-                const cmp = await opCompareFigures(original, splitDataUrl(snapshot))
+                const cmp = await opCompareFigures(
+                  await figureReference(),
+                  splitDataUrl(snapshot),
+                )
                 if (!cmp.match) await rasterRedraw()
               } catch {
                 await rasterRedraw()

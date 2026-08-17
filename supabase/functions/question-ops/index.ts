@@ -38,7 +38,9 @@ const GEMINI_MODELS: Record<ModelKey, string> = {
 const OPENAI_IMAGE_MODEL = Deno.env.get('OPENAI_IMAGE_MODEL') ?? 'gpt-image-2'
 const DAILY_BUDGET_USD = Number(Deno.env.get('DAILY_BUDGET_USD') ?? '20')
 
-const TIMEOUT_MS = 90_000
+// A strong model reading a dense figure page routinely passes 90s; the
+// client retries on a fresh invocation, so this only has to cover one attempt.
+const TIMEOUT_MS = 120_000
 // Complex references push gpt-image past 90s; stay just under the edge
 // function's own wall-clock budget so WE report the timeout, not the platform.
 const IMAGE_TIMEOUT_MS = 140_000

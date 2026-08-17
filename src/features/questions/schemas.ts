@@ -22,6 +22,7 @@ export const extractWireSchema = z
     foreign: z.boolean().nullish(),
     confidence: z.number(),
     difficulty: z.number().int().min(1).max(5).nullish(),
+    figure_box: z.array(z.number()).length(4).nullish(),
     warnings: z.array(z.string()).nullish(),
   })
   .loose()
