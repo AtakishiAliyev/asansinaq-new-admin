@@ -430,3 +430,8 @@ enabled = true
 # declarative_schema_path = "./database"
 # JSON string passed through to pg-delta SQL formatting.
 # format_options = "{\"keywordCase\":\"upper\",\"indent\":2,\"maxWidth\":80,\"commaStyle\":\"trailing\"}"
+
+# Question-detection for scanned pages. JWT verification stays on; the
+# function additionally checks is_admin() before spending Gemini budget.
+[functions.detect-questions]
+verify_jwt = true

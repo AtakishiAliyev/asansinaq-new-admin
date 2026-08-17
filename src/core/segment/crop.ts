@@ -8,6 +8,12 @@ import type { Band, Crop, CropResult, FigureKind } from '@/core/segment/types'
 //
 // Runtime-agnostic: the caller injects a canvas factory (DOM canvas in the
 // browser, @napi-rs/canvas in Node evals). No DOM access here.
+//
+// Node harness note: scanned books need pdf.js's wasm decoders (JBIG2/JPX).
+// Pass getDocument({ wasmUrl }) as a PLAIN filesystem path with a trailing
+// slash (e.g. <repo>/node_modules/pdfjs-dist/wasm/), NOT a file:// URL —
+// Node's binary loader treats the string as a literal path and a URL silently
+// downgrades to the JS fallback, re-creating the blank-text-layer bug.
 
 const INK_LUMINANCE = 150 // darker counts as ink; pale watermarks sit ~200+
 
@@ -15,7 +21,7 @@ export interface CanvasLike {
   width: number
   height: number
   getContext(kind: '2d', opts?: unknown): CanvasRenderingContext2D | null
-  toDataURL(type?: string): string
+  toDataURL(type?: string, quality?: number): string
 }
 export type MakeCanvas = (w: number, h: number) => CanvasLike
 
@@ -25,7 +31,8 @@ export function adaptiveInkThreshold(img: ImageData): number {
   const hist = new Uint32Array(256)
   const { data } = img
   for (let i = 0; i < data.length; i += 4 * 8) {
-    const lum = (0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]) | 0
+    const lum =
+      (0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]) | 0
     hist[lum]++
   }
   let bgPeak = 255
@@ -91,7 +98,10 @@ function hasHorizontalRule(
     const rowOff = y * width
     for (let x = Math.max(0, x0); x < xEnd; x++) {
       const i = (rowOff + x) * 4
-      if (0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2] < inkLum) {
+      if (
+        0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2] <
+        inkLum
+      ) {
         if (++run >= minRun) return true
       } else {
         run = 0
@@ -209,7 +219,10 @@ function refineBandBounds(
     // Trim each band to its real ink extents (+padding); never above the anchor.
     for (const band of colBands) {
       const x0 = Math.max(0, Math.floor(band.bbox.x * scale))
-      const x1 = Math.min(img.width, Math.ceil((band.bbox.x + band.bbox.w) * scale))
+      const x1 = Math.min(
+        img.width,
+        Math.ceil((band.bbox.x + band.bbox.w) * scale),
+      )
       let top = Math.max(0, Math.floor(band.bbox.y * scale))
       let bottom = Math.min(
         img.height - 1,
@@ -242,15 +255,27 @@ function refineBandBounds(
   return { bands, notes }
 }
 
+// Some scanning tools write the MediaBox in PIXELS rather than points; a
+// fixed scale then produces a 35-78M px canvas that silently blanks on iOS
+// and allocates hundreds of MB. Cap the rendered area instead.
+const MAX_CANVAS_AREA_PX = 16_000_000
+
 export async function renderCrops(
   page: PDFPageProxy,
   bands: Band[],
   makeCanvas: MakeCanvas,
   opts: { scale?: number; scanMode?: boolean } = {},
 ): Promise<CropResult> {
-  const scale = opts.scale ?? 3
+  const base = page.getViewport({ scale: 1 })
+  const scale = Math.min(
+    opts.scale ?? 3,
+    Math.sqrt(MAX_CANVAS_AREA_PX / (base.width * base.height)),
+  )
   const viewport = page.getViewport({ scale })
-  const canvas = makeCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height))
+  const canvas = makeCanvas(
+    Math.ceil(viewport.width),
+    Math.ceil(viewport.height),
+  )
   const ctx = canvas.getContext('2d', { willReadFrequently: true })
   if (!ctx) throw new Error('canvas 2d context alınmadı')
   ctx.fillStyle = '#ffffff'
@@ -276,14 +301,36 @@ export async function renderCrops(
     if (!sctx) throw new Error('canvas 2d context alınmadı')
     sctx.fillStyle = '#ffffff'
     sctx.fillRect(0, 0, sw, sh)
-    sctx.drawImage(canvas as unknown as CanvasImageSource, sx, sy, sw, sh, 0, 0, sw, sh)
+    sctx.drawImage(
+      canvas as unknown as CanvasImageSource,
+      sx,
+      sy,
+      sw,
+      sh,
+      0,
+      0,
+      sw,
+      sh,
+    )
 
     crops.push({
       number: b.number,
       col: b.col,
       pageNumber: page.pageNumber,
-      dataUrl: sub.toDataURL('image/png'),
-      figureKind: classifyFigureRegion(img, sx, sx + sw, sy, sy + sh, inkLum, scale),
+      // Scan content is photographic — PNG balloons 4-5x there, JPEG q0.9 is
+      // visually identical. Vector-rendered text pages stay crisp PNG.
+      dataUrl: opts.scanMode
+        ? sub.toDataURL('image/jpeg', 0.9)
+        : sub.toDataURL('image/png'),
+      figureKind: classifyFigureRegion(
+        img,
+        sx,
+        sx + sw,
+        sy,
+        sy + sh,
+        inkLum,
+        scale,
+      ),
     })
   }
   return { crops, notes }

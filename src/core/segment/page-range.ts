@@ -3,10 +3,12 @@
 // throwing, so forms can surface it directly.
 
 export type PageRangeResult =
-  | { ok: true; pages: number[] }
-  | { ok: false; error: string }
+  { ok: true; pages: number[] } | { ok: false; error: string }
 
-export function parsePageRange(input: string, pageCount: number): PageRangeResult {
+export function parsePageRange(
+  input: string,
+  pageCount: number,
+): PageRangeResult {
   const trimmed = input.trim()
   if (!trimmed) return { ok: false, error: 'Səhifə aralığı boş ola bilməz' }
 
@@ -22,17 +24,24 @@ export function parsePageRange(input: string, pageCount: number): PageRangeResul
       return { ok: false, error: `Yanlış aralıq: «${piece}»` }
     }
     if (to > pageCount) {
-      return { ok: false, error: `Səhifə ${to} yoxdur — sənəddə ${pageCount} səhifə var` }
+      return {
+        ok: false,
+        error: `Səhifə ${to} yoxdur — sənəddə ${pageCount} səhifə var`,
+      }
     }
     for (let p = from; p <= to; p++) pages.add(p)
   }
-  if (pages.size === 0) return { ok: false, error: 'Səhifə aralığı boş ola bilməz' }
+  if (pages.size === 0)
+    return { ok: false, error: 'Səhifə aralığı boş ola bilməz' }
   return { ok: true, pages: [...pages].sort((a, b) => a - b) }
 }
 
 // Lenient variant for live UI state (thumbnail toggling): bad pieces are
 // ignored instead of failing the whole parse.
-export function parsePagesLenient(input: string, pageCount: number): Set<number> {
+export function parsePagesLenient(
+  input: string,
+  pageCount: number,
+): Set<number> {
   const pages = new Set<number>()
   for (const part of input.split(',')) {
     const m = part.trim().match(/^(\d+)(?:\s*-\s*(\d+))?$/)
