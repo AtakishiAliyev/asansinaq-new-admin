@@ -28,3 +28,6 @@ dist-ssr
 .claude/launch.json
 # Local test material (commercial book, never committed)
 public/segtest.pdf
+
+# Copied from pdfjs-dist on install (scripts/copy-pdfjs-wasm.mjs)
+public/pdfjs/
