@@ -1,7 +1,8 @@
 // All model calls of the question-recreation pipeline behind one admin-gated
 // door: extraction, figure redraw (OpenAI images/edits — the accuracy winner
-// in the MVP), render-compare, blind solve, category suggestion and
-// answer-key parsing. The function ONLY talks to models — the client
+// in the MVP), render-compare, category suggestion and answer-key parsing.
+// A question's answer is never produced here — it comes from the printed key
+// or the reviewer, so there is deliberately no solve op. The function ONLY talks to models — the client
 // orchestrates the flow (lint, repair loop, browser figure rendering).
 // Prompts/schemas/request bodies come from src/core/extract via the
 // import-map alias, so the eval harness exercises the exact same requests.
@@ -22,7 +23,6 @@ import {
   buildCompareFigures,
   buildExtract,
   buildParseAnswerKey,
-  buildSolve,
   buildSuggestCategory,
   type FigureMode,
   type GeminiRequest,
@@ -33,7 +33,6 @@ import { PROMPT_VERSION, REDRAW_PROMPT } from '@/core/extract/prompts'
 const GEMINI_MODELS: Record<ModelKey, string> = {
   extract: Deno.env.get('GEMINI_EXTRACT_MODEL') ?? 'gemini-3.5-flash',
   figure: Deno.env.get('GEMINI_FIGURE_MODEL') ?? 'gemini-3.1-pro-preview',
-  solve: Deno.env.get('GEMINI_SOLVE_MODEL') ?? 'gemini-3.5-flash',
   verify: Deno.env.get('GEMINI_VERIFY_MODEL') ?? 'gemini-3.5-flash',
 }
 const OPENAI_IMAGE_MODEL = Deno.env.get('OPENAI_IMAGE_MODEL') ?? 'gpt-image-2'
@@ -571,31 +570,10 @@ Deno.serve(async (req) => {
       return json(200, { ...responseBody, ms })
     }
 
-    if (op === 'solve' || op === 'suggest_category' || op === 'parse_answer_key') {
+    if (op === 'suggest_category' || op === 'parse_answer_key') {
       let request: GeminiRequest
       let cachePayload: Record<string, unknown>
-      if (op === 'solve') {
-        if (typeof body.stem !== 'string' || !Array.isArray(body.options)) {
-          return json(400, { error: 'stem/options tələb olunur' })
-        }
-        const figure = body.figure as ImagePayload | undefined
-        if (figure) {
-          const bad = badImage(figure)
-          if (bad) return json(400, { error: bad })
-        }
-        request = buildSolve({
-          stem: body.stem,
-          options: body.options as { label: string; tex?: string }[],
-          figure: figure
-            ? { image: figure.image as string, mime: figure.mime as string }
-            : undefined,
-        })
-        cachePayload = {
-          stem: body.stem,
-          options: body.options,
-          figure: figure?.image ?? null,
-        }
-      } else if (op === 'suggest_category') {
+      if (op === 'suggest_category') {
         if (typeof body.stem !== 'string' || !Array.isArray(body.categories)) {
           return json(400, { error: 'stem/categories tələb olunur' })
         }

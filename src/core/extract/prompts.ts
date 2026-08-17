@@ -91,8 +91,6 @@ Bunlar EYNİ fiqurdurmu? Topoloji/semantik müqayisə et, piksel dəqiqliyi YOX:
 - Ştrixlənmiş/rəngli bölgə eyni yerdədirmi?
 Fərq varsa differences-də konkret yaz (məs. "b etiketi ellipsdən kənara sürüşüb", "3 rəqəmi çatışmır"). Watermark və kiçik üslub fərqlərini SAYMA.`
 
-export const SOLVE_PROMPT = `Bu çoxvariantlı sualı həll et və YALNIZ düzgün variantın hərfini (A–E) qaytar.`
-
 export const SUGGEST_CATEGORY_PROMPT = `Aşağıda bir imtahan sualı və mövcud kateqoriya siyahısı verilir.
 Sualın mövzusuna ƏN UYĞUN və ƏN SPESİFİK kateqoriyanın id-sini seç.
 YALNIZ verilmiş siyahıdan seç — yeni kateqoriya uydurma. Heç biri uyğun deyilsə category_id=null qaytar.

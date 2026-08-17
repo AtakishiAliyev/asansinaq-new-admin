@@ -8,7 +8,6 @@ import {
   EXTRACT_SYSTEM,
   EXTRACT_SYSTEM_RASTER,
   PARSE_ANSWER_KEY_PROMPT,
-  SOLVE_PROMPT,
   SUGGEST_CATEGORY_PROMPT,
 } from '@/core/extract/prompts'
 import { FEWSHOT_FIGURES } from '@/core/extract/fewshot'
@@ -16,12 +15,11 @@ import {
   compareFiguresSchema,
   extractResponseSchema,
   parseAnswerKeySchema,
-  solveSchema,
   suggestCategorySchema,
 } from '@/core/extract/schemas'
 
 /** Which secret-configured model class the op should run on. */
-export type ModelKey = 'extract' | 'figure' | 'solve' | 'verify'
+export type ModelKey = 'extract' | 'figure' | 'verify'
 
 export interface GeminiRequest {
   modelKey: ModelKey
@@ -118,39 +116,6 @@ export function buildCompareFigures(
         temperature: 0,
         responseMimeType: 'application/json',
         responseSchema: compareFiguresSchema,
-      },
-    },
-  }
-}
-
-export interface SolveInput {
-  stem: string
-  options: { label: string; tex?: string }[]
-  /** the question's figure (and/or image options) rendered as one image */
-  figure?: ImageInput
-}
-
-export function buildSolve(input: SolveInput): GeminiRequest {
-  const optionsText = input.options
-    .map((o) => `${o.label}) ${o.tex ?? '(şəkilli variant — şəklə bax)'}`)
-    .join('\n')
-  const parts: Record<string, unknown>[] = []
-  if (input.figure) {
-    parts.push({
-      inlineData: { mimeType: input.figure.mime, data: input.figure.image },
-    })
-  }
-  parts.push({
-    text: `${SOLVE_PROMPT}\n\nSUAL:\n${input.stem}\n\nVARİANTLAR:\n${optionsText}`,
-  })
-  return {
-    modelKey: 'solve',
-    body: {
-      contents: [{ role: 'user', parts }],
-      generationConfig: {
-        temperature: 0,
-        responseMimeType: 'application/json',
-        responseSchema: solveSchema,
       },
     },
   }

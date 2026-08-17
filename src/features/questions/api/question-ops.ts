@@ -4,7 +4,6 @@ import {
   extractResponseSchema,
   parseAnswerKeyResponseSchema,
   redrawResponseSchema,
-  solveResponseSchema,
   suggestCategoryResponseSchema,
 } from '@/features/questions/schemas'
 
@@ -72,16 +71,6 @@ export function opRedrawFigure(input: OpImage & { attempt?: number }) {
 export function opCompareFigures(original: OpImage, candidate: OpImage) {
   return invokeOp({ op: 'compare_figures', original, candidate }, (d) =>
     compareResponseSchema.parse(d),
-  )
-}
-
-export function opSolve(input: {
-  stem: string
-  options: { label: string; tex?: string }[]
-  figure?: OpImage
-}) {
-  return invokeOp({ op: 'solve', ...input }, (d) =>
-    solveResponseSchema.parse(d),
   )
 }
 

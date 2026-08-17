@@ -46,9 +46,6 @@ export const compareResponseSchema = z.object({
   differences: z.array(z.string()).nullish(),
 })
 
-export const solveResponseSchema = z.object({
-  answer: z.enum(['A', 'B', 'C', 'D', 'E']),
-})
 
 export const suggestCategoryResponseSchema = z.object({
   category_id: z.number().nullish(),

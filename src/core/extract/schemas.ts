@@ -226,13 +226,6 @@ export const compareFiguresSchema = {
   required: ['match'],
 }
 
-export const solveSchema = {
-  type: 'object',
-  properties: {
-    answer: { type: 'string', enum: ['A', 'B', 'C', 'D', 'E'] },
-  },
-  required: ['answer'],
-}
 
 export const suggestCategorySchema = {
   type: 'object',
