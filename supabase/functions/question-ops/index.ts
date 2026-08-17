@@ -206,6 +206,7 @@ Deno.serve(async (req) => {
           figureMode: figureMode as FigureMode,
           repairNotes:
             typeof body.repairNotes === 'string' ? body.repairNotes : undefined,
+          modelSwap: body.modelSwap === true,
         }),
       )
       const ms = Date.now() - started

@@ -90,6 +90,9 @@ export function useStructuringRun() {
           testNo: row.test_no ?? undefined,
           expectedNumber: crop.number,
           repairNotes,
+          // Scans have no hint to withhold, so the hint-free second read would
+          // be a byte-identical call — cross-model agreement replaces it.
+          modelSwap: !withHint && !crop.textLayer,
         })
 
       // Raster lane: the figure arrives from the image model AFTER this

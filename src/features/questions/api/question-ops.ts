@@ -52,6 +52,7 @@ export function opExtract(input: {
   testNo?: number
   expectedNumber?: number
   repairNotes?: string
+  modelSwap?: boolean
 }) {
   return invokeOp({ op: 'extract', ...input }, (d) =>
     extractResponseSchema.parse(d),

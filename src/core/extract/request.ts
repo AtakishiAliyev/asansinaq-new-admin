@@ -45,6 +45,12 @@ export interface ExtractInput extends ImageInput {
   expectedNumber?: number
   figureMode: FigureMode
   repairNotes?: string
+  /**
+   * Second-read independence for scans: with no text-layer hint both reads
+   * would be identical temperature-0 calls on the same model — swapping the
+   * model class makes agreement mean something again.
+   */
+  modelSwap?: boolean
 }
 
 export function buildExtract(input: ExtractInput): GeminiRequest {
@@ -64,8 +70,13 @@ export function buildExtract(input: ExtractInput): GeminiRequest {
     .filter(Boolean)
     .join('\n')
 
+  const baseKey: ModelKey = input.figureMode === 'plain' ? 'extract' : 'figure'
   return {
-    modelKey: input.figureMode === 'plain' ? 'extract' : 'figure',
+    modelKey: input.modelSwap
+      ? baseKey === 'extract'
+        ? 'figure'
+        : 'extract'
+      : baseKey,
     body: {
       systemInstruction: { parts: [{ text: system }] },
       contents: [
