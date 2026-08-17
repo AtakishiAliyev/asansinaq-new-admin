@@ -97,12 +97,17 @@ function findHeader(
 const STRIPES = 16
 const FREE_STRIPE_RATIO = 0.8
 
+interface ColumnSplit {
+  cols: SegItem[][]
+  gutterMid: number | null
+}
+
 function splitColumns(
   items: SegItem[],
   pageWidth: number,
   pageHeight: number,
   profile: SourceProfile,
-): SegItem[][] {
+): ColumnSplit {
   const width = Math.ceil(pageWidth)
   const stripeH = pageHeight / STRIPES
   const occupied: Uint8Array[] = Array.from(
@@ -122,34 +127,84 @@ function splitColumns(
   }
   const activeStripes: number[] = []
   for (let s = 0; s < STRIPES; s++) if (stripeHasItems[s]) activeStripes.push(s)
-  if (!activeStripes.length) return [items]
+  if (!activeStripes.length) return { cols: [items], gutterMid: null }
   const needed = Math.ceil(activeStripes.length * FREE_STRIPE_RATIO)
 
   const lo = Math.floor(pageWidth * 0.25)
   const hi = Math.ceil(pageWidth * 0.75)
-  let bestStart = -1
-  let bestLen = 0
+  const runs: { start: number; len: number }[] = []
   let runStart = -1
   for (let x = lo; x <= hi; x++) {
     let freeIn = 0
     for (const s of activeStripes) if (occupied[s][x] === 0) freeIn++
     if (freeIn >= needed) {
       if (runStart < 0) runStart = x
-      const len = x - runStart + 1
-      if (len > bestLen) {
-        bestLen = len
-        bestStart = runStart
-      }
     } else {
+      if (runStart >= 0) runs.push({ start: runStart, len: x - runStart })
       runStart = -1
     }
   }
-  if (bestLen < profile.minGutterPt) return [items]
-  const gutterMid = bestStart + bestLen / 2
-  const left = items.filter((it) => it.x + it.w / 2 < gutterMid)
-  const right = items.filter((it) => it.x + it.w / 2 >= gutterMid)
-  if (left.length < 3 || right.length < 3) return [items]
-  return [left, right]
+  if (runStart >= 0) runs.push({ start: runStart, len: hi - runStart + 1 })
+
+  // Among wide-enough free runs, the gutter is the run whose INTERVAL is
+  // nearest the page centre (usually the one containing it) — NOT the widest.
+  // The widest run is often the whitespace between a column's number labels
+  // and its own indented content (figures, tables), which would split
+  // question numbers away from their bodies; and a narrow left column can
+  // produce a huge free run whose midpoint sits far off-centre even though
+  // the true gutter lies inside it.
+  const candidates = runs.filter((r) => r.len >= profile.minGutterPt)
+  if (!candidates.length) return { cols: [items], gutterMid: null }
+  const centre = pageWidth / 2
+  const intervalDist = (r: { start: number; len: number }) =>
+    centre < r.start
+      ? r.start - centre
+      : centre > r.start + r.len
+        ? centre - (r.start + r.len)
+        : 0
+
+  // Each qualifying run is TRIED as the gutter: split there, find anchors on
+  // both sides, and prefer the split whose numbers read in order (right column
+  // continues after the left). Centre distance and width only break ties —
+  // an off-centre true gutter would otherwise lose to a centred whitespace
+  // band inside the wider column, silently dropping that column's questions.
+  const SPAN_MARGIN_PT = 4
+  interface Scored {
+    left: SegItem[]
+    right: SegItem[]
+    mid: number
+    ordered: boolean
+    dist: number
+    len: number
+  }
+  const betterThan = (a: Scored, b: Scored) =>
+    a.ordered !== b.ordered
+      ? a.ordered
+      : a.dist !== b.dist
+        ? a.dist < b.dist
+        : a.len > b.len
+  let best: Scored | null = null
+  for (const r of candidates) {
+    const dist = intervalDist(r)
+    const mid = dist === 0 ? centre : r.start + r.len / 2
+    // An item straddling the gutter of a genuinely split page is page chrome
+    // (section banner, full-width rule line): keep it out of both columns so
+    // it can neither widen a column's bands nor pose as an anchor.
+    const nonSpanning = items.filter(
+      (it) => !(it.x < mid - SPAN_MARGIN_PT && it.x + it.w > mid + SPAN_MARGIN_PT),
+    )
+    const left = nonSpanning.filter((it) => it.x + it.w / 2 < mid)
+    const right = nonSpanning.filter((it) => it.x + it.w / 2 >= mid)
+    if (left.length < 3 || right.length < 3) continue
+    const la = findAnchors(left, profile)
+    const ra = findAnchors(right, profile)
+    const ordered =
+      la.length > 0 && ra.length > 0 && ra[0].number > la[la.length - 1].number
+    const scored: Scored = { left, right, mid, ordered, dist, len: r.len }
+    if (!best || betterThan(scored, best)) best = scored
+  }
+  if (!best) return { cols: [items], gutterMid: null }
+  return { cols: [best.left, best.right], gutterMid: best.mid }
 }
 
 interface Anchor {
@@ -160,48 +215,118 @@ interface Anchor {
 
 // "12." / "12)" possibly fused with the stem's first word, or a standalone
 // narrow "12" token. All must sit at the column's left margin.
-function anchorNumber(it: SegItem): number | null {
+function anchorNumber(it: SegItem): { n: number; fused: boolean } | null {
   const fused = it.str.match(/^\s*(\d{1,3})[.)](?:\s|$)/)
-  if (fused) return Number(fused[1])
+  if (fused) return { n: Number(fused[1]), fused: true }
   const bare = it.str.match(/^\s*(\d{1,3})\s*$/)
-  if (bare && it.w < 24) return Number(bare[1])
+  if (bare && it.w < 24) return { n: Number(bare[1]), fused: false }
   return null
+}
+
+// Question labels align on a shared x within a couple of points; digits inside
+// tables and figures sit at entirely different offsets. The indent gate is
+// therefore anchored to the leftmost CLUSTER of candidate x-positions
+// (preferring clusters that contain a fused "N." label) — measuring from the
+// column's absolute left edge broke whenever any stray item (a figure caption)
+// started a few points left of the labels and pushed a label out of the gate.
+const X_CLUSTER_TOL_PT = 5
+
+// A chain of 4+ anchors whose rows sit roughly one text line apart is a
+// numbered LIST (answer-key table, instruction list, contents page), not
+// questions — a real question needs vertical room for its options. Rejecting
+// it lets the page fall through to the "no anchors" note instead of emitting
+// fake crops.
+const LIST_ROW_GAP_PT = 40
+
+function isListChain(kept: Anchor[]): boolean {
+  if (kept.length < 4) return false
+  const gaps = kept
+    .slice(1)
+    .map((a, i) => a.yTop - kept[i].yTop)
+    .sort((p, q) => p - q)
+  return gaps[Math.floor(gaps.length / 2)] < LIST_ROW_GAP_PT
 }
 
 function findAnchors(colItems: SegItem[], profile: SourceProfile): Anchor[] {
   if (!colItems.length) return []
-  const colLeft = Math.min(...colItems.map((it) => it.x))
-  const candidates: Anchor[] = []
+  const all: (Anchor & { fused: boolean })[] = []
   for (const it of colItems) {
-    const n = anchorNumber(it)
-    if (n === null || n < 1 || n > profile.maxQuestionNumber) continue
-    if (it.x > colLeft + profile.anchorIndentPt) continue
-    candidates.push({ number: n, yTop: it.yTop, x: it.x })
+    const a = anchorNumber(it)
+    if (a === null || a.n < 1 || a.n > profile.maxQuestionNumber) continue
+    all.push({ number: a.n, yTop: it.yTop, x: it.x, fused: a.fused })
   }
-  candidates.sort((p, q) => p.yTop - q.yTop)
+  if (!all.length) return []
 
-  // Longest increasing chain (gap ≤ 2), not first-candidate greedy: a stray
-  // "2." sitting above the real question 1 must lose to the 1..n run, not
-  // poison it.
-  const chainLen = candidates.map(() => 1)
-  const prev = candidates.map(() => -1)
-  let bestEnd = -1
-  for (let i = 0; i < candidates.length; i++) {
-    for (let j = 0; j < i; j++) {
-      const step = candidates[i].number - candidates[j].number
-      if (step >= 1 && step <= 2 && chainLen[j] + 1 > chainLen[i]) {
-        chainLen[i] = chainLen[j] + 1
-        prev[i] = j
-      }
+  const byX = [...all].sort((p, q) => p.x - q.x)
+  const clusters: { minX: number; maxX: number; fused: boolean; count: number }[] =
+    []
+  for (const c of byX) {
+    const last = clusters[clusters.length - 1]
+    if (last && c.x - last.maxX <= X_CLUSTER_TOL_PT) {
+      last.maxX = c.x
+      last.fused ||= c.fused
+      last.count++
+    } else {
+      clusters.push({ minX: c.x, maxX: c.x, fused: c.fused, count: 1 })
     }
-    if (bestEnd < 0 || chainLen[i] > chainLen[bestEnd]) bestEnd = i
   }
-  if (bestEnd < 0) return []
-  const kept: Anchor[] = []
-  for (let i = bestEnd; i >= 0; i = prev[i]) {
-    kept.unshift(candidates[i])
-    if (prev[i] < 0) break
+
+  // The gate deliberately has NO lower bound: ref is the x of an actual
+  // candidate (so it can only sit at or right of the old column-edge
+  // reference — anchors are gained, never lost), and bare-label books
+  // survive a fused junk ref to their right only because everything left of
+  // it is still admitted. A lone bare stray (a printed page number, one table
+  // digit) must not become ref, hence the count >= 2 requirement for
+  // non-fused clusters.
+  const chainFrom = (ref: number): Anchor[] => {
+    const candidates: Anchor[] = all.filter(
+      (c) => c.x <= ref + profile.anchorIndentPt,
+    )
+    candidates.sort((p, q) => p.yTop - q.yTop)
+
+    // Longest increasing chain (gap ≤ 2), not first-candidate greedy: a stray
+    // "2." sitting above the real question 1 must lose to the 1..n run, not
+    // poison it.
+    const chainLen = candidates.map(() => 1)
+    const prev = candidates.map(() => -1)
+    let bestEnd = -1
+    for (let i = 0; i < candidates.length; i++) {
+      for (let j = 0; j < i; j++) {
+        const step = candidates[i].number - candidates[j].number
+        if (step >= 1 && step <= 2 && chainLen[j] + 1 > chainLen[i]) {
+          chainLen[i] = chainLen[j] + 1
+          prev[i] = j
+        }
+      }
+      if (bestEnd < 0 || chainLen[i] > chainLen[bestEnd]) bestEnd = i
+    }
+    if (bestEnd < 0) return []
+    const kept: Anchor[] = []
+    for (let i = bestEnd; i >= 0; i = prev[i]) {
+      kept.unshift(candidates[i])
+      if (prev[i] < 0) break
+    }
+    return isListChain(kept) ? [] : kept
   }
+
+  const primary =
+    clusters.find((cl) => cl.fused || cl.count >= 2) ?? clusters[0]
+  let kept = chainFrom(primary.minX)
+
+  // A degenerate result with other clusters available usually means the
+  // reference was hijacked (a stray fused caption left of the real labels):
+  // retry each fused cluster — then any cluster — and keep the longest chain.
+  if (kept.length <= 1 && clusters.length > 1) {
+    const fusedClusters = clusters.filter((cl) => cl.fused)
+    for (const cl of fusedClusters.length ? fusedClusters : clusters) {
+      const alt = chainFrom(cl.minX)
+      if (alt.length > kept.length) kept = alt
+    }
+  }
+
+  // A single bare digit with no fused label anywhere in the column is page
+  // decoration (an ad page's phone number fragment), not a question.
+  if (!all.some((c) => c.fused) && kept.length < 2) return []
   return kept
 }
 
@@ -210,9 +335,17 @@ function buildBands(
   colItems: SegItem[],
   col: number,
   contentBottom: number,
+  geo?: { left: number; right: number },
 ): Band[] {
-  const colLeft = Math.min(...colItems.map((it) => it.x))
-  const colRight = Math.max(...colItems.map((it) => it.x + it.w))
+  let colLeft = Math.min(...colItems.map((it) => it.x))
+  let colRight = Math.max(...colItems.map((it) => it.x + it.w))
+  // A partial text layer (answer options drawn as graphics) leaves the text
+  // extent far narrower than the geometric column — widen the crop to the
+  // column's share of the page so ink the text layer cannot see survives.
+  if (geo && colRight - colLeft < 0.6 * (geo.right - geo.left)) {
+    colLeft = Math.min(colLeft, geo.left)
+    colRight = Math.max(colRight, geo.right)
+  }
   // Body content above the first anchor (a shared passage, an instruction
   // block) belongs to question 1's crop — the header was already cut, so
   // whatever remains up there is real content that must not vanish.
@@ -236,7 +369,12 @@ function buildBands(
     bands.push({
       number: anchors[i].number,
       col,
-      bbox: { x: colLeft - 4, y: top, w: colRight - colLeft + 8, h: bottom - top },
+      bbox: {
+        x: colLeft - 4,
+        y: top,
+        w: colRight - colLeft + 8,
+        h: bottom - top,
+      },
       anchorYTop: anchors[i].yTop,
       textLayer: inside
         .map((it) => it.str)
@@ -279,14 +417,30 @@ export async function segmentPage(
   )
 
   const bands: Band[] = []
-  splitColumns(bodyItems, pageWidth, pageHeight, profile).forEach(
-    (colItems, ci) => {
-      if (!colItems.length) return
-      const anchors = findAnchors(colItems, profile)
-      if (!anchors.length) return
-      bands.push(...buildBands(anchors, colItems, ci, contentBottom))
-    },
+  const { cols, gutterMid } = splitColumns(
+    bodyItems,
+    pageWidth,
+    pageHeight,
+    profile,
   )
+  // Geometric column bounds: the left column's own left edge, mirrored for
+  // the right column's outer edge (text-only margins can lie on pages whose
+  // options are graphics, so each column also knows its share of the page).
+  const col0Left = cols[0]?.length
+    ? Math.min(...cols[0].map((it) => it.x))
+    : 0
+  cols.forEach((colItems, ci) => {
+    if (!colItems.length) return
+    const anchors = findAnchors(colItems, profile)
+    if (!anchors.length) return
+    const geo =
+      gutterMid !== null
+        ? ci === 0
+          ? { left: col0Left, right: gutterMid }
+          : { left: gutterMid, right: pageWidth - col0Left }
+        : undefined
+    bands.push(...buildBands(anchors, colItems, ci, contentBottom, geo))
+  })
 
   bands.sort((p, q) => p.col - q.col || p.bbox.y - q.bbox.y)
   if (!bands.length) {
