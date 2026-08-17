@@ -26,6 +26,7 @@ import {
   parsePageRange,
   parsePagesLenient,
 } from '@/core/segment/page-range'
+import { useCategories } from '@/features/taxonomy'
 import {
   BookFormDialog,
   findBookByHash,
@@ -107,6 +108,9 @@ export function ImportPage() {
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set())
   const [sendConfirmOpen, setSendConfirmOpen] = useState(false)
   const [checkOpen, setCheckOpen] = useState(false)
+  // The book's subject tree travels with the batch so the model can suggest
+  // a category from EXISTING ones during structuring.
+  const bookCategories = useCategories(currentBook?.subject_id ?? null)
 
   useEffect(
     () => () => {
@@ -373,7 +377,14 @@ export function ImportPage() {
         onSuccess: (res) => {
           if (!res.saved.length) return
           void structuring
-            .run(res.saved.map((e) => ({ row: e.row, crop: e.crop })))
+            .run(
+              res.saved.map((e) => ({ row: e.row, crop: e.crop })),
+              (bookCategories.data ?? []).map((c) => ({
+                id: c.id,
+                name: c.name,
+                parentId: c.parent_id,
+              })),
+            )
             .then((items) => {
               if (!items.length) return
               const failed = items.filter((i) => i.status === 'failed').length

@@ -15,6 +15,7 @@ import {
   opCompareFigures,
   opExtract,
   opRedrawFigure,
+  opSuggestCategory,
 } from '@/features/questions/api/question-ops'
 import { cropRegion, splitDataUrl } from '@/features/questions/lib/image'
 import type { QuestionRow } from '@/features/questions/schemas'
@@ -48,6 +49,13 @@ interface RunEntry {
   crop: Crop
 }
 
+/** The subject's category tree, sent so the model picks an EXISTING id. */
+export interface CategoryOption {
+  id: number
+  name: string
+  parentId: number | null
+}
+
 // The exam MVP's processDraft orchestrator, rebuilt over the Edge Function:
 // extract → lint → one repair retry (kept only if strictly fewer errors) →
 // figure lanes (DSL render-compare / GPT-Image raster redraw, image options
@@ -65,7 +73,10 @@ export function useStructuringRun() {
     [],
   )
 
-  const run = useCallback(async (entries: RunEntry[]) => {
+  const run = useCallback(async (
+    entries: RunEntry[],
+    categories: CategoryOption[] = [],
+  ) => {
     const id = ++runId.current
     setState({ status: 'running', current: 0, total: entries.length, items: [] })
     const items: StructuringItem[] = []
@@ -323,6 +334,27 @@ export function useStructuringRun() {
         dbFigures = { ...dbFigures, items: dbItems }
       }
 
+      // Category suggestion: cheap, and the reviewer confirms it anyway. A
+      // hallucinated id is rejected here, not written to the row.
+      let aiCategoryId: number | null = null
+      let aiCategoryConfidence: number | null = null
+      if (categories.length && question.stem) {
+        try {
+          const suggestion = await opSuggestCategory({
+            stem: question.stem,
+            options: question.options.map((o) => o.tex ?? '[şəkil]'),
+            categories,
+          })
+          const id = suggestion.category_id ?? null
+          if (id !== null && categories.some((c) => c.id === id)) {
+            aiCategoryId = id
+            aiCategoryConfidence = suggestion.confidence
+          }
+        } catch {
+          // a missing suggestion just means the reviewer picks manually
+        }
+      }
+
       const aiDifficulty =
         typeof wire.difficulty === 'number' ? wire.difficulty : null
       const { error: updateError } = await supabase
@@ -333,6 +365,8 @@ export function useStructuringRun() {
           options: dbOptions,
           figures: dbFigures as never,
           ai_difficulty: aiDifficulty,
+          ai_category_id: aiCategoryId,
+          ai_category_confidence: aiCategoryConfidence,
           model: first.model,
           prompt_version: PROMPT_VERSION,
           flags: flags as never,

@@ -9,6 +9,7 @@ import { BooksPage } from '@/features/books'
 import { DashboardPage } from '@/features/dashboard'
 import { ImportPage } from '@/features/import'
 import { ProfilePage } from '@/features/profile'
+import { QuestionsPage } from '@/features/questions'
 import { TaxonomyPage } from '@/features/taxonomy'
 
 export const router = createBrowserRouter([
@@ -28,6 +29,7 @@ export const router = createBrowserRouter([
               { index: true, element: <DashboardPage /> },
               { path: 'import', element: <ImportPage /> },
               { path: 'books', element: <BooksPage /> },
+              { path: 'questions', element: <QuestionsPage /> },
               { path: 'taxonomy', element: <TaxonomyPage /> },
               { path: 'profile', element: <ProfilePage /> },
               // Unknown paths land inside the shell, one click from the nav.

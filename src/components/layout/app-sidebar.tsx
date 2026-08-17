@@ -2,6 +2,7 @@ import {
   FileUp,
   LayoutDashboard,
   Library,
+  ListChecks,
   ListTree,
   LogOut,
   User,
@@ -37,6 +38,7 @@ const NAV_ITEMS = [
   { to: '/', label: 'İcmal', icon: LayoutDashboard },
   { to: '/import', label: 'İmport', icon: FileUp },
   { to: '/books', label: 'Kitablar', icon: Library },
+  { to: '/questions', label: 'Suallar', icon: ListChecks },
   { to: '/taxonomy', label: 'Fənn və kateqoriyalar', icon: ListTree },
 ]
 
