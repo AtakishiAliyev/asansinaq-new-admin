@@ -230,6 +230,14 @@ export function useDeleteBook() {
       // the storage removal below fails (an orphan object is invisible but
       // harmless; a row pointing at a deleted object would look broken).
       const { error } = await supabase.from('books').delete().eq('id', book.id)
+      // The questions FK is ON DELETE RESTRICT on purpose: approved questions
+      // are the product. Postgres reports that as a raw constraint name, so
+      // say what actually blocks the delete and what to do about it.
+      if (error?.code === '23503') {
+        throw new Error(
+          'Bu kitabın sualları var — əvvəlcə Suallar səhifəsindən həmin sualları silin, sonra kitabı silin',
+        )
+      }
       if (error) throw error
       if (!book.storage_path) return { storageRemoved: true }
       const { error: storageError } = await supabase.storage
