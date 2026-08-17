@@ -32,7 +32,8 @@ export function lintQuestion(q: ExtractedQuestion, expectedNumber?: number): Fla
     if (!texCompiles(t)) add('error', 'stem_latex', `Stem-də LaTeX xətası: ${t.slice(0, 40)}`)
   })
   q.options.forEach((o) => {
-    if (!o.tex && !o.image) add('error', 'option_empty', `${o.label} variantı boşdur — nə TeX, nə şəkil var`)
+    if (!o.tex && !o.image && !o.isImage)
+      add('error', 'option_empty', `${o.label} variantı boşdur — nə TeX, nə şəkil var`)
     if (o.tex && !texCompiles(o.tex)) add('error', 'option_latex', `${o.label} variantında LaTeX xətası`)
   })
 

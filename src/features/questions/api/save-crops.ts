@@ -15,6 +15,41 @@ import {
 
 const UPLOAD_CONCURRENCY = 3
 const UPSERT_CHUNK = 50
+/** PostgREST's default cap — an unbounded select silently stops here. */
+const SELECT_PAGE = 1000
+
+interface ExistingRow {
+  page_number: number
+  col: number
+  q_no: number
+  status: string
+}
+
+// The preserve rule is a correctness guard, so it may never ride on a
+// truncated read: a key missing from this result is a key that gets upserted
+// back to status='cropped' with stem/options/figures nulled — paid extraction
+// and human review destroyed silently. Hence the explicit paging.
+async function fetchExistingRows(
+  bookId: number,
+  pages: number[],
+): Promise<ExistingRow[]> {
+  const rows: ExistingRow[] = []
+  for (let offset = 0; ; offset += SELECT_PAGE) {
+    const { data, error } = await supabase
+      .from('questions')
+      .select('page_number, col, q_no, status')
+      .eq('book_id', bookId)
+      .in('page_number', pages)
+      .order('page_number')
+      .order('col')
+      .order('q_no')
+      .range(offset, offset + SELECT_PAGE - 1)
+    if (error) throw error
+    const batch = data ?? []
+    rows.push(...batch)
+    if (batch.length < SELECT_PAGE) return rows
+  }
+}
 
 function dataUrlToBlob(dataUrl: string): { blob: Blob; mime: string } {
   const m = dataUrl.match(/^data:([^;]+);base64,(.*)$/)
@@ -64,15 +99,10 @@ async function saveCrops({
   if (!entries.length) return { saved: [], skippedKeys: [], failed: 0 }
 
   const pages = [...new Set(entries.map((e) => e.crop.pageNumber))]
-  const { data: existingRows, error: selectError } = await supabase
-    .from('questions')
-    .select('page_number, col, q_no, status')
-    .eq('book_id', book.id)
-    .in('page_number', pages)
-  if (selectError) throw selectError
+  const existingRows = await fetchExistingRows(book.id, pages)
 
   const protectedKeys = new Set(
-    (existingRows ?? [])
+    existingRows
       .filter((r) => !['cropped', 'failed'].includes(r.status))
       .map((r) => rowKey(r)),
   )
@@ -165,8 +195,10 @@ export function useSaveCrops() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: saveCrops,
-    onSuccess: (result, { book }) => {
-      queryClient.invalidateQueries({ queryKey: questionKeys.book(book.id) })
+    onSuccess: (result) => {
+      // The list/count keys carry the whole filter object, so no narrower key
+      // reliably matches the queries a save invalidates.
+      queryClient.invalidateQueries({ queryKey: questionKeys.all })
       const parts = [`${result.saved.length} sual bazaya yazıldı`]
       if (result.skippedKeys.length)
         parts.push(`${result.skippedKeys.length} ötürüldü (artıq emal olunub)`)

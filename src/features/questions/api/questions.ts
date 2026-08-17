@@ -42,33 +42,52 @@ export function isAttention(q: QuestionListItem): boolean {
   return !q.verified || flags.some((f) => f.level === 'error' || f.level === 'warning')
 }
 
+export const QUESTIONS_PAGE_SIZE = 50
+
+export interface QuestionListPage {
+  /** rows of the requested page, after the client-side queue predicate */
+  items: QuestionListItem[]
+  /** rows the server returned for this page, BEFORE the queue predicate */
+  loaded: number
+  /** total rows matching the server-side filters (book/status), all pages */
+  total: number
+  /** zero-based offset of the first row on this page */
+  offset: number
+}
+
 async function fetchQuestions(
   filters: QuestionFilters,
-): Promise<QuestionListItem[]> {
+  page: number,
+): Promise<QuestionListPage> {
+  const offset = page * QUESTIONS_PAGE_SIZE
   let query = supabase
     .from('questions')
-    .select(SELECT)
+    .select(SELECT, { count: 'exact' })
     .order('book_id')
     .order('page_number')
     .order('col')
     .order('q_no')
-    .limit(500)
+    .range(offset, offset + QUESTIONS_PAGE_SIZE - 1)
   if (filters.bookId !== 'all') query = query.eq('book_id', filters.bookId)
   if (filters.status !== 'all') query = query.eq('status', filters.status)
-  const { data, error } = await query
+  const { data, error, count } = await query
   if (error) throw error
-  const items = (data ?? []).map(toItem)
-  if (filters.queue === 'attention') return items.filter(isAttention)
-  if (filters.queue === 'clean') {
-    return items.filter((q) => q.status === 'structured' && !isAttention(q))
-  }
-  return items
+  const rows = (data ?? []).map(toItem)
+  // The queue predicate reads flags/verified, which no column carries, so it
+  // can only run here — over the loaded page, never over the whole table.
+  const items =
+    filters.queue === 'attention'
+      ? rows.filter(isAttention)
+      : filters.queue === 'clean'
+        ? rows.filter((q) => q.status === 'structured' && !isAttention(q))
+        : rows
+  return { items, loaded: rows.length, total: count ?? rows.length, offset }
 }
 
-export function useQuestions(filters: QuestionFilters) {
+export function useQuestions(filters: QuestionFilters, page: number) {
   return useQuery({
-    queryKey: questionKeys.list(filters),
-    queryFn: () => fetchQuestions(filters),
+    queryKey: questionKeys.list(filters, page),
+    queryFn: () => fetchQuestions(filters, page),
   })
 }
 
@@ -80,11 +99,17 @@ export interface QuestionCounts {
   failed: number
 }
 
+const COUNTED_STATUSES = [
+  'cropped',
+  'structured',
+  'approved',
+  'rejected',
+  'failed',
+] as const satisfies readonly (keyof QuestionCounts)[]
+
+// One head-only exact count per status: counting rows client-side capped the
+// numbers at PostgREST's 1000-row default and quietly under-reported.
 async function fetchCounts(bookId: number | 'all'): Promise<QuestionCounts> {
-  let query = supabase.from('questions').select('status')
-  if (bookId !== 'all') query = query.eq('book_id', bookId)
-  const { data, error } = await query
-  if (error) throw error
   const counts: QuestionCounts = {
     cropped: 0,
     structured: 0,
@@ -92,10 +117,18 @@ async function fetchCounts(bookId: number | 'all'): Promise<QuestionCounts> {
     rejected: 0,
     failed: 0,
   }
-  for (const row of data ?? []) {
-    const status = (row as { status: keyof QuestionCounts }).status
-    if (status in counts) counts[status]++
-  }
+  await Promise.all(
+    COUNTED_STATUSES.map(async (status) => {
+      let query = supabase
+        .from('questions')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', status)
+      if (bookId !== 'all') query = query.eq('book_id', bookId)
+      const { count, error } = await query
+      if (error) throw error
+      counts[status] = count ?? 0
+    }),
+  )
   return counts
 }
 
@@ -287,5 +320,8 @@ export function useSignedUrls(paths: string[]) {
     queryFn: () => signImageUrls(paths),
     enabled: key.length > 0,
     staleTime: 30 * 60_000, // half the signed-URL lifetime
+    // Callers sign a sliding window, so the previous map already holds the
+    // next item's URLs; keeping it prevents the panes blanking on navigation.
+    placeholderData: (previous) => previous,
   })
 }

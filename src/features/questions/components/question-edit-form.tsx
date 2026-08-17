@@ -22,7 +22,9 @@ const LABELS = ['A', 'B', 'C', 'D', 'E'] as const
 
 const editFormSchema = z.object({
   stem: z.string().trim().min(1, 'Sual mətni boş ola bilməz'),
-  options: z.array(z.string()).length(5),
+  // Length is whatever the row actually has — the form must not invent a fifth
+  // option, nor drop one whose label is outside A–E.
+  options: z.array(z.string()),
 })
 
 type EditFormValues = z.infer<typeof editFormSchema>
@@ -44,11 +46,14 @@ export function QuestionEditForm({
   }) => void
 }) {
   const current = parseOptions(question.options)
+  // The row's own labels are the working set; LABELS is only the fallback for
+  // a row that has no options at all yet.
+  const labels = current.length ? current.map((o) => o.label) : [...LABELS]
   const form = useForm<EditFormValues>({
     resolver: zodResolver(editFormSchema),
     defaultValues: {
       stem: question.stem ?? '',
-      options: LABELS.map(
+      options: labels.map(
         (label) => current.find((o) => o.label === label)?.tex ?? '',
       ),
     },
@@ -72,9 +77,9 @@ export function QuestionEditForm({
           onSubmit={form.handleSubmit((v) =>
             onSubmit({
               stem: v.stem,
-              options: LABELS.map((label, i) => {
+              options: labels.map((label, i) => {
                 const existing = current.find((o) => o.label === label)
-                const tex = v.options[i].trim()
+                const tex = (v.options[i] ?? '').trim()
                 return {
                   label,
                   ...(tex ? { tex } : {}),
@@ -98,7 +103,7 @@ export function QuestionEditForm({
           </Field>
 
           <div className="grid gap-2 sm:grid-cols-2">
-            {LABELS.map((label, i) => {
+            {labels.map((label, i) => {
               const hasImage = Boolean(current.find((o) => o.label === label)?.image)
               return (
                 <Field key={label}>

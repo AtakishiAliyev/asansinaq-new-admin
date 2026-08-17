@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { CheckCheck, Eye, Wallet } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Eye, Wallet } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -30,13 +30,14 @@ import { useCategories } from '@/features/taxonomy'
 import {
   DEFAULT_FILTERS,
   isAttention,
-  useBulkApprove,
+  QUESTIONS_PAGE_SIZE,
   useQuestionCounts,
   useQuestions,
   useTodaySpend,
   type QuestionFilters,
   type QuestionListItem,
 } from '@/features/questions/api/questions'
+import { BulkApproveButton } from '@/features/questions/components/bulk-approve-button'
 import { ReviewScreen } from '@/features/questions/components/review-screen'
 import { useRestructure } from '@/features/questions/hooks/use-restructure'
 import { parseFlags } from '@/features/questions/lib/row'
@@ -60,25 +61,55 @@ const STATUS_CLASS: Record<string, string> = {
 export function QuestionsPage() {
   usePageTitle('Suallar')
   const [filters, setFilters] = useState<QuestionFilters>(DEFAULT_FILTERS)
-  const [reviewIndex, setReviewIndex] = useState<number | null>(null)
+  const [page, setPage] = useState(0)
+  // The review cursor is an id, not an index: approving removes the row from a
+  // filtered list, and a positional cursor would then skip the next question.
+  const [reviewId, setReviewId] = useState<number | null>(null)
   const books = useBooks()
-  const questions = useQuestions(filters)
+  const questions = useQuestions(filters, page)
   const counts = useQuestionCounts(filters.bookId)
   const spend = useTodaySpend()
-  const bulkApprove = useBulkApprove()
   const restructure = useRestructure()
 
-  const items = useMemo(() => questions.data ?? [], [questions.data])
+  const items = useMemo(() => questions.data?.items ?? [], [questions.data])
+  const loaded = questions.data?.loaded ?? 0
+  const total = questions.data?.total ?? 0
+  const offset = questions.data?.offset ?? 0
+  const reviewIndex = items.findIndex((q) => q.id === reviewId)
+
+  function updateFilters(patch: Partial<QuestionFilters>) {
+    setFilters((f) => ({ ...f, ...patch }))
+    setPage(0) // a filter change invalidates the offset
+  }
+
+  // Rows leave the filter under us (a bulk approve empties the last page of the
+  // «strukturlaşıb» view), and an offset past the end returns nothing at all.
+  useEffect(() => {
+    if (page > 0 && !questions.isFetching && !questions.isError && loaded === 0) {
+      setPage((p) => Math.max(0, p - 1))
+    }
+  }, [page, loaded, questions.isFetching, questions.isError])
   // Bulk approve only fires for questions that need no human decision: clean,
   // verified, and already carrying an AI category to confirm.
   const bulkReady = items.filter(
     (q) => q.status === 'structured' && !isAttention(q) && q.ai_category_id,
   )
+  // The reviewed question's OWN book decides the category tree — with the
+  // book filter on "all" a filter-derived subject would be null, leaving the
+  // picker empty and every approval blocked.
+  const reviewedItem = reviewId
+    ? items.find((q) => q.id === reviewId)
+    : undefined
+  const reviewedBook = reviewedItem
+    ? (books.data ?? []).find((b) => b.id === reviewedItem.book_id)
+    : undefined
   const currentBook =
     filters.bookId === 'all'
       ? null
       : (books.data ?? []).find((b) => b.id === filters.bookId)
-  const categories = useCategories(currentBook?.subject_id ?? null)
+  const reviewSubjectId =
+    reviewedBook?.subject_id ?? currentBook?.subject_id ?? null
+  const categories = useCategories(reviewSubjectId)
   const categoryOptions = (categories.data ?? []).map((c) => ({
     id: c.id,
     name: c.name,
@@ -86,8 +117,7 @@ export function QuestionsPage() {
   }))
 
   function openReview(item: QuestionListItem) {
-    const index = items.findIndex((q) => q.id === item.id)
-    setReviewIndex(index >= 0 ? index : 0)
+    setReviewId(item.id)
   }
 
   return (
@@ -106,7 +136,7 @@ export function QuestionsPage() {
         <Select
           value={filters.bookId === 'all' ? 'all' : String(filters.bookId)}
           onValueChange={(v) =>
-            setFilters((f) => ({ ...f, bookId: v === 'all' ? 'all' : Number(v) }))
+            updateFilters({ bookId: v === 'all' ? 'all' : Number(v) })
           }
         >
           <SelectTrigger className="w-56" aria-label="Kitab süzgəci">
@@ -127,7 +157,7 @@ export function QuestionsPage() {
         <Select
           value={filters.status}
           onValueChange={(v) =>
-            setFilters((f) => ({ ...f, status: v as QuestionFilters['status'] }))
+            updateFilters({ status: v as QuestionFilters['status'] })
           }
         >
           <SelectTrigger className="w-44" aria-label="Status süzgəci">
@@ -161,7 +191,7 @@ export function QuestionsPage() {
               size="sm"
               variant={filters.queue === q.key ? 'secondary' : 'ghost'}
               aria-pressed={filters.queue === q.key}
-              onClick={() => setFilters((f) => ({ ...f, queue: q.key }))}
+              onClick={() => updateFilters({ queue: q.key })}
             >
               {q.label}
             </Button>
@@ -169,35 +199,25 @@ export function QuestionsPage() {
         </div>
 
         <div className="ml-auto flex items-center gap-2">
-          {bulkReady.length > 0 ? (
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={bulkApprove.isPending}
-              onClick={() =>
-                bulkApprove.mutate(
-                  bulkReady.map((q) => ({
-                    id: q.id,
-                    categoryId: q.ai_category_id as number,
-                    reviewerDifficulty: q.ai_difficulty,
-                    answer: null,
-                    answerChanged: false,
-                  })),
-                )
-              }
-            >
-              <CheckCheck data-icon="inline-start" />
-              Təmizləri təsdiqlə ({bulkReady.length})
-            </Button>
-          ) : null}
+          <BulkApproveButton items={bulkReady} />
           {items.length > 0 ? (
-            <Button size="sm" onClick={() => setReviewIndex(0)}>
+            <Button size="sm" onClick={() => setReviewId(items[0].id)}>
               <Eye data-icon="inline-start" />
               Review başlat
             </Button>
           ) : null}
         </div>
       </div>
+
+      {/* The queue rule reads flags/verified, which live in jsonb — it can only
+          be applied to the loaded page, so say so instead of implying more. */}
+      {filters.queue !== 'all' && total > QUESTIONS_PAGE_SIZE ? (
+        <p className="text-muted-foreground text-xs">
+          «{filters.queue === 'attention' ? 'Diqqət' : 'Təmiz'}» süzgəci yalnız
+          bu səhifədəki {loaded} suala tətbiq olunur — qalan səhifələri ayrıca
+          yoxlayın.
+        </p>
+      ) : null}
 
       {restructure.status === 'running' ? (
         <div className="flex items-center gap-3">
@@ -227,8 +247,9 @@ export function QuestionsPage() {
         <Empty>
           <EmptyTitle>Sual yoxdur</EmptyTitle>
           <EmptyDescription>
-            İmport səhifəsində crop-ları seçib «Çıxarılmaya göndər» ilə bura
-            əlavə edin.
+            {loaded > 0
+              ? 'Bu səhifədə süzgəcə uyğun sual yoxdur — növbəti səhifəyə keçin.'
+              : 'İmport səhifəsində crop-ları seçib «Çıxarılmaya göndər» ilə bura əlavə edin.'}
           </EmptyDescription>
         </Empty>
       ) : (
@@ -300,13 +321,37 @@ export function QuestionsPage() {
         </Table>
       )}
 
-      {reviewIndex !== null ? (
+      {total > QUESTIONS_PAGE_SIZE ? (
+        <div className="flex items-center justify-between gap-3">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={page === 0 || questions.isFetching}
+            onClick={() => setPage((p) => Math.max(0, p - 1))}
+          >
+            Əvvəlki
+          </Button>
+          <span className="text-muted-foreground text-xs tabular-nums">
+            {loaded > 0 ? `${offset + 1}–${offset + loaded}` : '0'} / {total}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={offset + loaded >= total || questions.isFetching}
+            onClick={() => setPage((p) => p + 1)}
+          >
+            Növbəti
+          </Button>
+        </div>
+      ) : null}
+
+      {reviewId !== null ? (
         <ReviewScreen
           items={items}
           index={reviewIndex}
-          subjectId={currentBook?.subject_id ?? null}
-          onIndexChange={setReviewIndex}
-          onClose={() => setReviewIndex(null)}
+          subjectId={reviewSubjectId}
+          onNavigate={setReviewId}
+          onClose={() => setReviewId(null)}
           onRestructure={(item) => {
             void restructure
               .run([item], categoryOptions)

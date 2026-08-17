@@ -9,7 +9,14 @@
 // Cost controls: every call is logged to ops_log with an estimated cost and
 // refused once today's total passes DAILY_BUDGET_USD; deterministic ops are
 // cached in ops_cache (images in the question-crops bucket under cache/), so
-// a re-sent crop never bills the model twice for the same request.
+// a re-sent crop never bills the model twice for the same request. The budget
+// is checked immediately before each model call, never before dispatch — a
+// cache hit costs nothing and must keep serving after the cap is reached,
+// otherwise a capped day turns cached questions into permanent failures.
+//
+// Two Supabase clients on purpose: the caller's JWT answers "is this an
+// admin?", and only the service role writes the ledger, the cache and the
+// cached images. The browser can read ops_log but cannot forge a row in it.
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2'
 import {
   buildCompareFigures,
@@ -36,6 +43,11 @@ const TIMEOUT_MS = 90_000
 // Complex references push gpt-image past 90s; stay just under the edge
 // function's own wall-clock budget so WE report the timeout, not the platform.
 const IMAGE_TIMEOUT_MS = 140_000
+// The whole request's wall clock. Per-call timeouts alone were not enough: a
+// retry used to arm a full fresh timeout, so a slow call plus its retry could
+// outlive the function and be killed by the platform — the client then saw a
+// generic failure instead of our timeout message.
+const REQUEST_BUDGET_MS = 145_000
 const MAX_BASE64_LENGTH = 8_000_000
 
 // Rough $/1M-token rates for the ESTIMATE column — visibility and the budget
@@ -100,15 +112,28 @@ function estGeminiCost(
   )
 }
 
+// Every attempt is armed with what is LEFT of the request's wall clock, so a
+// retry can never push the function past the platform's own limit.
+function remainingMs(deadline: number, perCallTimeout: number): number {
+  return Math.max(0, Math.min(perCallTimeout, deadline - Date.now()))
+}
+
+function deadlineExceeded(): DOMException {
+  return new DOMException('request deadline exceeded', 'AbortError')
+}
+
 async function callGemini(
   req: GeminiRequest,
+  deadline: number,
   attempt = 0,
 ): Promise<{ parsed: unknown; model: string; raw: Record<string, unknown> }> {
   const key = Deno.env.get('GEMINI_API_KEY')
   if (!key) throw new Error('GEMINI_API_KEY secret is not set')
   const model = GEMINI_MODELS[req.modelKey]
+  const budget = remainingMs(deadline, TIMEOUT_MS)
+  if (budget <= 0) throw deadlineExceeded()
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
+  const timer = setTimeout(() => controller.abort(), budget)
   try {
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
@@ -122,7 +147,7 @@ async function callGemini(
     if ((res.status === 429 || res.status >= 500) && attempt < 1) {
       void res.body?.cancel().catch(() => {})
       await new Promise((r) => setTimeout(r, 2000))
-      return callGemini(req, attempt + 1)
+      return callGemini(req, deadline, attempt + 1)
     }
     if (!res.ok) {
       const detail = (await res.text()).slice(0, 300)
@@ -156,6 +181,7 @@ function base64ToBlob(base64: string, mime: string): Blob {
 async function callOpenAIRedraw(
   image: string,
   mime: string,
+  deadline: number,
   attempt = 0,
 ): Promise<{ image: string; mime: string; model: string }> {
   const key = Deno.env.get('OPENAI_API_KEY')
@@ -166,8 +192,10 @@ async function callOpenAIRedraw(
   form.append('prompt', REDRAW_PROMPT)
   form.append('size', 'auto')
 
+  const budget = remainingMs(deadline, IMAGE_TIMEOUT_MS)
+  if (budget <= 0) throw deadlineExceeded()
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), IMAGE_TIMEOUT_MS)
+  const timer = setTimeout(() => controller.abort(), budget)
   try {
     const res = await fetch('https://api.openai.com/v1/images/edits', {
       method: 'POST',
@@ -178,7 +206,7 @@ async function callOpenAIRedraw(
     if ((res.status === 429 || res.status >= 500) && attempt < 1) {
       void res.body?.cancel().catch(() => {})
       await new Promise((r) => setTimeout(r, 2000))
-      return callOpenAIRedraw(image, mime, attempt + 1)
+      return callOpenAIRedraw(image, mime, deadline, attempt + 1)
     }
     if (!res.ok) {
       const detail = (await res.text()).slice(0, 300)
@@ -215,11 +243,11 @@ interface OpLogEntry {
 
 // The log line must never fail the operator's op — warn and continue.
 async function logOp(
-  supabase: SupabaseClient,
+  db: SupabaseClient,
   userId: string | null,
   entry: OpLogEntry,
 ): Promise<void> {
-  const { error } = await supabase.from('ops_log').insert({
+  const { error } = await db.from('ops_log').insert({
     op: entry.op,
     model: entry.model,
     prompt_tokens: entry.promptTokens,
@@ -243,25 +271,29 @@ async function logOp(
 // without a per-op roundtrip.
 let spendCache: { value: number; at: number } | null = null
 
-async function todaysSpend(supabase: SupabaseClient): Promise<number> {
+// The sum is computed in SQL: selecting the day's rows and adding them up here
+// silently under-reported past PostgREST's 1000-row page, which quietly
+// disabled the cap on exactly the busy days it exists for.
+async function todaysSpend(db: SupabaseClient): Promise<number> {
   if (spendCache && Date.now() - spendCache.at < 30_000) return spendCache.value
-  const dayStart = new Date()
-  dayStart.setUTCHours(0, 0, 0, 0)
-  const { data, error } = await supabase
-    .from('ops_log')
-    .select('est_cost_usd')
-    .gte('created_at', dayStart.toISOString())
+  const { data, error } = await db.rpc('ops_spend_today')
   if (error) throw new Error('büdcə yoxlaması alınmadı')
-  const value = (data ?? []).reduce(
-    (sum, r) => sum + Number(r.est_cost_usd ?? 0),
-    0,
-  )
+  const value = Number(data ?? 0)
   spendCache = { value, at: Date.now() }
   return value
 }
 
 function addToSpendCache(cost: number): void {
   if (spendCache) spendCache.value += cost
+}
+
+// Called immediately before a model call, never before a cache lookup.
+async function budgetRefusal(db: SupabaseClient): Promise<Response | null> {
+  const spend = await todaysSpend(db)
+  if (spend < DAILY_BUDGET_USD) return null
+  return json(429, {
+    error: `günlük model büdcəsi dolub ($${DAILY_BUDGET_USD}) — sabah davam edin və ya DAILY_BUDGET_USD secret-ini artırın`,
+  })
 }
 
 interface CacheRow {
@@ -271,10 +303,10 @@ interface CacheRow {
 }
 
 async function cacheGet(
-  supabase: SupabaseClient,
+  db: SupabaseClient,
   key: string,
 ): Promise<CacheRow | null> {
-  const { data } = await supabase
+  const { data } = await db
     .from('ops_cache')
     .select('response, image_path, model')
     .eq('key', key)
@@ -283,7 +315,7 @@ async function cacheGet(
 }
 
 async function cachePut(
-  supabase: SupabaseClient,
+  db: SupabaseClient,
   key: string,
   op: string,
   fields: {
@@ -292,12 +324,15 @@ async function cachePut(
     model?: string
   },
 ): Promise<void> {
-  const { error } = await supabase.from('ops_cache').insert({
+  const { error } = await db.from('ops_cache').insert({
     key,
     op,
     response: fields.response ?? null,
     image_path: fields.image_path ?? null,
     model: fields.model ?? null,
+    // Stamped so a stale generation can be swept later; the key already
+    // includes the version, so old rows are unreachable, not wrong.
+    prompt_version: PROMPT_VERSION,
   })
   if (error) {
     console.log(
@@ -310,17 +345,28 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS_HEADERS })
   if (req.method !== 'POST') return json(405, { error: 'method not allowed' })
 
-  const supabase = createClient(
+  const started = Date.now()
+  const deadline = started + REQUEST_BUDGET_MS
+
+  // Caller-scoped: it answers who is asking and nothing else.
+  const caller = createClient(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_ANON_KEY')!,
     { global: { headers: { Authorization: req.headers.get('Authorization')! } } },
   )
-  const { data: isAdmin, error: adminError } = await supabase.rpc('is_admin')
+  // Service-scoped: the ledger, the cache and the cached images are written
+  // here so a browser session cannot forge a spend row or a cache hit.
+  const db = createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+    { auth: { persistSession: false } },
+  )
+  const { data: isAdmin, error: adminError } = await caller.rpc('is_admin')
   if (adminError) {
     return json(500, { error: 'icazə yoxlaması alınmadı — yenidən cəhd edin' })
   }
   if (!isAdmin) return json(403, { error: 'icazə yoxdur' })
-  const { data: userData } = await supabase.auth.getUser()
+  const { data: userData } = await caller.auth.getUser()
   const userId = userData.user?.id ?? null
 
   let body: Record<string, unknown>
@@ -330,16 +376,8 @@ Deno.serve(async (req) => {
     return json(400, { error: 'yanlış sorğu gövdəsi' })
   }
   const op = String(body.op ?? '')
-  const started = Date.now()
 
   try {
-    const spend = await todaysSpend(supabase)
-    if (spend >= DAILY_BUDGET_USD) {
-      return json(429, {
-        error: `günlük model büdcəsi dolub ($${DAILY_BUDGET_USD}) — sabah davam edin və ya DAILY_BUDGET_USD secret-ini artırın`,
-      })
-    }
-
     if (op === 'extract') {
       const bad = badImage(body)
       if (bad) return json(400, { error: bad })
@@ -361,11 +399,19 @@ Deno.serve(async (req) => {
           typeof body.repairNotes === 'string' ? body.repairNotes : undefined,
         modelSwap: body.modelSwap === true,
       }
-      const key = await sha256Hex(JSON.stringify({ v: PROMPT_VERSION, op, ...input }))
-      const hit = await cacheGet(supabase, key)
+      // Build once and resolve the model from the built request: modelSwap
+      // flips the model class, and the key must name the model that actually
+      // ran — otherwise changing a *_MODEL secret replays the old model's
+      // output from cache forever.
+      const request = buildExtract(input)
+      const model = GEMINI_MODELS[request.modelKey]
+      const key = await sha256Hex(
+        JSON.stringify({ v: PROMPT_VERSION, m: model, op, ...input }),
+      )
+      const hit = await cacheGet(db, key)
       if (hit?.response) {
         const ms = Date.now() - started
-        await logOp(supabase, userId, {
+        await logOp(db, userId, {
           op,
           model: hit.model ?? 'cache',
           promptTokens: null,
@@ -376,27 +422,43 @@ Deno.serve(async (req) => {
         })
         return json(200, { ...hit.response, ms, cached: true })
       }
-      const { parsed, model, raw } = await callGemini(buildExtract(input))
+      const refusal = await budgetRefusal(db)
+      if (refusal) return refusal
+      const { parsed, raw } = await callGemini(request, deadline)
       const ms = Date.now() - started
       const u = usage(raw)
       const cost = estGeminiCost(model, u.promptTokens, u.outputTokens)
-      await cachePut(supabase, key, op, {
+      await cachePut(db, key, op, {
         response: { wire: parsed, model },
         model,
       })
-      await logOp(supabase, userId, { op, model, ...u, ms, cost, cached: false })
+      await logOp(db, userId, { op, model, ...u, ms, cost, cached: false })
       return json(200, { wire: parsed, model, ms })
     }
 
     if (op === 'redraw_figure') {
       const bad = badImage(body)
       if (bad) return json(400, { error: bad })
+      // The client retries a redraw whose render did not match the original.
+      // Without this counter in the key the cache would hand back the exact
+      // image that just failed the comparison, so the retry could never differ.
+      const attempt = body.attempt === undefined ? 0 : Number(body.attempt)
+      if (!Number.isInteger(attempt) || attempt < 0 || attempt > 3) {
+        return json(400, { error: 'attempt yanlışdır' })
+      }
       const key = await sha256Hex(
-        JSON.stringify({ v: PROMPT_VERSION, op, image: body.image, mime: body.mime }),
+        JSON.stringify({
+          v: PROMPT_VERSION,
+          m: OPENAI_IMAGE_MODEL,
+          op,
+          image: body.image,
+          mime: body.mime,
+          attempt,
+        }),
       )
-      const hit = await cacheGet(supabase, key)
+      const hit = await cacheGet(db, key)
       if (hit?.image_path) {
-        const { data: blob } = await supabase.storage
+        const { data: blob } = await db.storage
           .from('question-crops')
           .download(hit.image_path)
         if (blob) {
@@ -404,7 +466,7 @@ Deno.serve(async (req) => {
           let bin = ''
           for (const b of buf) bin += String.fromCharCode(b)
           const ms = Date.now() - started
-          await logOp(supabase, userId, {
+          await logOp(db, userId, {
             op,
             model: hit.model ?? 'cache',
             promptTokens: null,
@@ -423,19 +485,25 @@ Deno.serve(async (req) => {
         }
         // cache row without its object (cleaned up?): fall through and re-run
       }
-      const out = await callOpenAIRedraw(body.image as string, body.mime as string)
+      const refusal = await budgetRefusal(db)
+      if (refusal) return refusal
+      const out = await callOpenAIRedraw(
+        body.image as string,
+        body.mime as string,
+        deadline,
+      )
       const ms = Date.now() - started
       const path = `cache/${key}.png`
-      const { error: uploadError } = await supabase.storage
+      const { error: uploadError } = await db.storage
         .from('question-crops')
         .upload(path, base64ToBlob(out.image, out.mime), {
           upsert: true,
           contentType: out.mime,
         })
       if (!uploadError) {
-        await cachePut(supabase, key, op, { image_path: path, model: out.model })
+        await cachePut(db, key, op, { image_path: path, model: out.model })
       }
-      await logOp(supabase, userId, {
+      await logOp(db, userId, {
         op,
         model: out.model,
         promptTokens: null,
@@ -454,15 +522,45 @@ Deno.serve(async (req) => {
       if (!original || !candidate || bad) {
         return json(400, { error: bad || 'iki şəkil tələb olunur' })
       }
-      const { parsed, model, raw } = await callGemini(
-        buildCompareFigures(
-          { image: original.image as string, mime: original.mime as string },
-          { image: candidate.image as string, mime: candidate.mime as string },
-        ),
+      // Cached like every other model op: the compare runs once per redraw
+      // attempt, so without it a re-run of a figure question was never the
+      // "nearly free" replay the rest of the pipeline promises.
+      const request = buildCompareFigures(
+        { image: original.image as string, mime: original.mime as string },
+        { image: candidate.image as string, mime: candidate.mime as string },
       )
+      const model = GEMINI_MODELS[request.modelKey]
+      const key = await sha256Hex(
+        JSON.stringify({
+          v: PROMPT_VERSION,
+          m: model,
+          op,
+          original: original.image,
+          candidate: candidate.image,
+        }),
+      )
+      const hit = await cacheGet(db, key)
+      if (hit?.response) {
+        const ms = Date.now() - started
+        await logOp(db, userId, {
+          op,
+          model: hit.model ?? 'cache',
+          promptTokens: null,
+          outputTokens: null,
+          ms,
+          cost: 0,
+          cached: true,
+        })
+        return json(200, { ...hit.response, ms, cached: true })
+      }
+      const refusal = await budgetRefusal(db)
+      if (refusal) return refusal
+      const { parsed, raw } = await callGemini(request, deadline)
       const ms = Date.now() - started
       const u = usage(raw)
-      await logOp(supabase, userId, {
+      const responseBody = { ...(parsed as Record<string, unknown>), model }
+      await cachePut(db, key, op, { response: responseBody, model })
+      await logOp(db, userId, {
         op,
         model,
         ...u,
@@ -470,7 +568,7 @@ Deno.serve(async (req) => {
         cost: estGeminiCost(model, u.promptTokens, u.outputTokens),
         cached: false,
       })
-      return json(200, { ...(parsed as Record<string, unknown>), model, ms })
+      return json(200, { ...responseBody, ms })
     }
 
     if (op === 'solve' || op === 'suggest_category' || op === 'parse_answer_key') {
@@ -525,13 +623,17 @@ Deno.serve(async (req) => {
         cachePayload = { image: body.image, mime: body.mime }
       }
 
+      // The resolved model belongs in the key: a changed *_MODEL secret must
+      // start a new cache generation instead of replaying the old model's
+      // answers.
+      const model = GEMINI_MODELS[request.modelKey]
       const key = await sha256Hex(
-        JSON.stringify({ v: PROMPT_VERSION, op, ...cachePayload }),
+        JSON.stringify({ v: PROMPT_VERSION, m: model, op, ...cachePayload }),
       )
-      const hit = await cacheGet(supabase, key)
+      const hit = await cacheGet(db, key)
       if (hit?.response) {
         const ms = Date.now() - started
-        await logOp(supabase, userId, {
+        await logOp(db, userId, {
           op,
           model: hit.model ?? 'cache',
           promptTokens: null,
@@ -542,12 +644,14 @@ Deno.serve(async (req) => {
         })
         return json(200, { ...hit.response, ms, cached: true })
       }
-      const { parsed, model, raw } = await callGemini(request)
+      const refusal = await budgetRefusal(db)
+      if (refusal) return refusal
+      const { parsed, raw } = await callGemini(request, deadline)
       const ms = Date.now() - started
       const u = usage(raw)
       const responseBody = { ...(parsed as Record<string, unknown>), model }
-      await cachePut(supabase, key, op, { response: responseBody, model })
-      await logOp(supabase, userId, {
+      await cachePut(db, key, op, { response: responseBody, model })
+      await logOp(db, userId, {
         op,
         model,
         ...u,

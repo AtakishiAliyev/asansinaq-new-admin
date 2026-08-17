@@ -1,30 +1,14 @@
-import { useEffect, useMemo, useState } from 'react'
-import {
-  Check,
-  ChevronLeft,
-  ChevronRight,
-  Pencil,
-  RefreshCw,
-  X,
-} from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from '@/components/ui/command'
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover'
-import { Spinner } from '@/components/ui/spinner'
-import { QuestionPreview } from '@/components/question/question-preview'
-import { useCategories, type Category } from '@/features/taxonomy'
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { useCategories } from '@/features/taxonomy'
 import {
   useApproveQuestion,
   useEditQuestion,
@@ -37,76 +21,13 @@ import {
   FlagBadges,
   VerifiedBadge,
 } from '@/features/questions/components/question-diagnostics'
-import {
-  imagePathsOf,
-  parseFigures,
-  parseFlags,
-  parseOptions,
-} from '@/features/questions/lib/row'
+import { ReviewActions } from '@/features/questions/components/review-actions'
+import { ReviewPanes } from '@/features/questions/components/review-panes'
+import { imagePathsOf, parseFlags } from '@/features/questions/lib/row'
 
-const DIFFICULTIES = [1, 2, 3, 4, 5] as const
-
-function CategoryPicker({
-  categories,
-  value,
-  onChange,
-  suggestion,
-}: {
-  categories: Category[]
-  value: number | null
-  onChange: (id: number) => void
-  suggestion: number | null
-}) {
-  const [open, setOpen] = useState(false)
-  const byId = new Map(categories.map((c) => [c.id, c]))
-  const label = (c: Category) => {
-    const parent = c.parent_id ? byId.get(c.parent_id) : null
-    return parent ? `${parent.name} → ${c.name}` : c.name
-  }
-  const selected = value ? byId.get(value) : null
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" className="max-w-64 justify-start">
-          <span className="truncate">
-            {selected ? label(selected) : 'Kateqoriya seç'}
-          </span>
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-72 p-0" align="start">
-        <Command>
-          <CommandInput placeholder="Kateqoriya axtar…" />
-          <CommandList>
-            <CommandEmpty>Kateqoriya tapılmadı.</CommandEmpty>
-            <CommandGroup>
-              {categories.map((c) => (
-                <CommandItem
-                  key={c.id}
-                  value={`${label(c)} ${c.id}`}
-                  onSelect={() => {
-                    onChange(c.id)
-                    setOpen(false)
-                  }}
-                >
-                  {label(c)}
-                  {c.id === suggestion ? (
-                    <Badge
-                      variant="outline"
-                      className="ml-auto border-violet-200 bg-violet-50 text-[10px] text-violet-700"
-                    >
-                      AI təklifi
-                    </Badge>
-                  ) : null}
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          </CommandList>
-        </Command>
-      </PopoverContent>
-    </Popover>
-  )
-}
+/** Neighbours pre-signed with the current item so arrows do not blank a pane. */
+const WINDOW_BEHIND = 1
+const WINDOW_AHEAD = 3
 
 // Keyboard-first review: original crop on the left, the recreation rendered
 // with the SAME components production will use on the right. Approval writes
@@ -115,18 +36,19 @@ export function ReviewScreen({
   items,
   index,
   subjectId,
-  onIndexChange,
+  onNavigate,
   onClose,
   onRestructure,
 }: {
   items: QuestionListItem[]
   index: number
   subjectId: number | null
-  onIndexChange: (index: number) => void
+  onNavigate: (id: number) => void
   onClose: () => void
   onRestructure: (item: QuestionListItem) => void
 }) {
-  const item = items[Math.min(index, items.length - 1)]
+  const item = index >= 0 ? items[index] : undefined
+  const contentRef = useRef<HTMLDivElement>(null)
   const categories = useCategories(subjectId)
   const approve = useApproveQuestion()
   const reject = useRejectQuestion()
@@ -135,30 +57,54 @@ export function ReviewScreen({
   const [categoryId, setCategoryId] = useState<number | null>(null)
   const [difficulty, setDifficulty] = useState<number | null>(null)
 
-  const paths = useMemo(() => (item ? imagePathsOf(item) : []), [item])
+  // Sign a sliding window, not just this row: navigation then resolves from
+  // the previous query's map instead of waiting on a fresh signing round-trip.
+  const paths = useMemo(() => {
+    if (index < 0) return []
+    return items
+      .slice(Math.max(0, index - WINDOW_BEHIND), index + WINDOW_AHEAD + 1)
+      .flatMap(imagePathsOf)
+  }, [items, index])
   const signed = useSignedUrls(paths)
   const resolveImageUrl = (src: string) =>
     src.startsWith('data:') ? src : (signed.data?.get(src) ?? src)
 
   // Per-question review state: the AI suggestion pre-fills, the reviewer's
-  // choice is what gets written.
+  // choice is what gets written. Keyed on the id, not the row object — a
+  // refetch after an edit hands back a new object and would wipe the picks.
+  const itemId = item?.id
   useEffect(() => {
-    if (!item) return
-    setCategoryId(item.category_id ?? item.ai_category_id ?? null)
-    setDifficulty(item.reviewer_difficulty ?? item.ai_difficulty ?? null)
+    const current = items.find((q) => q.id === itemId)
+    if (!current) return
+    setCategoryId(current.category_id ?? current.ai_category_id ?? null)
+    setDifficulty(current.reviewer_difficulty ?? current.ai_difficulty ?? null)
     setEditing(false)
-  }, [item])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new question re-prefills
+  }, [itemId])
+
+  // The queue can empty under the reviewer (the last flagged row gets approved);
+  // without this the overlay stays mounted, invisible, holding a stale cursor.
+  useEffect(() => {
+    if (!item) onClose()
+  }, [item, onClose])
 
   const busy = approve.isPending || reject.isPending || edit.isPending
   const canApprove = Boolean(item && categoryId && item.status === 'structured')
 
-  function next() {
-    if (index < items.length - 1) onIndexChange(index + 1)
-    else onClose()
+  /** The id to land on after this row leaves the list — captured before the
+   *  mutation, because the refetch reorders/removes rows under us. */
+  function nextId(): number | null {
+    return items[index + 1]?.id ?? null
+  }
+
+  function goTo(target: number | null) {
+    if (target === null) onClose()
+    else onNavigate(target)
   }
 
   function handleApprove() {
     if (!item || !categoryId || !canApprove) return
+    const after = nextId()
     approve.mutate(
       {
         id: item.id,
@@ -167,23 +113,27 @@ export function ReviewScreen({
         answer: null,
         answerChanged: false,
       },
-      { onSuccess: next },
+      { onSuccess: () => goTo(after) },
     )
   }
 
   function handleReject() {
     if (!item) return
-    reject.mutate({ id: item.id }, { onSuccess: next })
+    const after = nextId()
+    reject.mutate({ id: item.id }, { onSuccess: () => goTo(after) })
   }
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (editing || busy) return
+      if (!item || editing || busy) return
       const target = e.target as HTMLElement | null
       if (target && ['INPUT', 'TEXTAREA'].includes(target.tagName)) return
-      if (e.key === 'ArrowLeft' && index > 0) onIndexChange(index - 1)
+      // A focused control owns its own Enter/Space; approving from under it
+      // would fire two different actions from one keypress.
+      if (target?.closest('button,[role="option"],[role="combobox"]')) return
+      if (e.key === 'ArrowLeft' && index > 0) onNavigate(items[index - 1].id)
       else if (e.key === 'ArrowRight' && index < items.length - 1)
-        onIndexChange(index + 1)
+        onNavigate(items[index + 1].id)
       else if (e.key === 'a' || e.key === 'Enter') handleApprove()
       else if (e.key === 'd') handleReject()
       else if (e.key === 'e') setEditing(true)
@@ -195,17 +145,30 @@ export function ReviewScreen({
   })
 
   if (!item) return null
-  const flags = parseFlags(item.flags)
-  const options = parseOptions(item.options)
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-black/60 p-3 sm:p-6">
-      <div className="bg-background flex min-h-0 flex-1 flex-col gap-3 rounded-xl border p-4 shadow-lg">
+    <Dialog open onOpenChange={(next) => !next && onClose()}>
+      <DialogContent
+        ref={contentRef}
+        showCloseButton={false}
+        tabIndex={-1}
+        // Focus the shell, not its first button: the shortcuts below are
+        // deliberately inert while a control has focus.
+        onOpenAutoFocus={(e) => {
+          e.preventDefault()
+          contentRef.current?.focus()
+        }}
+        className="flex h-[94vh] max-w-[96vw] flex-col gap-3 sm:max-w-[96vw]"
+      >
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <span className="font-mono text-sm tracking-[0.14em] uppercase">
+          <DialogTitle className="font-mono text-sm tracking-[0.14em] uppercase">
             {item.bookTitle ? `${item.bookTitle} · ` : ''}s.{item.page_number} · sual{' '}
             {item.q_no}
-          </span>
+          </DialogTitle>
+          <DialogDescription className="sr-only">
+            Klaviatura ilə yoxlama: A təsdiq, D rədd, E redaktə, sol/sağ ox
+            düymələri ilə keçid. Escape pəncərəni bağlayır.
+          </DialogDescription>
           <VerifiedBadge verified={item.verified} />
           {item.status === 'failed' ? (
             <Badge
@@ -223,116 +186,32 @@ export function ReviewScreen({
           </Button>
         </div>
 
-        <div className="grid min-h-0 flex-1 gap-3 overflow-auto md:grid-cols-2">
-          <div className="flex flex-col gap-1.5">
-            <p className="text-muted-foreground font-mono text-[11px] tracking-[0.14em] uppercase">
-              Orijinal
-            </p>
-            <div className="rounded-md border bg-white p-2">
-              {signed.data?.get(item.crop_path) ? (
-                <img
-                  src={signed.data.get(item.crop_path)}
-                  alt="Orijinal crop"
-                  className="w-full"
-                />
-              ) : (
-                <div className="text-muted-foreground flex h-40 items-center justify-center text-sm">
-                  {signed.isPending ? 'yüklənir…' : 'crop açıla bilmədi'}
-                </div>
-              )}
-            </div>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <p className="text-muted-foreground font-mono text-[11px] tracking-[0.14em] uppercase">
-              Yenidən yaradılmış
-            </p>
-            <div className="rounded-md border bg-white p-3">
-              {item.stem ? (
-                <QuestionPreview
-                  question={{
-                    stem: item.stem,
-                    options,
-                    figures: parseFigures(item.figures),
-                  }}
-                  resolveImageUrl={resolveImageUrl}
-                />
-              ) : (
-                <p className="text-destructive text-sm">
-                  {item.extraction_error ?? 'nəticə yoxdur'}
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
+        <ReviewPanes
+          item={item}
+          cropUrl={signed.data?.get(item.crop_path)}
+          isSigning={signed.isPending}
+          resolveImageUrl={resolveImageUrl}
+        />
 
-        <FlagBadges flags={flags} />
+        <FlagBadges flags={parseFlags(item.flags)} />
 
-        <div className="flex flex-wrap items-center gap-2 border-t pt-3">
-          <CategoryPicker
-            categories={categories.data ?? []}
-            value={categoryId}
-            onChange={setCategoryId}
-            suggestion={item.ai_category_id}
-          />
-          <div className="flex items-center gap-1">
-            <span className="text-muted-foreground text-xs">Çətinlik:</span>
-            {DIFFICULTIES.map((d) => (
-              <Button
-                key={d}
-                size="icon-sm"
-                variant={difficulty === d ? 'secondary' : 'ghost'}
-                aria-pressed={difficulty === d}
-                onClick={() => setDifficulty(d)}
-              >
-                {d}
-              </Button>
-            ))}
-            {item.ai_difficulty ? (
-              <span className="text-muted-foreground text-xs">
-                (AI: {item.ai_difficulty})
-              </span>
-            ) : null}
-          </div>
-
-          <div className="ml-auto flex items-center gap-1.5">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onRestructure(item)}
-              disabled={busy}
-            >
-              <RefreshCw data-icon="inline-start" />
-              Yenidən çıxar
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setEditing(true)}
-              disabled={busy || !item.stem}
-            >
-              <Pencil data-icon="inline-start" />
-              Redaktə (E)
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-destructive"
-              onClick={handleReject}
-              disabled={busy}
-            >
-              <X data-icon="inline-start" />
-              Rədd et (D)
-            </Button>
-            <Button size="sm" onClick={handleApprove} disabled={busy || !canApprove}>
-              {approve.isPending ? (
-                <Spinner data-icon="inline-start" />
-              ) : (
-                <Check data-icon="inline-start" />
-              )}
-              Təsdiqlə (A)
-            </Button>
-          </div>
-        </div>
+        <ReviewActions
+          categories={categories.data ?? []}
+          categoryId={categoryId}
+          onCategoryChange={setCategoryId}
+          suggestion={item.ai_category_id}
+          aiDifficulty={item.ai_difficulty}
+          difficulty={difficulty}
+          onDifficultyChange={setDifficulty}
+          busy={busy}
+          canApprove={canApprove}
+          canEdit={Boolean(item.stem)}
+          isApproving={approve.isPending}
+          onRestructure={() => onRestructure(item)}
+          onEdit={() => setEditing(true)}
+          onReject={handleReject}
+          onApprove={handleApprove}
+        />
         {!categoryId && item.status === 'structured' ? (
           <p className="text-muted-foreground text-xs">
             Təsdiq üçün kateqoriya seçilməlidir.
@@ -346,7 +225,7 @@ export function ReviewScreen({
             aria-label="Əvvəlki"
             aria-disabled={index <= 0}
             className={index <= 0 ? 'pointer-events-none opacity-50' : undefined}
-            onClick={() => onIndexChange(index - 1)}
+            onClick={() => onNavigate(items[index - 1].id)}
           >
             <ChevronLeft />
           </Button>
@@ -361,26 +240,26 @@ export function ReviewScreen({
             className={
               index >= items.length - 1 ? 'pointer-events-none opacity-50' : undefined
             }
-            onClick={() => onIndexChange(index + 1)}
+            onClick={() => onNavigate(items[index + 1].id)}
           >
             <ChevronRight />
           </Button>
         </div>
-      </div>
 
-      {editing ? (
-        <QuestionEditForm
-          question={item}
-          isPending={edit.isPending}
-          onCancel={() => setEditing(false)}
-          onSubmit={(values) =>
-            edit.mutate(
-              { id: item.id, ...values },
-              { onSuccess: () => setEditing(false) },
-            )
-          }
-        />
-      ) : null}
-    </div>
+        {editing ? (
+          <QuestionEditForm
+            question={item}
+            isPending={edit.isPending}
+            onCancel={() => setEditing(false)}
+            onSubmit={(values) =>
+              edit.mutate(
+                { id: item.id, ...values },
+                { onSuccess: () => setEditing(false) },
+              )
+            }
+          />
+        ) : null}
+      </DialogContent>
+    </Dialog>
   )
 }

@@ -301,13 +301,20 @@ export function ImportPage() {
   }
 
   const running = segmentation.status === 'running'
+  const structuringRunning = structuring.status === 'running'
+  const structuredKeys = new Set(structuring.items.map((i) => cropKey(i.crop)))
+  // Crops stay in memory until the operator SENDS them — only selected crops
+  // are persisted (as rows + storage objects) right before structuring, so
+  // the bank never fills with drafts nobody asked for.
+  const allCrops = segmentation.results.flatMap((page) => page.crops)
+  // What is actually at risk: crops no structuring run has consumed. Keying the
+  // guard on the run being idle disarmed it the moment the first run finished,
+  // leaving every never-sent crop unprotected.
+  const hasUnsentCrops = allCrops.some((c) => !structuredKeys.has(cropKey(c)))
   // Crops persist only when SENT — leaving with unsent results discards them
   // (recoverable by re-running the range, but usually accidental).
   const dirty =
-    running ||
-    structuring.status === 'running' ||
-    saveCrops.isPending ||
-    (segmentation.results.length > 0 && structuring.status === 'idle')
+    running || structuringRunning || saveCrops.isPending || hasUnsentCrops
 
   const blocker = useBlocker(dirty)
 
@@ -328,12 +335,6 @@ export function ImportPage() {
     }
   }
 
-  const structuringRunning = structuring.status === 'running'
-  const structuredKeys = new Set(structuring.items.map((i) => cropKey(i.crop)))
-  // Crops stay in memory until the operator SENDS them — only selected crops
-  // are persisted (as rows + storage objects) right before structuring, so
-  // the bank never fills with drafts nobody asked for.
-  const allCrops = segmentation.results.flatMap((page) => page.crops)
   const eligibleKeys = new Set(
     currentBook
       ? allCrops
@@ -344,11 +345,14 @@ export function ImportPage() {
   const selectedCrops = allCrops.filter(
     (c) => selectedKeys.has(cropKey(c)) && eligibleKeys.has(cropKey(c)),
   )
-  // Rough per-lane cost constants (documented estimates, not billing).
+  // Rough per-lane cost constants (documented estimates, not billing). The
+  // scheme lane is a range, not a number: a `rule` crop whose DSL render fails
+  // escalates to image generation, so $0.03 is its floor and $0.18 its ceiling.
   const laneCounts = { none: 0, rule: 0, colored: 0 }
   for (const c of selectedCrops) laneCounts[c.figureKind]++
-  const costEstimate =
-    laneCounts.none * 0.006 + laneCounts.rule * 0.03 + laneCounts.colored * 0.16
+  const costBase = laneCounts.none * 0.006 + laneCounts.colored * 0.16
+  const costLow = costBase + laneCounts.rule * 0.03
+  const costHigh = costBase + laneCounts.rule * 0.18
 
   function toggleSelected(key: string) {
     setSelectedKeys((current) => {
@@ -757,11 +761,15 @@ export function ImportPage() {
             <AlertDialogDescription>
               Seçilən crop-lar bazaya yazılacaq və AI hər sualı təmiz formada
               yenidən yaradacaq (mətn, variantlar, fiqurlar). Təxmini xərc: ≈ $
-              {costEstimate.toFixed(2)}
+              {costLow.toFixed(2)}–${costHigh.toFixed(2)}
               {laneCounts.colored > 0 || laneCounts.rule > 0
                 ? ` (mətn: ${laneCounts.none}, sxem: ${laneCounts.rule}, rəngli fiqur: ${laneCounts.colored}; şəkilli variantlar xərci artıra bilər)`
                 : ''}
-              . Nəticələr bazaya yazılır və sonra yoxlanıla bilər.
+              .{' '}
+              {laneCounts.rule > 0
+                ? 'Sxem fiquru DSL ilə çəkilə bilməsə, şəkil generasiyasına keçir — bu halda xərc yuxarı hədə yaxınlaşır. '
+                : ''}
+              Nəticələr bazaya yazılır və sonra yoxlanıla bilər.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

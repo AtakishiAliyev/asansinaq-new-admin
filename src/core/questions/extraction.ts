@@ -21,7 +21,15 @@ import type {
 export interface ExtractedOption {
   label: 'A' | 'B' | 'C' | 'D' | 'E'
   tex?: string
+  /** resolved image: storage path or data URL (filled by the pipeline) */
   image?: string
+  /**
+   * The model said this option's CONTENT is a figure. It arrives before any
+   * image exists, so lint must not read the empty option as a defect — that
+   * would force a paid repair round whose only way to "fix" the option is to
+   * invent TeX for a picture.
+   */
+  isImage?: boolean
 }
 
 export interface ExtractedQuestion {
@@ -292,6 +300,7 @@ export function wireToQuestion(raw: Record<string, unknown>): ExtractedQuestion 
       const opt: ExtractedOption = { label: o.label }
       if (o.tex != null) opt.tex = normalizeTexField(String(o.tex))
       if (o.image != null) opt.image = o.image
+      if ((o as { is_image?: boolean }).is_image) opt.isImage = true
       return opt
     }),
     figures: items.length ? { v: 1, items } : null,

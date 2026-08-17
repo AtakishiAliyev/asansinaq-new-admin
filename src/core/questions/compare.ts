@@ -95,9 +95,21 @@ function stemDiff(a: string, b: string): string | null {
 // what catches sign flips / digit swaps). Image vs image is coarsely equal —
 // like two rasters, pixels are compared elsewhere (P3). Image vs TeX is never
 // equal: the two reads disagree about what the option even is.
-function optionContentEqual(a: { tex?: string; image?: string }, b: { tex?: string; image?: string }): boolean {
-  const aImg = a.image != null
-  const bImg = b.image != null
+// An option is "a picture" either because the model said so (isImage) or
+// because the pipeline already attached a generated image. Both sides must be
+// judged the same way: the second read never carries a generated image, so
+// comparing a redrawn option against a plain one would report a difference
+// that says nothing about the reading. Pixel fidelity of an option image is
+// validated separately, against its own reference region.
+type ComparableOption = { tex?: string; image?: string; isImage?: boolean }
+
+function isPictureOption(o: ComparableOption): boolean {
+  return o.image != null || o.isImage === true
+}
+
+function optionContentEqual(a: ComparableOption, b: ComparableOption): boolean {
+  const aImg = isPictureOption(a)
+  const bImg = isPictureOption(b)
   if (aImg && bImg) return true
   if (aImg !== bImg) return false
   return canonMath(a.tex ?? '') === canonMath(b.tex ?? '')

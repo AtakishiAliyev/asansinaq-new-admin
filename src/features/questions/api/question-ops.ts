@@ -59,7 +59,11 @@ export function opExtract(input: {
   )
 }
 
-export function opRedrawFigure(input: OpImage) {
+/**
+ * `attempt` is part of the server's cache key: a retry after a failed
+ * render-compare must not be served the same image that just mismatched.
+ */
+export function opRedrawFigure(input: OpImage & { attempt?: number }) {
   return invokeOp({ op: 'redraw_figure', ...input }, (d) =>
     redrawResponseSchema.parse(d),
   )

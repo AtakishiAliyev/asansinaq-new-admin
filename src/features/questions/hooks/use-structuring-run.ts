@@ -49,6 +49,10 @@ interface RunEntry {
   crop: Crop
 }
 
+// A row the reviewer already ruled on keeps its verdict: re-extracting is a
+// repair of the CONTENT, never a silent un-approval.
+const REVIEWED = new Set(['approved', 'rejected'])
+
 /** The subject's category tree, sent so the model picks an EXISTING id. */
 export interface CategoryOption {
   id: number
@@ -82,6 +86,13 @@ export function useStructuringRun() {
     const items: StructuringItem[] = []
     let cursor = 0
 
+    // Thrown when the operator stopped the run; the worker loop treats it as
+    // "leave this row alone", not as a failure worth recording.
+    const CANCELLED = Symbol('cancelled')
+    const checkCancelled = () => {
+      if (runId.current !== id) throw CANCELLED
+    }
+
     const processOne = async (entry: RunEntry): Promise<StructuringItem> => {
       const { row, crop } = entry
       const { image, mime } = splitDataUrl(crop.dataUrl)
@@ -93,8 +104,9 @@ export function useStructuringRun() {
             ? ('dsl' as const)
             : ('raster' as const)
 
-      const extractOnce = (repairNotes?: string, withHint = true) =>
-        opExtract({
+      const extractOnce = (repairNotes?: string, withHint = true) => {
+        checkCancelled()
+        return opExtract({
           image,
           mime,
           figureMode,
@@ -106,11 +118,12 @@ export function useStructuringRun() {
           // be a byte-identical call — cross-model agreement replaces it.
           modelSwap: !withHint && !crop.textLayer,
         })
+      }
 
       // Raster lane: the figure arrives from the image model AFTER this
       // extraction — its absence at lint time is by design, not an error.
       const lintLane = (q: ExtractedQuestion): Flag[] => {
-        const fs = lintQuestion(q)
+        const fs = lintQuestion(q, crop.number)
         return figureMode === 'raster'
           ? fs.filter((f) => f.code !== 'missing_figure')
           : fs
@@ -153,11 +166,16 @@ export function useStructuringRun() {
 
       // Each attempt is a fresh function invocation with its own wall-clock
       // budget — one client-side retry covers slow gpt-image generations.
-      const redrawSafe = async (img: { image: string; mime: 'image/png' | 'image/jpeg' }) => {
+      const redrawSafe = async (
+        img: { image: string; mime: 'image/png' | 'image/jpeg' },
+        attempt = 0,
+      ) => {
+        checkCancelled()
         try {
-          return await opRedrawFigure(img)
+          return await opRedrawFigure({ ...img, attempt })
         } catch {
-          return await opRedrawFigure(img)
+          checkCancelled()
+          return await opRedrawFigure({ ...img, attempt })
         }
       }
 
@@ -214,7 +232,9 @@ export function useStructuringRun() {
           mime: redrawn.mime as 'image/png' | 'image/jpeg',
         })
         if (!cmp.match) {
-          const retry = await redrawSafe(original)
+          // attempt=1 busts the op cache — a retry that replays the same
+          // cached image could never produce a different figure.
+          const retry = await redrawSafe(original, 1)
           const retryDataUrl = `data:${retry.mime};base64,${retry.image}`
           const cmp2 = await opCompareFigures(original, {
             image: retry.image,
@@ -232,6 +252,14 @@ export function useStructuringRun() {
             })
           }
         }
+      }
+
+      // What the FIRST read actually said, before the pipeline attached
+      // generated figures/images. The second read is compared against this —
+      // otherwise every raster question "disagrees" with itself.
+      const firstRead: ExtractedQuestion = {
+        ...question,
+        options: question.options.map((o) => ({ ...o })),
       }
 
       const figureWork = async () => {
@@ -274,14 +302,10 @@ export function useStructuringRun() {
       let verifyDiffs: FieldDiff[] = []
       const second = await secondPromise
       if (second) {
-        const textOnly = (q: ExtractedQuestion): ExtractedQuestion => ({
-          ...q,
-          figures: null,
-        })
-        const cmp = compareQuestions(
-          textOnly(question),
-          textOnly(wireToQuestion(second.wire)),
-        )
+        // Figures ARE compared here (coarse kind signature) because both
+        // sides are raw reads now; pixel fidelity is validated separately by
+        // render-and-compare against the original crop.
+        const cmp = compareQuestions(firstRead, wireToQuestion(second.wire))
         verifyDiffs = cmp.diffs
         secondEqual = cmp.equal
       } else {
@@ -340,6 +364,7 @@ export function useStructuringRun() {
       let aiCategoryConfidence: number | null = null
       if (categories.length && question.stem) {
         try {
+          checkCancelled()
           const suggestion = await opSuggestCategory({
             stem: question.stem,
             options: question.options.map((o) => o.tex ?? '[şəkil]'),
@@ -355,18 +380,48 @@ export function useStructuringRun() {
         }
       }
 
+      // An empty stem can never satisfy the row's CHECK constraint, and the
+      // raw Postgres error would replace every pipeline flag with noise.
+      if (!question.stem.trim()) {
+        await supabase
+          .from('questions')
+          .update({
+            status: REVIEWED.has(row.status) ? row.status : 'failed',
+            flags: [...lintLane(question), ...pipelineFlags] as never,
+            verified: false,
+            extraction_error:
+              'Sual mətni oxunmadı — crop-u yenidən kəsin və ya əl ilə daxil edin',
+          })
+          .eq('id', row.id)
+        return {
+          row,
+          crop,
+          flags: [...lintLane(question), ...pipelineFlags],
+          verified: false,
+          verifyDiffs: [],
+          status: 'failed',
+          error: 'sual mətni boş çıxdı',
+        }
+      }
+
       const aiDifficulty =
         typeof wire.difficulty === 'number' ? wire.difficulty : null
       const { error: updateError } = await supabase
         .from('questions')
         .update({
-          status: 'structured',
+          status: REVIEWED.has(row.status) ? row.status : 'structured',
           stem: question.stem,
           options: dbOptions,
           figures: dbFigures as never,
           ai_difficulty: aiDifficulty,
-          ai_category_id: aiCategoryId,
-          ai_category_confidence: aiCategoryConfidence,
+          // Only overwrite the suggestion when one was actually requested —
+          // a restructure without a category tree must not erase the old one.
+          ...(categories.length
+            ? {
+                ai_category_id: aiCategoryId,
+                ai_category_confidence: aiCategoryConfidence,
+              }
+            : {}),
           model: first.model,
           prompt_version: PROMPT_VERSION,
           flags: flags as never,
@@ -397,11 +452,17 @@ export function useStructuringRun() {
           try {
             item = await processOne(entry)
           } catch (error) {
+            if (error === CANCELLED) return
             const message =
               error instanceof Error ? error.message : 'naməlum xəta'
             await supabase
               .from('questions')
-              .update({ status: 'failed', extraction_error: message })
+              .update({
+                status: REVIEWED.has(entry.row.status)
+                  ? entry.row.status
+                  : 'failed',
+                extraction_error: message,
+              })
               .eq('id', entry.row.id)
               .then(() => undefined)
             item = {
@@ -414,8 +475,8 @@ export function useStructuringRun() {
               error: message,
             }
           }
-          if (runId.current !== id) return
           items.push(item)
+          if (runId.current !== id) return
           setState({
             status: 'running',
             current: items.length,

@@ -52,7 +52,10 @@ export const solveResponseSchema = z.object({
 
 export const suggestCategoryResponseSchema = z.object({
   category_id: z.number().nullish(),
-  confidence: z.number(),
+  // Clamped, not trusted: a model that answers 95 instead of 0.95 would fail
+  // the ai_category_confidence CHECK (0..1) on update and throw away a
+  // question we already paid to extract.
+  confidence: z.number().min(0).max(1).catch(0),
 })
 
 export const parseAnswerKeyResponseSchema = z.object({

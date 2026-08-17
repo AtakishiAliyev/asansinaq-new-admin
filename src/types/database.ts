@@ -205,6 +205,7 @@ export type Database = {
           key: string
           model: string | null
           op: string
+          prompt_version: number | null
           response: Json | null
         }
         Insert: {
@@ -213,6 +214,7 @@ export type Database = {
           key: string
           model?: string | null
           op: string
+          prompt_version?: number | null
           response?: Json | null
         }
         Update: {
@@ -221,6 +223,7 @@ export type Database = {
           key?: string
           model?: string | null
           op?: string
+          prompt_version?: number | null
           response?: Json | null
         }
         Relationships: []
@@ -509,6 +512,7 @@ export type Database = {
         Args: { p_book_id: number; p_pages: number[] }
         Returns: undefined
       }
+      ops_spend_today: { Args: never; Returns: number }
     }
     Enums: {
       [_ in never]: never
