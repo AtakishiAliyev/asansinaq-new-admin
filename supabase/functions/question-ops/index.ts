@@ -32,7 +32,10 @@ const GEMINI_MODELS: Record<ModelKey, string> = {
 const OPENAI_IMAGE_MODEL = Deno.env.get('OPENAI_IMAGE_MODEL') ?? 'gpt-image-2'
 const DAILY_BUDGET_USD = Number(Deno.env.get('DAILY_BUDGET_USD') ?? '20')
 
-const TIMEOUT_MS = 90_000 // image generation runs longer than detection
+const TIMEOUT_MS = 90_000
+// Complex references push gpt-image past 90s; stay just under the edge
+// function's own wall-clock budget so WE report the timeout, not the platform.
+const IMAGE_TIMEOUT_MS = 140_000
 const MAX_BASE64_LENGTH = 8_000_000
 
 // Rough $/1M-token rates for the ESTIMATE column — visibility and the budget
@@ -164,7 +167,7 @@ async function callOpenAIRedraw(
   form.append('size', 'auto')
 
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
+  const timer = setTimeout(() => controller.abort(), IMAGE_TIMEOUT_MS)
   try {
     const res = await fetch('https://api.openai.com/v1/images/edits', {
       method: 'POST',

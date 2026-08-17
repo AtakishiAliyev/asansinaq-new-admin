@@ -140,6 +140,16 @@ export function useStructuringRun() {
 
       const pipelineFlags: Flag[] = []
 
+      // Each attempt is a fresh function invocation with its own wall-clock
+      // budget — one client-side retry covers slow gpt-image generations.
+      const redrawSafe = async (img: { image: string; mime: 'image/png' | 'image/jpeg' }) => {
+        try {
+          return await opRedrawFigure(img)
+        } catch {
+          return await opRedrawFigure(img)
+        }
+      }
+
       // Image options: each one is redrawn from its own reference region and
       // verified against that region — one bad option is a wrong question.
       // All options run in PARALLEL (a 5-image-option question would
@@ -153,26 +163,36 @@ export function useStructuringRun() {
       const processOption = async (option: (typeof question.options)[number]) => {
         const box = imageOptionBoxes.get(option.label)
         if (!box) return
-        const referenceUrl = await cropRegion(crop.dataUrl, box)
-        const reference = splitDataUrl(referenceUrl)
-        const redrawn = await opRedrawFigure(reference)
-        option.image = `data:${redrawn.mime};base64,${redrawn.image}`
-        const cmp = await opCompareFigures(reference, {
-          image: redrawn.image,
-          mime: redrawn.mime as 'image/png' | 'image/jpeg',
-        })
-        if (!cmp.match) {
+        try {
+          const referenceUrl = await cropRegion(crop.dataUrl, box)
+          const reference = splitDataUrl(referenceUrl)
+          const redrawn = await redrawSafe(reference)
+          option.image = `data:${redrawn.mime};base64,${redrawn.image}`
+          const cmp = await opCompareFigures(reference, {
+            image: redrawn.image,
+            mime: redrawn.mime as 'image/png' | 'image/jpeg',
+          })
+          if (!cmp.match) {
+            pipelineFlags.push({
+              level: 'error',
+              code: 'option_figure_mismatch',
+              message: `${option.label} variantının şəkli orijinala uyğun gəlmir: ${(cmp.differences ?? []).join('; ')}`,
+            })
+          }
+        } catch (error) {
+          // A lost option image must not kill the whole question — the text
+          // is already extracted; flag it and let review deal with it.
           pipelineFlags.push({
             level: 'error',
-            code: 'option_figure_mismatch',
-            message: `${option.label} variantının şəkli orijinala uyğun gəlmir: ${(cmp.differences ?? []).join('; ')}`,
+            code: 'option_figure_failed',
+            message: `${option.label} variantının şəkli yaradıla bilmədi: ${error instanceof Error ? error.message : 'naməlum xəta'}`,
           })
         }
       }
 
       // Figure lanes.
       const rasterRedraw = async (): Promise<void> => {
-        const redrawn = await opRedrawFigure(original)
+        const redrawn = await redrawSafe(original)
         const item: FigItem = {
           kind: 'image',
           src: `data:${redrawn.mime};base64,${redrawn.image}`,
@@ -183,7 +203,7 @@ export function useStructuringRun() {
           mime: redrawn.mime as 'image/png' | 'image/jpeg',
         })
         if (!cmp.match) {
-          const retry = await opRedrawFigure(original)
+          const retry = await redrawSafe(original)
           const retryDataUrl = `data:${retry.mime};base64,${retry.image}`
           const cmp2 = await opCompareFigures(original, {
             image: retry.image,
@@ -204,21 +224,31 @@ export function useStructuringRun() {
       }
 
       const figureWork = async () => {
-        if (figureMode === 'raster') {
-          await rasterRedraw()
-        } else if (figureMode === 'dsl' && question.figures?.items.length) {
-          const figures = question.figures
-          if (isComplexSchemeFigure(figures)) {
+        try {
+          if (figureMode === 'raster') {
             await rasterRedraw()
-          } else {
-            try {
-              const snapshot = await snapshotFigure(figures)
-              const cmp = await opCompareFigures(original, splitDataUrl(snapshot))
-              if (!cmp.match) await rasterRedraw()
-            } catch {
+          } else if (figureMode === 'dsl' && question.figures?.items.length) {
+            const figures = question.figures
+            if (isComplexSchemeFigure(figures)) {
               await rasterRedraw()
+            } else {
+              try {
+                const snapshot = await snapshotFigure(figures)
+                const cmp = await opCompareFigures(original, splitDataUrl(snapshot))
+                if (!cmp.match) await rasterRedraw()
+              } catch {
+                await rasterRedraw()
+              }
             }
           }
+        } catch (error) {
+          // Same principle as options: keep the structured text, flag the
+          // missing figure loudly, land in the attention queue.
+          pipelineFlags.push({
+            level: 'error',
+            code: 'figure_failed',
+            message: `fiqur yaradıla bilmədi: ${error instanceof Error ? error.message : 'naməlum xəta'}`,
+          })
         }
       }
 
