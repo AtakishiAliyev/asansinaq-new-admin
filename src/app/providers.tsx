@@ -6,6 +6,7 @@ import {
 } from '@tanstack/react-query'
 import { Toaster } from '@/components/ui/sonner'
 import { useAuth } from '@/hooks/use-auth'
+import { clearIsAdminFlag } from '@/features/auth'
 import { initAuth } from '@/stores/auth-store'
 
 const queryClient = new QueryClient({
@@ -27,8 +28,14 @@ function useResetCacheOnAccountChange() {
   const previousUserId = useRef(userId)
 
   useEffect(() => {
-    if (previousUserId.current === userId) return
+    const previous = previousUserId.current
+    if (previous === userId) return
     previousUserId.current = userId
+    // null → id is session restore on startup (or a fresh sign-in into an
+    // empty cache), not an account change: clearing here would cancel the
+    // just-started is_admin fetch on every reload and restart it.
+    if (previous === null) return
+    clearIsAdminFlag(previous)
     queryClient.clear()
   }, [queryClient, userId])
 }
