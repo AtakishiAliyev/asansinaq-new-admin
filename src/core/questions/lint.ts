@@ -1,3 +1,4 @@
+import { canonMath } from '@/core/questions/compare'
 import { texCompiles } from '@/core/questions/tex-normalize'
 import { pointsLieOnCurves, sampleCurve } from '@/core/figures/curve'
 import { parseSetExpr, setIdsUsed } from '@/core/figures/set-expr'
@@ -36,6 +37,27 @@ export function lintQuestion(q: ExtractedQuestion, expectedNumber?: number): Fla
       add('error', 'option_empty', `${o.label} variantı boşdur — nə TeX, nə şəkil var`)
     if (o.tex && !texCompiles(o.tex)) add('error', 'option_latex', `${o.label} variantında LaTeX xətası`)
   })
+
+  // A well-formed multiple choice never repeats an answer: two identical
+  // options mean at least one was misread, and the question is unanswerable
+  // as transcribed. Compared canonically, so "\dfrac12" and "\frac{1}{2}"
+  // count as the repeat they are.
+  const byContent = new Map<string, string[]>()
+  q.options.forEach((o) => {
+    if (!o.tex) return
+    const key = canonMath(o.tex)
+    if (!key) return
+    byContent.set(key, [...(byContent.get(key) ?? []), o.label])
+  })
+  for (const [, labels] of byContent) {
+    if (labels.length > 1) {
+      add(
+        'error',
+        'option_duplicate',
+        `${labels.join(' və ')} variantları eynidir — biri səhv oxunub`,
+      )
+    }
+  }
 
   if (expectedNumber !== undefined && q.numberSeen && q.numberSeen !== expectedNumber)
     add('warning', 'number_mismatch', `Nömrə ${q.numberSeen}, gözlənilən ${expectedNumber}`)

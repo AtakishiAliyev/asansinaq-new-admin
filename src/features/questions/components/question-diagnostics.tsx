@@ -12,6 +12,7 @@ const FLAG_HINTS: Record<string, string> = {
   missing_figure: 'sual şəklə istinad edir, amma fiqur yoxdur',
   option_count: 'variant sayı 5 deyil',
   option_empty: 'variantın nə mətni, nə şəkli var',
+  option_duplicate: 'iki variant eynidir — biri səhv oxunub',
   option_labels: 'variant hərfləri A–E deyil',
   option_latex: 'variant LaTeX-i render olunmur',
   stem_latex: 'sual mətnindəki LaTeX render olunmur',

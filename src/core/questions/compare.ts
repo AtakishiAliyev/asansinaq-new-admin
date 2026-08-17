@@ -18,8 +18,9 @@ export interface CompareResult {
 }
 
 // Canonicalize a LaTeX fragment so cosmetically-different but equal math compares
-// equal, while sign/digit differences remain distinct.
-function canonMath(s: string): string {
+// equal, while sign/digit differences remain distinct. Exported because the
+// duplicate-option lint needs the same notion of "the same answer".
+export function canonMath(s: string): string {
   return s
     .replace(/\s+/g, '')
     .replace(/\\dfrac/g, '\\frac')
