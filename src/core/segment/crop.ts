@@ -46,7 +46,11 @@ export function adaptiveInkThreshold(img: ImageData): number {
   return Math.max(120, Math.min(200, Math.round(bgPeak * 0.7)))
 }
 
-// Saturated dark pixels = colored figure ink; black text has near-zero chroma.
+// Saturated DARK pixels = colored figure ink; black text has near-zero
+// chroma, and pale watermark tints (which are saturated but light, lum
+// ~150-220) must not count — a watermark over a plain scheme would otherwise
+// route the question to the expensive raster lane. Real figure inks (book
+// red/blue/green/purple) all sit under ~110 luminance.
 function coloredInkCount(
   img: ImageData,
   x0: number,
@@ -64,7 +68,7 @@ function coloredInkCount(
       const g = data[i + 1]
       const b = data[i + 2]
       if (
-        0.299 * r + 0.587 * g + 0.114 * b < 170 &&
+        0.299 * r + 0.587 * g + 0.114 * b < 135 &&
         Math.max(r, g, b) - Math.min(r, g, b) > 45
       ) {
         count++
