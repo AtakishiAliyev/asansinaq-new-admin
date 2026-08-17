@@ -32,6 +32,51 @@ export type Database = {
         }
         Relationships: []
       }
+      answer_keys: {
+        Row: {
+          answer: string
+          book_id: number
+          created_at: string
+          created_by: string | null
+          q_no: number
+          source_page: number | null
+          test_no: number
+        }
+        Insert: {
+          answer: string
+          book_id: number
+          created_at?: string
+          created_by?: string | null
+          q_no: number
+          source_page?: number | null
+          test_no?: number
+        }
+        Update: {
+          answer?: string
+          book_id?: number
+          created_at?: string
+          created_by?: string | null
+          q_no?: number
+          source_page?: number | null
+          test_no?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "answer_keys_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "books"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "answer_keys_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       books: {
         Row: {
           content_hash: string | null
@@ -197,6 +242,150 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      questions: {
+        Row: {
+          ai_category_confidence: number | null
+          ai_category_id: number | null
+          ai_difficulty: number | null
+          answer: string | null
+          answer_confidence: number | null
+          answer_source: string | null
+          book_id: number
+          category_id: number | null
+          col: number
+          created_at: string
+          created_by: string | null
+          crop_mime: string
+          crop_path: string
+          empirical_difficulty: number | null
+          extraction_error: string | null
+          figure_kind: string
+          figures: Json | null
+          flags: Json
+          id: number
+          is_scan: boolean
+          model: string | null
+          options: Json | null
+          page_number: number
+          q_no: number
+          reviewed_at: string | null
+          reviewed_by: string | null
+          reviewer_difficulty: number | null
+          status: string
+          stem: string | null
+          test_no: number | null
+          text_layer: string | null
+          updated_at: string
+          verified: boolean
+        }
+        Insert: {
+          ai_category_confidence?: number | null
+          ai_category_id?: number | null
+          ai_difficulty?: number | null
+          answer?: string | null
+          answer_confidence?: number | null
+          answer_source?: string | null
+          book_id: number
+          category_id?: number | null
+          col: number
+          created_at?: string
+          created_by?: string | null
+          crop_mime: string
+          crop_path: string
+          empirical_difficulty?: number | null
+          extraction_error?: string | null
+          figure_kind: string
+          figures?: Json | null
+          flags?: Json
+          id?: never
+          is_scan?: boolean
+          model?: string | null
+          options?: Json | null
+          page_number: number
+          q_no: number
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          reviewer_difficulty?: number | null
+          status?: string
+          stem?: string | null
+          test_no?: number | null
+          text_layer?: string | null
+          updated_at?: string
+          verified?: boolean
+        }
+        Update: {
+          ai_category_confidence?: number | null
+          ai_category_id?: number | null
+          ai_difficulty?: number | null
+          answer?: string | null
+          answer_confidence?: number | null
+          answer_source?: string | null
+          book_id?: number
+          category_id?: number | null
+          col?: number
+          created_at?: string
+          created_by?: string | null
+          crop_mime?: string
+          crop_path?: string
+          empirical_difficulty?: number | null
+          extraction_error?: string | null
+          figure_kind?: string
+          figures?: Json | null
+          flags?: Json
+          id?: never
+          is_scan?: boolean
+          model?: string | null
+          options?: Json | null
+          page_number?: number
+          q_no?: number
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          reviewer_difficulty?: number | null
+          status?: string
+          stem?: string | null
+          test_no?: number | null
+          text_layer?: string | null
+          updated_at?: string
+          verified?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "questions_ai_category_id_fkey"
+            columns: ["ai_category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "questions_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "books"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "questions_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "questions_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "questions_reviewed_by_fkey"
+            columns: ["reviewed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       subjects: {
         Row: {
