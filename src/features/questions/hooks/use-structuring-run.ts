@@ -19,7 +19,7 @@ import {
 import { cropRegion, splitDataUrl } from '@/features/questions/lib/image'
 import type { QuestionRow } from '@/features/questions/schemas'
 
-const CONCURRENCY = 2
+const CONCURRENCY = 3
 
 export interface StructuringItem {
   row: QuestionRow
@@ -105,6 +105,10 @@ export function useStructuringRun() {
           : fs
       }
 
+      // The independent second read starts NOW: it reads the same crop and
+      // never depends on the first read, so it costs no extra wall-clock.
+      const secondPromise = extractOnce(undefined, false).catch(() => null)
+
       const first = await extractOnce()
       let wire = first.wire
       let question = wireToQuestion(wire)
@@ -138,15 +142,17 @@ export function useStructuringRun() {
 
       // Image options: each one is redrawn from its own reference region and
       // verified against that region — one bad option is a wrong question.
+      // All options run in PARALLEL (a 5-image-option question would
+      // otherwise serialize five 30-60s generations).
       const imageOptionBoxes = new Map<string, [number, number, number, number]>()
       for (const o of wire.options) {
         if (o.is_image && o.box) {
           imageOptionBoxes.set(o.label, o.box as [number, number, number, number])
         }
       }
-      for (const option of question.options) {
+      const processOption = async (option: (typeof question.options)[number]) => {
         const box = imageOptionBoxes.get(option.label)
-        if (!box) continue
+        if (!box) return
         const referenceUrl = await cropRegion(crop.dataUrl, box)
         const reference = splitDataUrl(referenceUrl)
         const redrawn = await opRedrawFigure(reference)
@@ -197,29 +203,36 @@ export function useStructuringRun() {
         }
       }
 
-      if (figureMode === 'raster') {
-        await rasterRedraw()
-      } else if (figureMode === 'dsl' && question.figures?.items.length) {
-        const figures = question.figures
-        if (isComplexSchemeFigure(figures)) {
+      const figureWork = async () => {
+        if (figureMode === 'raster') {
           await rasterRedraw()
-        } else {
-          try {
-            const snapshot = await snapshotFigure(figures)
-            const cmp = await opCompareFigures(original, splitDataUrl(snapshot))
-            if (!cmp.match) await rasterRedraw()
-          } catch {
+        } else if (figureMode === 'dsl' && question.figures?.items.length) {
+          const figures = question.figures
+          if (isComplexSchemeFigure(figures)) {
             await rasterRedraw()
+          } else {
+            try {
+              const snapshot = await snapshotFigure(figures)
+              const cmp = await opCompareFigures(original, splitDataUrl(snapshot))
+              if (!cmp.match) await rasterRedraw()
+            } catch {
+              await rasterRedraw()
+            }
           }
         }
       }
+
+      await Promise.all([
+        figureWork(),
+        ...question.options.map((o) => processOption(o)),
+      ])
 
       // Independence lever: the second read gets no text-layer hint; agreement
       // between two blind-ish reads is what earns `verified`.
       let secondEqual = false
       let verifyDiffs: FieldDiff[] = []
-      try {
-        const second = await extractOnce(undefined, false)
+      const second = await secondPromise
+      if (second) {
         const textOnly = (q: ExtractedQuestion): ExtractedQuestion => ({
           ...q,
           figures: null,
@@ -230,7 +243,7 @@ export function useStructuringRun() {
         )
         verifyDiffs = cmp.diffs
         secondEqual = cmp.equal
-      } catch {
+      } else {
         pipelineFlags.push({
           level: 'warning',
           code: 'second_read_failed',

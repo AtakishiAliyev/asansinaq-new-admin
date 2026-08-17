@@ -231,10 +231,17 @@ async function logOp(
       JSON.stringify({ warn: 'ops_log insert failed', detail: error.message }),
     )
   }
+  addToSpendCache(entry.cost)
   console.log(JSON.stringify(entry))
 }
 
+// Warm-isolate cache: refresh from the DB at most every 30s and track the
+// isolate's own spend in between — the guard stays accurate within cents
+// without a per-op roundtrip.
+let spendCache: { value: number; at: number } | null = null
+
 async function todaysSpend(supabase: SupabaseClient): Promise<number> {
+  if (spendCache && Date.now() - spendCache.at < 30_000) return spendCache.value
   const dayStart = new Date()
   dayStart.setUTCHours(0, 0, 0, 0)
   const { data, error } = await supabase
@@ -242,7 +249,16 @@ async function todaysSpend(supabase: SupabaseClient): Promise<number> {
     .select('est_cost_usd')
     .gte('created_at', dayStart.toISOString())
   if (error) throw new Error('büdcə yoxlaması alınmadı')
-  return (data ?? []).reduce((sum, r) => sum + Number(r.est_cost_usd ?? 0), 0)
+  const value = (data ?? []).reduce(
+    (sum, r) => sum + Number(r.est_cost_usd ?? 0),
+    0,
+  )
+  spendCache = { value, at: Date.now() }
+  return value
+}
+
+function addToSpendCache(cost: number): void {
+  if (spendCache) spendCache.value += cost
 }
 
 interface CacheRow {
