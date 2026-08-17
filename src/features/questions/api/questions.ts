@@ -7,6 +7,7 @@ import {
   questionRowSchema,
   type QuestionRow,
 } from '@/features/questions/schemas'
+import { imagePathsOf } from '@/features/questions/lib/row'
 
 const SELECT = '*, books(title)'
 
@@ -280,6 +281,31 @@ export function useBulkApprove() {
       ;(failed ? toast.warning : toast.success)(
         `${result.done} sual təsdiqləndi${failed ? `, ${failed} alınmadı` : ''}`,
       )
+    },
+    onError: (error) => toast.error(normalizeError(error).message),
+  })
+}
+
+// Bulk delete: rows first (the operator's intent), objects after. An orphaned
+// crop costs pennies; a row that survives a "deleted" toast costs trust.
+export function useDeleteQuestions() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (rows: QuestionRow[]) => {
+      const ids = rows.map((r) => r.id)
+      const { error } = await supabase.from('questions').delete().in('id', ids)
+      if (error) throw error
+      // Not just the crop: a structured question also owns the figure and
+      // option images the run generated, and those have no other referrer.
+      const paths = rows.flatMap(imagePathsOf).filter(Boolean)
+      for (let i = 0; i < paths.length; i += 100) {
+        await supabase.storage.from('question-crops').remove(paths.slice(i, i + 100))
+      }
+      return ids.length
+    },
+    onSuccess: (count) => {
+      queryClient.invalidateQueries({ queryKey: questionKeys.all })
+      toast.success(`${count} sual silindi`)
     },
     onError: (error) => toast.error(normalizeError(error).message),
   })

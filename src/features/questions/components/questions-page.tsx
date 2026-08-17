@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Eye, Wallet } from 'lucide-react'
+import { Eye, Sparkles, Wallet } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -14,14 +14,6 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
 import { QueryErrorAlert } from '@/components/query-error-alert'
 import { cn } from '@/lib/utils'
 import { usePageTitle } from '@/hooks/use-page-title'
@@ -37,31 +29,34 @@ import {
   type QuestionFilters,
   type QuestionListItem,
 } from '@/features/questions/api/questions'
-import { BulkApproveButton } from '@/features/questions/components/bulk-approve-button'
+import { QuestionsSelectionBar } from '@/features/questions/components/questions-selection-bar'
+import { QuestionsTable } from '@/features/questions/components/questions-table'
 import { ReviewScreen } from '@/features/questions/components/review-screen'
 import { useRestructure } from '@/features/questions/hooks/use-restructure'
-import { parseFlags } from '@/features/questions/lib/row'
+import { STATUS_LABEL } from '@/features/questions/lib/status'
 
-const STATUS_LABEL: Record<string, string> = {
-  cropped: 'xam',
-  structured: 'strukturlaşıb',
-  approved: 'təsdiqli',
-  rejected: 'rədd edilib',
-  failed: 'alınmadı',
-}
+const STATUS_ORDER = [
+  'cropped',
+  'structured',
+  'approved',
+  'rejected',
+  'failed',
+] as const
 
-const STATUS_CLASS: Record<string, string> = {
-  cropped: 'border-muted-foreground/20 bg-muted text-muted-foreground',
-  structured: 'border-sky-200 bg-sky-50 text-sky-700',
-  approved: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-  rejected: 'border-muted-foreground/20 bg-muted text-muted-foreground',
-  failed: 'border-destructive/30 bg-destructive/10 text-destructive',
+const CHIP_ACTIVE: Record<string, string> = {
+  all: 'border-foreground/25 bg-foreground/5',
+  cropped: 'border-muted-foreground/30 bg-muted',
+  structured: 'border-sky-300 bg-sky-50 text-sky-800',
+  approved: 'border-emerald-300 bg-emerald-50 text-emerald-800',
+  rejected: 'border-muted-foreground/30 bg-muted',
+  failed: 'border-destructive/40 bg-destructive/10 text-destructive',
 }
 
 export function QuestionsPage() {
   usePageTitle('Suallar')
   const [filters, setFilters] = useState<QuestionFilters>(DEFAULT_FILTERS)
   const [page, setPage] = useState(0)
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   // The review cursor is an id, not an index: approving removes the row from a
   // filtered list, and a positional cursor would then skip the next question.
   const [reviewId, setReviewId] = useState<number | null>(null)
@@ -76,10 +71,12 @@ export function QuestionsPage() {
   const total = questions.data?.total ?? 0
   const offset = questions.data?.offset ?? 0
   const reviewIndex = items.findIndex((q) => q.id === reviewId)
+  const selected = items.filter((q) => selectedIds.has(q.id))
 
   function updateFilters(patch: Partial<QuestionFilters>) {
     setFilters((f) => ({ ...f, ...patch }))
     setPage(0) // a filter change invalidates the offset
+    setSelectedIds(new Set()) // selection is per-view; keeping it hides what is acted on
   }
 
   // Rows leave the filter under us (a bulk approve empties the last page of the
@@ -89,6 +86,18 @@ export function QuestionsPage() {
       setPage((p) => Math.max(0, p - 1))
     }
   }, [page, loaded, questions.isFetching, questions.isError])
+
+  // Deleted or approved-away rows must not stay selected: the action bar would
+  // keep counting questions the list no longer holds.
+  useEffect(() => {
+    setSelectedIds((current) => {
+      if (!current.size) return current
+      const visible = new Set(items.map((i) => i.id))
+      const next = new Set([...current].filter((id) => visible.has(id)))
+      return next.size === current.size ? current : next
+    })
+  }, [items])
+
   // Bulk approve only fires for questions that need no human decision: clean,
   // verified, and already carrying an AI category to confirm.
   const bulkReady = items.filter(
@@ -116,12 +125,39 @@ export function QuestionsPage() {
     parentId: c.parent_id,
   }))
 
-  function openReview(item: QuestionListItem) {
-    setReviewId(item.id)
+  function toggleOne(id: number) {
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      if (!next.delete(id)) next.add(id)
+      return next
+    })
   }
 
+  function toggleAll() {
+    setSelectedIds((current) =>
+      items.every((i) => current.has(i.id))
+        ? new Set()
+        : new Set(items.map((i) => i.id)),
+    )
+  }
+
+  function runRestructure(targets: QuestionListItem[]) {
+    void restructure
+      .run(targets, categoryOptions)
+      .then(() => questions.refetch())
+      .catch((error) =>
+        toast.error(
+          error instanceof Error ? error.message : 'yenidən çıxarma alınmadı',
+        ),
+      )
+  }
+
+  const totalCount = counts.data
+    ? STATUS_ORDER.reduce((sum, s) => sum + (counts.data[s] ?? 0), 0)
+    : null
+
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-2xl font-semibold tracking-tight">Suallar</h1>
         {spend.data ? (
@@ -132,6 +168,8 @@ export function QuestionsPage() {
         ) : null}
       </div>
 
+      {/* Status is the axis the operator works along, so it is spent as
+          always-visible counts rather than hidden behind a dropdown. */}
       <div className="flex flex-wrap items-center gap-2">
         <Select
           value={filters.bookId === 'all' ? 'all' : String(filters.bookId)}
@@ -154,31 +192,37 @@ export function QuestionsPage() {
           </SelectContent>
         </Select>
 
-        <Select
-          value={filters.status}
-          onValueChange={(v) =>
-            updateFilters({ status: v as QuestionFilters['status'] })
-          }
-        >
-          <SelectTrigger className="w-44" aria-label="Status süzgəci">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              <SelectItem value="all">Bütün statuslar</SelectItem>
-              {Object.entries(STATUS_LABEL).map(([value, label]) => (
-                <SelectItem key={value} value={value}>
-                  {label}
-                  {counts.data
-                    ? ` (${counts.data[value as keyof typeof counts.data] ?? 0})`
-                    : ''}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
+        <div role="group" aria-label="Status süzgəci" className="flex flex-wrap gap-1.5">
+          {(['all', ...STATUS_ORDER] as const).map((status) => {
+            const count =
+              status === 'all' ? totalCount : (counts.data?.[status] ?? null)
+            const active = filters.status === status
+            return (
+              <button
+                key={status}
+                type="button"
+                aria-pressed={active}
+                disabled={status !== 'all' && count === 0}
+                onClick={() => updateFilters({ status })}
+                className={cn(
+                  'rounded-full border px-3 py-1 text-xs transition-colors disabled:opacity-40',
+                  active
+                    ? CHIP_ACTIVE[status]
+                    : 'text-muted-foreground hover:bg-muted border-transparent',
+                )}
+              >
+                {status === 'all' ? 'Hamısı' : STATUS_LABEL[status]}
+                {count === null ? '' : ` ${count}`}
+              </button>
+            )
+          })}
+        </div>
 
-        <div role="group" aria-label="Növbə" className="flex items-center gap-1">
+        <div
+          role="group"
+          aria-label="Növbə"
+          className="ml-auto flex items-center gap-1"
+        >
           {(
             [
               { key: 'all', label: 'Hamısı' },
@@ -197,27 +241,35 @@ export function QuestionsPage() {
             </Button>
           ))}
         </div>
-
-        <div className="ml-auto flex items-center gap-2">
-          <BulkApproveButton items={bulkReady} />
-          {items.length > 0 ? (
-            <Button size="sm" onClick={() => setReviewId(items[0].id)}>
-              <Eye data-icon="inline-start" />
-              Review başlat
-            </Button>
-          ) : null}
-        </div>
       </div>
 
-      {/* The queue rule reads flags/verified, which live in jsonb — it can only
-          be applied to the loaded page, so say so instead of implying more. */}
-      {filters.queue !== 'all' && total > QUESTIONS_PAGE_SIZE ? (
-        <p className="text-muted-foreground text-xs">
-          «{filters.queue === 'attention' ? 'Diqqət' : 'Təmiz'}» süzgəci yalnız
-          bu səhifədəki {loaded} suala tətbiq olunur — qalan səhifələri ayrıca
-          yoxlayın.
-        </p>
-      ) : null}
+      <div className="flex flex-wrap items-center gap-2">
+        {items.length > 0 ? (
+          <Button size="sm" onClick={() => setReviewId(items[0].id)}>
+            <Eye data-icon="inline-start" />
+            Review başlat
+          </Button>
+        ) : null}
+        {bulkReady.length ? (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setSelectedIds(new Set(bulkReady.map((q) => q.id)))}
+          >
+            <Sparkles data-icon="inline-start" />
+            Təmizləri seç ({bulkReady.length})
+          </Button>
+        ) : null}
+        {/* The queue rule reads flags/verified, which live in jsonb — it can
+            only be applied to the loaded page, so say so instead of implying
+            more. */}
+        {filters.queue !== 'all' && total > QUESTIONS_PAGE_SIZE ? (
+          <p className="text-muted-foreground text-xs">
+            «{filters.queue === 'attention' ? 'Diqqət' : 'Təmiz'}» süzgəci
+            yalnız bu səhifədəki {loaded} suala tətbiq olunur.
+          </p>
+        ) : null}
+      </div>
 
       {restructure.status === 'running' ? (
         <div className="flex items-center gap-3">
@@ -234,7 +286,7 @@ export function QuestionsPage() {
       {questions.isPending ? (
         <div className="flex flex-col gap-2">
           {[0, 1, 2].map((i) => (
-            <Skeleton key={i} className="h-12 w-full" />
+            <Skeleton key={i} className="h-14 w-full" />
           ))}
         </div>
       ) : questions.isError ? (
@@ -253,72 +305,13 @@ export function QuestionsPage() {
           </EmptyDescription>
         </Empty>
       ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Kitab / yer</TableHead>
-              <TableHead>Sual</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Qeydlər</TableHead>
-              <TableHead className="text-right">Çətinlik</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {items.map((q) => {
-              const flags = parseFlags(q.flags)
-              return (
-                <TableRow
-                  key={q.id}
-                  className="cursor-pointer"
-                  onClick={() => openReview(q)}
-                >
-                  <TableCell className="max-w-56">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        openReview(q)
-                      }}
-                      className="block w-full truncate text-left font-medium"
-                    >
-                      {q.bookTitle ?? '—'}
-                    </button>
-                    <span className="text-muted-foreground text-xs">
-                      s.{q.page_number} · sütun {q.col + 1}
-                      {q.test_no ? ` · test ${q.test_no}` : ''}
-                    </span>
-                  </TableCell>
-                  <TableCell className="max-w-72">
-                    <span className="block truncate text-sm">
-                      №{q.q_no}
-                      {q.stem ? ` — ${q.stem.replace(/\$/g, '').slice(0, 60)}` : ''}
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="outline" className={cn(STATUS_CLASS[q.status])}>
-                      {STATUS_LABEL[q.status]}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    {flags.length ? (
-                      <span className="text-muted-foreground text-xs">
-                        {flags.length} qeyd
-                        {flags.some((f) => f.level === 'error') ? ' (xəta)' : ''}
-                      </span>
-                    ) : q.verified ? (
-                      <span className="text-xs text-emerald-700">təmiz</span>
-                    ) : (
-                      <span className="text-muted-foreground text-xs">—</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {q.reviewer_difficulty ?? q.ai_difficulty ?? '—'}
-                  </TableCell>
-                </TableRow>
-              )
-            })}
-          </TableBody>
-        </Table>
+        <QuestionsTable
+          items={items}
+          selected={selectedIds}
+          onToggle={toggleOne}
+          onToggleAll={toggleAll}
+          onOpen={(item) => setReviewId(item.id)}
+        />
       )}
 
       {total > QUESTIONS_PAGE_SIZE ? (
@@ -345,6 +338,13 @@ export function QuestionsPage() {
         </div>
       ) : null}
 
+      <QuestionsSelectionBar
+        selected={selected}
+        isRestructuring={restructure.status === 'running'}
+        onRestructure={runRestructure}
+        onClear={() => setSelectedIds(new Set())}
+      />
+
       {reviewId !== null ? (
         <ReviewScreen
           items={items}
@@ -352,16 +352,7 @@ export function QuestionsPage() {
           subjectId={reviewSubjectId}
           onNavigate={setReviewId}
           onClose={() => setReviewId(null)}
-          onRestructure={(item) => {
-            void restructure
-              .run([item], categoryOptions)
-              .then(() => questions.refetch())
-              .catch((error) =>
-                toast.error(
-                  error instanceof Error ? error.message : 'yenidən çıxarma alınmadı',
-                ),
-              )
-          }}
+          onRestructure={(item) => runRestructure([item])}
         />
       ) : null}
     </div>
