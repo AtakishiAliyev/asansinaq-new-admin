@@ -293,6 +293,7 @@ async function budgetRefusal(db: SupabaseClient): Promise<Response | null> {
   const spend = await todaysSpend(db)
   if (spend < DAILY_BUDGET_USD) return null
   return json(429, {
+    kind: 'budget',
     error: `günlük model büdcəsi dolub ($${DAILY_BUDGET_USD}) — sabah davam edin və ya DAILY_BUDGET_USD secret-ini artırın`,
   })
 }
@@ -648,6 +649,16 @@ Deno.serve(async (req) => {
     const message = error instanceof Error ? error.message : 'naməlum xəta'
     const isTimeout = error instanceof DOMException && error.name === 'AbortError'
     console.log(JSON.stringify({ op, error: message.slice(0, 200), ms }))
+    // A provider rate limit survived the in-function retry: tell the client
+    // what it is, so it can pace itself instead of burning the queue on
+    // errors it could have waited out.
+    if (/\b429\b|rate limit|quota/i.test(message)) {
+      return json(429, {
+        kind: 'rate_limit',
+        error: 'model sorğu limitinə çatdı — bir az yavaşlayırıq',
+        detail: message.slice(0, 300),
+      })
+    }
     return json(502, {
       error: isTimeout ? 'model cavabı vaxt aşımına uğradı' : 'model çağırışı alınmadı',
       detail: message.slice(0, 300),

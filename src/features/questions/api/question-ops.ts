@@ -1,5 +1,12 @@
 import { supabase } from '@/lib/supabase'
 import {
+  acquireSlot,
+  noteBudgetExhausted,
+  noteRateLimit,
+  noteSuccess,
+  releaseSlot,
+} from '@/features/questions/lib/rate-gate'
+import {
   compareResponseSchema,
   extractResponseSchema,
   parseAnswerKeyResponseSchema,
@@ -11,31 +18,52 @@ import {
 // function secrets; each call is admin-gated server-side. The invoke error
 // unwrap mirrors detect-questions: error.context is a Response only for HTTP
 // failures — network errors have no body to read.
+/** Carries the server's classification so callers can react, not just fail. */
+export class OpError extends Error {
+  readonly kind?: 'rate_limit' | 'budget'
+  constructor(message: string, kind?: 'rate_limit' | 'budget') {
+    super(message)
+    this.name = 'OpError'
+    this.kind = kind
+  }
+}
+
 async function invokeOp<T>(
   body: Record<string, unknown>,
   parse: (data: unknown) => T,
 ): Promise<T> {
-  const { data, error } = await supabase.functions.invoke('question-ops', {
-    body,
-  })
-  if (error) {
-    let message = 'model çağırışı alınmadı'
-    const context = (error as { context?: unknown }).context
-    if (context instanceof Response) {
-      try {
-        const payload = (await context.json()) as {
-          error?: string
-          detail?: string
+  await acquireSlot()
+  try {
+    const { data, error } = await supabase.functions.invoke('question-ops', {
+      body,
+    })
+    if (error) {
+      let message = 'model çağırışı alınmadı'
+      let kind: 'rate_limit' | 'budget' | undefined
+      const context = (error as { context?: unknown }).context
+      if (context instanceof Response) {
+        try {
+          const payload = (await context.json()) as {
+            error?: string
+            detail?: string
+            kind?: 'rate_limit' | 'budget'
+          }
+          if (payload.error) message = payload.error
+          if (payload.detail) message += ` — ${payload.detail}`
+          kind = payload.kind
+        } catch {
+          // non-JSON error body: keep the generic message
         }
-        if (payload.error) message = payload.error
-        if (payload.detail) message += ` — ${payload.detail}`
-      } catch {
-        // non-JSON error body: keep the generic message
       }
+      if (kind === 'rate_limit') noteRateLimit()
+      if (kind === 'budget') noteBudgetExhausted()
+      throw new OpError(message, kind)
     }
-    throw new Error(message)
+    noteSuccess()
+    return parse(data)
+  } finally {
+    releaseSlot()
   }
-  return parse(data)
 }
 
 export interface OpImage {

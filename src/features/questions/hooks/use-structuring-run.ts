@@ -16,12 +16,20 @@ import {
   opExtract,
   opRedrawFigure,
   opSuggestCategory,
+  OpError,
 } from '@/features/questions/api/question-ops'
 import { fetchBookAnswerKeys } from '@/features/questions/api/answer-keys'
 import { cropRegion, splitDataUrl } from '@/features/questions/lib/image'
+import {
+  isBudgetExhausted,
+  resetRateGate,
+} from '@/features/questions/lib/rate-gate'
 import type { QuestionRow } from '@/features/questions/schemas'
 
-const CONCURRENCY = 3
+// Questions in flight. The real ceiling is the providers' rate limits, which
+// the shared gate enforces per call — this only decides how many questions
+// are being assembled at once.
+const CONCURRENCY = 8
 
 export interface StructuringItem {
   row: QuestionRow
@@ -83,6 +91,7 @@ export function useStructuringRun() {
     categories: CategoryOption[] = [],
   ) => {
     const id = ++runId.current
+    resetRateGate()
     // One lookup per run: the printed key, if this book has one imported.
     const bookId = entries[0]?.row.book_id
     const answerKeys = bookId
@@ -128,8 +137,9 @@ export function useStructuringRun() {
           })
         try {
           return await call()
-        } catch {
+        } catch (error) {
           checkCancelled()
+          if (error instanceof OpError && error.kind === 'budget') throw error
           return await call()
         }
       }
@@ -187,8 +197,9 @@ export function useStructuringRun() {
         checkCancelled()
         try {
           return await opRedrawFigure({ ...img, attempt })
-        } catch {
+        } catch (error) {
           checkCancelled()
+          if (error instanceof OpError && error.kind === 'budget') throw error
           return await opRedrawFigure({ ...img, attempt })
         }
       }
@@ -506,6 +517,9 @@ export function useStructuringRun() {
       Array.from({ length: CONCURRENCY }, async () => {
         while (cursor < entries.length) {
           if (runId.current !== id) return
+          // The day's budget is spent: leave the rest untouched rather than
+          // marking every remaining question failed.
+          if (isBudgetExhausted()) return
           const entry = entries[cursor++]
           let item: StructuringItem
           try {

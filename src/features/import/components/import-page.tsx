@@ -465,8 +465,11 @@ export function ImportPage() {
             .then((items) => {
               if (!items.length) return
               const failed = items.filter((i) => i.status === 'failed').length
-              ;(failed ? toast.warning : toast.success)(
-                `${items.length - failed} sual strukturlaşdırıldı${failed ? `, ${failed} alınmadı` : ''}`,
+              const stopped = res.saved.length - items.length
+              ;(failed || stopped ? toast.warning : toast.success)(
+                `${items.length - failed} sual strukturlaşdırıldı` +
+                  (failed ? `, ${failed} alınmadı` : '') +
+                  (stopped ? `, ${stopped} işlənmədi (gündəlik büdcə)` : ''),
               )
             })
             .catch((error) => toast.error(normalizeError(error).message))
