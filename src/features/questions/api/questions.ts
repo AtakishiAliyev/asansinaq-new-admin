@@ -140,28 +140,6 @@ export function useQuestionCounts(bookId: number | 'all') {
   })
 }
 
-/** Today's model spend, so the operator sees cost without leaving the page. */
-export function useTodaySpend() {
-  return useQuery({
-    queryKey: questionKeys.spend(),
-    queryFn: async () => {
-      const dayStart = new Date()
-      dayStart.setUTCHours(0, 0, 0, 0)
-      const { data, error } = await supabase
-        .from('ops_log')
-        .select('est_cost_usd, cached')
-        .gte('created_at', dayStart.toISOString())
-      if (error) throw error
-      const rows = data ?? []
-      return {
-        usd: rows.reduce((sum, r) => sum + Number(r.est_cost_usd ?? 0), 0),
-        calls: rows.length,
-        cachedCalls: rows.filter((r) => r.cached).length,
-      }
-    },
-    staleTime: 30_000,
-  })
-}
 
 export interface ApproveInput {
   id: number

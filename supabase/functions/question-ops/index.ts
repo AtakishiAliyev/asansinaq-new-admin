@@ -59,6 +59,7 @@ const RATE = {
   proIn: 2.5,
   proOut: 15,
   imageFlat: 0.08,
+  imageMedium: 0.04,
 }
 
 const CORS_HEADERS = {
@@ -183,6 +184,7 @@ async function callOpenAIRedraw(
   image: string,
   mime: string,
   deadline: number,
+  quality: 'medium' | 'high',
   attempt = 0,
 ): Promise<{ image: string; mime: string; model: string }> {
   const key = Deno.env.get('OPENAI_API_KEY')
@@ -192,6 +194,7 @@ async function callOpenAIRedraw(
   form.append('image', base64ToBlob(image, mime), 'reference.png')
   form.append('prompt', REDRAW_PROMPT)
   form.append('size', 'auto')
+  form.append('quality', quality)
 
   const budget = remainingMs(deadline, IMAGE_TIMEOUT_MS)
   if (budget <= 0) throw deadlineExceeded()
@@ -207,7 +210,7 @@ async function callOpenAIRedraw(
     if ((res.status === 429 || res.status >= 500) && attempt < 1) {
       void res.body?.cancel().catch(() => {})
       await new Promise((r) => setTimeout(r, 2000))
-      return callOpenAIRedraw(image, mime, deadline, attempt + 1)
+      return callOpenAIRedraw(image, mime, deadline, quality, attempt + 1)
     }
     if (!res.ok) {
       const detail = (await res.text()).slice(0, 300)
@@ -448,6 +451,9 @@ Deno.serve(async (req) => {
       if (!Number.isInteger(attempt) || attempt < 0 || attempt > 3) {
         return json(400, { error: 'attempt yanlışdır' })
       }
+      // Quality is priced differently, so it is part of the cache key: a
+      // medium image must never be served for a high-quality request.
+      const quality = body.quality === 'medium' ? 'medium' : 'high'
       const key = await sha256Hex(
         JSON.stringify({
           v: PROMPT_VERSION,
@@ -455,6 +461,7 @@ Deno.serve(async (req) => {
           op,
           image: body.image,
           mime: body.mime,
+          quality,
           attempt,
         }),
       )
@@ -493,6 +500,7 @@ Deno.serve(async (req) => {
         body.image as string,
         body.mime as string,
         deadline,
+        quality,
       )
       const ms = Date.now() - started
       const path = `cache/${key}.png`
@@ -511,7 +519,7 @@ Deno.serve(async (req) => {
         promptTokens: null,
         outputTokens: null,
         ms,
-        cost: RATE.imageFlat,
+        cost: quality === 'medium' ? RATE.imageMedium : RATE.imageFlat,
         cached: false,
       })
       return json(200, { ...out, ms })

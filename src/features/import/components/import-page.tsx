@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Eye, FileUp, KeyRound, Play, Send, Square } from 'lucide-react'
-import { useBlocker, useSearchParams } from 'react-router'
+import { useBlocker, useNavigate, useSearchParams } from 'react-router'
 import { toast } from 'sonner'
 import {
   AlertDialog,
@@ -50,6 +50,7 @@ import {
   cropKey,
   RecreationCheckDialog,
   useAnswerKeyRun,
+  useEnqueue,
   useSaveAnswerKeys,
   useSaveCrops,
   useStructuringRun,
@@ -114,6 +115,8 @@ export function ImportPage() {
   const download = useDownloadPdf()
   const segmentation = useSegmentation()
   const saveCrops = useSaveCrops()
+  const enqueue = useEnqueue()
+  const navigate = useNavigate()
   const structuring = useStructuringRun()
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set())
   const [sendConfirmOpen, setSendConfirmOpen] = useState(false)
@@ -436,7 +439,7 @@ export function ImportPage() {
     })
   }
 
-  function startStructuring() {
+  function startStructuring(mode: 'now' | 'queue' = 'now') {
     setSendConfirmOpen(false)
     const book = currentBook
     if (!book) return
@@ -453,6 +456,20 @@ export function ImportPage() {
       {
         onSuccess: (res) => {
           if (!res.saved.length) return
+          if (mode === 'queue') {
+            void enqueue
+              .mutateAsync(res.saved.map((e) => e.row.id))
+              .then(() =>
+                toast.info('Növbə Suallar səhifəsindən işə salınır', {
+                  action: {
+                    label: 'Suallara keç',
+                    onClick: () => navigate('/questions'),
+                  },
+                }),
+              )
+              .catch(() => undefined)
+            return
+          }
           void structuring
             .run(
               res.saved.map((e) => ({ row: e.row, crop: e.crop })),
@@ -913,14 +930,27 @@ export function ImportPage() {
               {laneCounts.rule > 0
                 ? 'Sxem fiquru DSL ilə çəkilə bilməsə, şəkil generasiyasına keçir — bu halda xərc yuxarı hədə yaxınlaşır. '
                 : ''}
-              Nəticələr bazaya yazılır və sonra yoxlanıla bilər.
+              <strong>İndi çıxar</strong> — bu tabda işlənir, nəticələr
+              dərhal yan-yana göstərilir; tab bağlansa qalanı dayanır.{' '}
+              <strong>Növbəyə at</strong> — iş bazada saxlanılır, Suallar
+              səhifəsindən işə salınır, tab bağlansa da itmir. Böyük paketlər
+              üçün növbə.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter>
+          <AlertDialogFooter className="sm:justify-between">
             <AlertDialogCancel>İmtina</AlertDialogCancel>
-            <AlertDialogAction onClick={startStructuring}>
-              Göndər
-            </AlertDialogAction>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => startStructuring('now')}
+                title="Bu tabda işlənir, nəticələr dərhal yan-yana göstərilir"
+              >
+                İndi çıxar
+              </Button>
+              <AlertDialogAction onClick={() => startStructuring('queue')}>
+                Növbəyə at
+              </AlertDialogAction>
+            </div>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

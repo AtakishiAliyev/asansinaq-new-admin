@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Eye, Sparkles, Wallet } from 'lucide-react'
+import { Eye, Sparkles } from 'lucide-react'
 import { toast } from 'sonner'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyDescription, EmptyTitle } from '@/components/ui/empty'
 import { Progress } from '@/components/ui/progress'
@@ -25,10 +24,10 @@ import {
   QUESTIONS_PAGE_SIZE,
   useQuestionCounts,
   useQuestions,
-  useTodaySpend,
   type QuestionFilters,
   type QuestionListItem,
 } from '@/features/questions/api/questions'
+import { QueuePanel } from '@/features/questions/components/queue-panel'
 import { QuestionsSelectionBar } from '@/features/questions/components/questions-selection-bar'
 import { QuestionsTable } from '@/features/questions/components/questions-table'
 import { ReviewScreen } from '@/features/questions/components/review-screen'
@@ -63,7 +62,6 @@ export function QuestionsPage() {
   const books = useBooks()
   const questions = useQuestions(filters, page)
   const counts = useQuestionCounts(filters.bookId)
-  const spend = useTodaySpend()
   const restructure = useRestructure()
 
   const items = useMemo(() => questions.data?.items ?? [], [questions.data])
@@ -158,15 +156,9 @@ export function QuestionsPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
-      <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-2xl font-semibold tracking-tight">Suallar</h1>
-        {spend.data ? (
-          <Badge variant="outline" className="ml-auto" title="Bugünkü model xərci">
-            <Wallet />${spend.data.usd.toFixed(2)} · {spend.data.calls} sorğu
-            {spend.data.cachedCalls ? ` (${spend.data.cachedCalls} keşdən)` : ''}
-          </Badge>
-        ) : null}
-      </div>
+      <h1 className="text-2xl font-semibold tracking-tight">Suallar</h1>
+
+      <QueuePanel />
 
       {/* Status is the axis the operator works along, so it is spent as
           always-visible counts rather than hidden behind a dropdown. */}
@@ -340,8 +332,6 @@ export function QuestionsPage() {
 
       <QuestionsSelectionBar
         selected={selected}
-        isRestructuring={restructure.status === 'running'}
-        onRestructure={runRestructure}
         onClear={() => setSelectedIds(new Set())}
       />
 

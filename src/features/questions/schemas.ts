@@ -94,6 +94,10 @@ export const questionRowSchema = z.object({
   flags: z.unknown(),
   verified: z.boolean(),
   extraction_error: z.string().nullable(),
+  queued_at: z.string().nullable().default(null),
+  claimed_at: z.string().nullable().default(null),
+  attempts: z.number().default(0),
+  auto_approved: z.boolean().default(false),
 })
 
 export type QuestionRow = z.infer<typeof questionRowSchema>

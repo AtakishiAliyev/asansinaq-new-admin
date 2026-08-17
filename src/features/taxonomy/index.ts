@@ -1,5 +1,5 @@
 export { TaxonomyPage } from '@/features/taxonomy/components/taxonomy-page'
-export { useCategories } from '@/features/taxonomy/api/categories'
+export { fetchCategories, useCategories } from '@/features/taxonomy/api/categories'
 export { usePrograms } from '@/features/taxonomy/api/programs'
 export { useSubjects } from '@/features/taxonomy/api/subjects'
 export type { Category, Program, Subject } from '@/features/taxonomy/schemas'

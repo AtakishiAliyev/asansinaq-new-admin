@@ -25,11 +25,12 @@ import {
   resetRateGate,
 } from '@/features/questions/lib/rate-gate'
 import type { QuestionRow } from '@/features/questions/schemas'
+import { pipelineSettings } from '@/stores/pipeline-store'
 
 // Questions in flight. The real ceiling is the providers' rate limits, which
 // the shared gate enforces per call — this only decides how many questions
 // are being assembled at once.
-const CONCURRENCY = 8
+const DEFAULT_CONCURRENCY = 8
 
 export interface StructuringItem {
   row: QuestionRow
@@ -92,6 +93,10 @@ export function useStructuringRun() {
   ) => {
     const id = ++runId.current
     resetRateGate()
+    // Read once per run: a knob flipped mid-run would make half the batch
+    // cost one thing and half another, with no record of which was which.
+    const settings = pipelineSettings()
+    const imageQuality = settings.mediumImages ? ('medium' as const) : ('high' as const)
     // One lookup per run: the printed key, if this book has one imported.
     const bookId = entries[0]?.row.book_id
     const answerKeys = bookId
@@ -112,10 +117,15 @@ export function useStructuringRun() {
       const { row, crop } = entry
       const { image, mime } = splitDataUrl(crop.dataUrl)
       const original = { image, mime }
+      // Coloured figures go straight to the image model because the vector
+      // DSL has no colour vocabulary. With dslFirst on, the DSL is tried
+      // anyway — the lane already falls back to a redraw when the rendered
+      // figure does not match the original, so the only cost of a miss is
+      // one extra extract.
       const figureMode =
         crop.figureKind === 'none'
           ? ('plain' as const)
-          : crop.figureKind === 'rule'
+          : crop.figureKind === 'rule' || (settings.dslFirst && crop.figureKind === 'colored')
             ? ('dsl' as const)
             : ('raster' as const)
 
@@ -196,11 +206,11 @@ export function useStructuringRun() {
       ) => {
         checkCancelled()
         try {
-          return await opRedrawFigure({ ...img, attempt })
+          return await opRedrawFigure({ ...img, attempt, quality: imageQuality })
         } catch (error) {
           checkCancelled()
           if (error instanceof OpError && error.kind === 'budget') throw error
-          return await opRedrawFigure({ ...img, attempt })
+          return await opRedrawFigure({ ...img, attempt, quality: imageQuality })
         }
       }
 
@@ -494,6 +504,8 @@ export function useStructuringRun() {
             : {}),
           model: first.model,
           prompt_version: PROMPT_VERSION,
+          // Pipeline-only timestamp: throughput must not count approvals.
+          structured_at: new Date().toISOString(),
           flags: flags as never,
           verified,
           extraction_error: null,
@@ -514,7 +526,7 @@ export function useStructuringRun() {
     }
 
     await Promise.all(
-      Array.from({ length: CONCURRENCY }, async () => {
+      Array.from({ length: settings.batchSize || DEFAULT_CONCURRENCY }, async () => {
         while (cursor < entries.length) {
           if (runId.current !== id) return
           // The day's budget is spent: leave the rest untouched rather than

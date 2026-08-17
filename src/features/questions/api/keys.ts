@@ -8,5 +8,6 @@ export const questionKeys = {
   counts: (bookId: number | 'all') =>
     [...questionKeys.all, 'counts', bookId] as const,
   spend: () => [...questionKeys.all, 'spend'] as const,
+  throughput: () => [...questionKeys.all, 'throughput'] as const,
   signed: (key: string) => [...questionKeys.all, 'signed', key] as const,
 }

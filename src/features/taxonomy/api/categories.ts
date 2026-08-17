@@ -6,7 +6,7 @@ import { taxonomyKeys } from '@/features/taxonomy/api/keys'
 import { categorySchema, type Category } from '@/features/taxonomy/schemas'
 import { taxonomyErrorMessage } from '@/features/taxonomy/taxonomy-error-message'
 
-async function fetchCategories(subjectId: number): Promise<Category[]> {
+export async function fetchCategories(subjectId: number): Promise<Category[]> {
   const { data, error } = await supabase
     .from('categories')
     .select('id, subject_id, parent_id, name, sort_order')

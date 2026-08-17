@@ -328,8 +328,12 @@ export type Database = {
           answer: string | null
           answer_confidence: number | null
           answer_source: string | null
+          attempts: number
+          auto_approved: boolean
           book_id: number
           category_id: number | null
+          claimed_at: string | null
+          claimed_by: string | null
           col: number
           created_at: string
           created_by: string | null
@@ -347,11 +351,13 @@ export type Database = {
           page_number: number
           prompt_version: number | null
           q_no: number
+          queued_at: string | null
           reviewed_at: string | null
           reviewed_by: string | null
           reviewer_difficulty: number | null
           status: string
           stem: string | null
+          structured_at: string | null
           test_no: number | null
           text_layer: string | null
           updated_at: string
@@ -364,8 +370,12 @@ export type Database = {
           answer?: string | null
           answer_confidence?: number | null
           answer_source?: string | null
+          attempts?: number
+          auto_approved?: boolean
           book_id: number
           category_id?: number | null
+          claimed_at?: string | null
+          claimed_by?: string | null
           col: number
           created_at?: string
           created_by?: string | null
@@ -383,11 +393,13 @@ export type Database = {
           page_number: number
           prompt_version?: number | null
           q_no: number
+          queued_at?: string | null
           reviewed_at?: string | null
           reviewed_by?: string | null
           reviewer_difficulty?: number | null
           status?: string
           stem?: string | null
+          structured_at?: string | null
           test_no?: number | null
           text_layer?: string | null
           updated_at?: string
@@ -400,8 +412,12 @@ export type Database = {
           answer?: string | null
           answer_confidence?: number | null
           answer_source?: string | null
+          attempts?: number
+          auto_approved?: boolean
           book_id?: number
           category_id?: number | null
+          claimed_at?: string | null
+          claimed_by?: string | null
           col?: number
           created_at?: string
           created_by?: string | null
@@ -419,11 +435,13 @@ export type Database = {
           page_number?: number
           prompt_version?: number | null
           q_no?: number
+          queued_at?: string | null
           reviewed_at?: string | null
           reviewed_by?: string | null
           reviewer_difficulty?: number | null
           status?: string
           stem?: string | null
+          structured_at?: string | null
           test_no?: number | null
           text_layer?: string | null
           updated_at?: string
@@ -449,6 +467,13 @@ export type Database = {
             columns: ["category_id"]
             isOneToOne: false
             referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "questions_claimed_by_fkey"
+            columns: ["claimed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
           {
@@ -508,12 +533,65 @@ export type Database = {
     }
     Functions: {
       apply_answer_keys: { Args: { p_pairs: Json }; Returns: number }
+      claim_questions: {
+        Args: { p_book_id?: number; p_limit: number }
+        Returns: {
+          ai_category_confidence: number | null
+          ai_category_id: number | null
+          ai_difficulty: number | null
+          answer: string | null
+          answer_confidence: number | null
+          answer_source: string | null
+          attempts: number
+          auto_approved: boolean
+          book_id: number
+          category_id: number | null
+          claimed_at: string | null
+          claimed_by: string | null
+          col: number
+          created_at: string
+          created_by: string | null
+          crop_mime: string
+          crop_path: string
+          empirical_difficulty: number | null
+          extraction_error: string | null
+          figure_kind: string
+          figures: Json | null
+          flags: Json
+          id: number
+          is_scan: boolean
+          model: string | null
+          options: Json | null
+          page_number: number
+          prompt_version: number | null
+          q_no: number
+          queued_at: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          reviewer_difficulty: number | null
+          status: string
+          stem: string | null
+          structured_at: string | null
+          test_no: number | null
+          text_layer: string | null
+          updated_at: string
+          verified: boolean
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "questions"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       is_admin: { Args: never; Returns: boolean }
       mark_pages_worked: {
         Args: { p_book_id: number; p_pages: number[] }
         Returns: undefined
       }
+      next_queued_book: { Args: never; Returns: number }
       ops_spend_today: { Args: never; Returns: number }
+      questions_throughput: { Args: never; Returns: Json }
     }
     Enums: {
       [_ in never]: never

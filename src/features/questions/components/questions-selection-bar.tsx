@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { CheckCheck, RefreshCw, Trash2, X } from 'lucide-react'
+import { CheckCheck, ListPlus, Trash2, X } from 'lucide-react'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -17,25 +17,23 @@ import {
   useDeleteQuestions,
   type QuestionListItem,
 } from '@/features/questions/api/questions'
+import { useEnqueue } from '@/features/questions/api/queue'
 
 // Floats over the list instead of sitting above it: the operator selects rows
 // while scrolled anywhere in a 50-row page, and an action bar pinned to the
 // top would be off-screen exactly when it is needed.
 export function QuestionsSelectionBar({
   selected,
-  isRestructuring,
-  onRestructure,
   onClear,
 }: {
   selected: QuestionListItem[]
-  isRestructuring: boolean
-  onRestructure: (items: QuestionListItem[]) => void
   onClear: () => void
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [confirmApprove, setConfirmApprove] = useState(false)
   const bulkApprove = useBulkApprove()
   const remove = useDeleteQuestions()
+  const enqueue = useEnqueue()
   if (!selected.length) return null
 
   // Approval needs a category, and bulk approval only ever confirms the AI's
@@ -46,7 +44,7 @@ export function QuestionsSelectionBar({
   const reviewed = selected.filter(
     (q) => q.status === 'approved' || q.status === 'rejected',
   )
-  const busy = bulkApprove.isPending || remove.isPending || isRestructuring
+  const busy = bulkApprove.isPending || remove.isPending || enqueue.isPending
 
   return (
     <>
@@ -76,14 +74,20 @@ export function QuestionsSelectionBar({
             size="sm"
             variant="ghost"
             disabled={busy}
-            onClick={() => onRestructure(selected)}
+            title="Növbəyə əlavə edir — emal növbə panelindən işə salınır"
+            onClick={() =>
+              enqueue.mutate(
+                selected.map((q) => q.id),
+                { onSuccess: onClear },
+              )
+            }
           >
-            {isRestructuring ? (
+            {enqueue.isPending ? (
               <Spinner data-icon="inline-start" />
             ) : (
-              <RefreshCw data-icon="inline-start" />
+              <ListPlus data-icon="inline-start" />
             )}
-            Yenidən çıxar
+            Növbəyə at
           </Button>
 
           <Button
