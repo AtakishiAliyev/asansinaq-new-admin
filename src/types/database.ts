@@ -507,6 +507,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      apply_answer_keys: { Args: { p_pairs: Json }; Returns: number }
       is_admin: { Args: never; Returns: boolean }
       mark_pages_worked: {
         Args: { p_book_id: number; p_pages: number[] }

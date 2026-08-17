@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Eye, FileUp, Play, Send, Square } from 'lucide-react'
+import { Eye, FileUp, KeyRound, Play, Send, Square } from 'lucide-react'
 import { useBlocker, useSearchParams } from 'react-router'
 import { toast } from 'sonner'
 import {
@@ -26,6 +26,7 @@ import {
   parsePageRange,
   parsePagesLenient,
 } from '@/core/segment/page-range'
+import { matchBlockToSection } from '@/core/answer-key/match'
 import { useCategories } from '@/features/taxonomy'
 import {
   BookFormDialog,
@@ -45,8 +46,11 @@ import { PagePreviewDialog } from '@/features/import/components/page-preview-dia
 import { ThumbnailStrip } from '@/features/import/components/thumbnail-strip'
 import { useSegmentation } from '@/features/import/hooks/use-segmentation'
 import {
+  AnswerKeyDialog,
   cropKey,
   RecreationCheckDialog,
+  useAnswerKeyRun,
+  useSaveAnswerKeys,
   useSaveCrops,
   useStructuringRun,
 } from '@/features/questions'
@@ -111,6 +115,9 @@ export function ImportPage() {
   // The book's subject tree travels with the batch so the model can suggest
   // a category from EXISTING ones during structuring.
   const bookCategories = useCategories(currentBook?.subject_id ?? null)
+  const answerKeys = useAnswerKeyRun()
+  const saveAnswerKeys = useSaveAnswerKeys()
+  const [keyDialogOpen, setKeyDialogOpen] = useState(false)
 
   useEffect(
     () => () => {
@@ -144,6 +151,7 @@ export function ImportPage() {
     docRef.current = loaded
     segmentation.reset()
     structuring.reset()
+    answerKeys.reset()
     setSelectedKeys(new Set())
     setRangeInput(opts.initialRange ?? '')
     setRangeError(null)
@@ -301,6 +309,58 @@ export function ImportPage() {
   }
 
   const running = segmentation.status === 'running'
+  // Answer keys read the SAME page-range input in a different mode: the
+  // operator is already looking at the book with the page numbers in view.
+  function startAnswerKeys() {
+    if (!doc || !currentBook) return
+    const parsed = parsePageRange(rangeInput, doc.numPages)
+    if (!parsed.ok) {
+      setRangeError(parsed.error)
+      return
+    }
+    setRangeError(null)
+    void answerKeys
+      .run(doc, parsed.pages, currentBook.id)
+      .then((result) => {
+        if (!result.blocks.length) {
+          toast.warning('Seçilən səhifələrdə cavab açarı tapılmadı')
+          return
+        }
+        setKeyDialogOpen(true)
+      })
+      .catch((error) => toast.error(normalizeError(error).message))
+  }
+
+  function applyAnswerKeys(overrides: Map<number, number>) {
+    const match = answerKeys.match
+    if (!currentBook || !match) return
+    // An override re-matches the block against the chosen section, so the
+    // operator's correction decides which questions get the answers.
+    const pairs = match.blocks.flatMap((block, i) => {
+      const sectionIndex = overrides.get(i)
+      if (sectionIndex === undefined) {
+        return block.pairs.map((p) => ({ id: p.id, answer: p.answer }))
+      }
+      const section = match.sections.find((s) => s.index === sectionIndex)
+      if (!section) return []
+      return matchBlockToSection(
+        block.block,
+        answerKeys.questions.filter(
+          (q) => q.pageNumber >= section.from && q.pageNumber <= section.to,
+        ),
+      ).pairs.map((pair) => ({ id: pair.id, answer: pair.answer }))
+    })
+    saveAnswerKeys.mutate(
+      { bookId: currentBook.id, blocks: answerKeys.blocks, pairs },
+      {
+        onSuccess: () => {
+          setKeyDialogOpen(false)
+          answerKeys.reset()
+        },
+      },
+    )
+  }
+
   const structuringRunning = structuring.status === 'running'
   const structuredKeys = new Set(structuring.items.map((i) => cropKey(i.crop)))
   // Crops stay in memory until the operator SENDS them — only selected crops
@@ -490,6 +550,27 @@ export function ImportPage() {
                       <Play data-icon="inline-start" />
                     )}
                     Sualları çıxar
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={startAnswerKeys}
+                    disabled={
+                      running ||
+                      answerKeys.status === 'running' ||
+                      !currentBook
+                    }
+                    title={
+                      currentBook
+                        ? 'Seçilən səhifələri cavab açarı kimi oxu'
+                        : 'Əvvəlcə arxivdən kitab açın'
+                    }
+                  >
+                    {answerKeys.status === 'running' ? (
+                      <Spinner data-icon="inline-start" />
+                    ) : (
+                      <KeyRound data-icon="inline-start" />
+                    )}
+                    Cavab açarı çıxar
                   </Button>
                 </div>
                 {rangeError ? (
@@ -780,6 +861,16 @@ export function ImportPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {keyDialogOpen && answerKeys.match ? (
+        <AnswerKeyDialog
+          match={answerKeys.match}
+          notes={answerKeys.notes}
+          isPending={saveAnswerKeys.isPending}
+          onCancel={() => setKeyDialogOpen(false)}
+          onConfirm={applyAnswerKeys}
+        />
+      ) : null}
 
       <RecreationCheckDialog
         items={structuring.items}

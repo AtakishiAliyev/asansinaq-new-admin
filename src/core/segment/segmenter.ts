@@ -386,6 +386,17 @@ function buildBands(
   return bands
 }
 
+/**
+ * The page's raw text items in top-left coordinates. Exposed for the
+ * answer-key parser, which needs the same geometry the segmenter reads but
+ * none of its question logic.
+ */
+export async function pageTextItems(page: PDFPageProxy): Promise<SegItem[]> {
+  const viewport = page.getViewport({ scale: 1 })
+  const content = await page.getTextContent()
+  return itemsFromContent(content, viewport.height)
+}
+
 export async function segmentPage(
   page: PDFPageProxy,
   profile: SourceProfile = DEFAULT_PROFILE,

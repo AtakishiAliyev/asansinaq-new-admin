@@ -15,8 +15,10 @@ import {
   opCompareFigures,
   opExtract,
   opRedrawFigure,
+  opSolve,
   opSuggestCategory,
 } from '@/features/questions/api/question-ops'
+import { fetchBookAnswerKeys } from '@/features/questions/api/answer-keys'
 import { cropRegion, splitDataUrl } from '@/features/questions/lib/image'
 import type { QuestionRow } from '@/features/questions/schemas'
 
@@ -82,6 +84,11 @@ export function useStructuringRun() {
     categories: CategoryOption[] = [],
   ) => {
     const id = ++runId.current
+    // One lookup per run: the printed key, if this book has one imported.
+    const bookId = entries[0]?.row.book_id
+    const answerKeys = bookId
+      ? await fetchBookAnswerKeys(bookId).catch(() => new Map<string, string>())
+      : new Map<string, string>()
     setState({ status: 'running', current: 0, total: entries.length, items: [] })
     const items: StructuringItem[] = []
     let cursor = 0
@@ -358,6 +365,61 @@ export function useStructuringRun() {
         dbFigures = { ...dbFigures, items: dbItems }
       }
 
+      // The answer: the printed key states it, the blind solver corroborates
+      // it. The solver never sees the key — it reads the question and picks a
+      // letter, so agreement is evidence and disagreement is a flag, not a
+      // silent overwrite.
+      const keyAnswer =
+        answerKeys.get(`${row.test_no ?? 0}:${row.q_no}`) ??
+        answerKeys.get(`0:${row.q_no}`) ??
+        null
+      let answer: string | null = keyAnswer
+      let answerSource: 'key' | 'solver' | null = keyAnswer ? 'key' : null
+      let answerConfidence: number | null = null
+      try {
+        checkCancelled()
+        const solved = await opSolve({
+          stem: question.stem,
+          options: question.options.map((o) => ({
+            label: o.label,
+            ...(o.tex !== undefined ? { tex: o.tex } : {}),
+          })),
+          // A picture question is unanswerable from text alone; send the crop.
+          ...(question.figures || question.options.some((o) => o.image)
+            ? { figure: original }
+            : {}),
+        })
+        if (keyAnswer) {
+          if (solved.answer === keyAnswer) {
+            answerConfidence = 0.98
+          } else {
+            pipelineFlags.push({
+              level: 'warning',
+              code: 'answer_mismatch',
+              message: `Cavab açarı ${keyAnswer}, AI həlli ${solved.answer} — yoxlayın`,
+            })
+            answerConfidence = 0.5
+          }
+        } else {
+          answer = solved.answer
+          answerSource = 'solver'
+          answerConfidence = 0.6
+          pipelineFlags.push({
+            level: 'warning',
+            code: 'answer_unverified',
+            message: 'Cavab açarı yoxdur — cavab yalnız AI həllidir',
+          })
+        }
+      } catch {
+        if (!keyAnswer) {
+          pipelineFlags.push({
+            level: 'warning',
+            code: 'answer_missing',
+            message: 'Cavab tapılmadı — açar yoxdur, həll də alınmadı',
+          })
+        }
+      }
+
       // Category suggestion: cheap, and the reviewer confirms it anyway. A
       // hallucinated id is rejected here, not written to the row.
       let aiCategoryId: number | null = null
@@ -414,6 +476,14 @@ export function useStructuringRun() {
           options: dbOptions,
           figures: dbFigures as never,
           ai_difficulty: aiDifficulty,
+          // A reviewer's answer outranks anything the pipeline produces.
+          ...(row.answer_source !== 'reviewer' && answer
+            ? {
+                answer,
+                answer_source: answerSource,
+                answer_confidence: answerConfidence,
+              }
+            : {}),
           // Only overwrite the suggestion when one was actually requested —
           // a restructure without a category tree must not erase the old one.
           ...(categories.length
