@@ -1,16 +1,17 @@
 import { useEffect, useState } from 'react'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Card, CardContent } from '@/components/ui/card'
 import { Empty, EmptyDescription, EmptyTitle } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
-import { normalizeError } from '@/lib/errors'
 import { usePrograms } from '@/features/taxonomy/api/programs'
 import { useSubjects } from '@/features/taxonomy/api/subjects'
 import { CategoryTree } from '@/features/taxonomy/components/category-tree'
 import { ProgramMenu } from '@/features/taxonomy/components/program-menu'
 import { SubjectList } from '@/features/taxonomy/components/subject-list'
+import { usePageTitle } from '@/hooks/use-page-title'
+import { QueryErrorAlert } from '@/components/query-error-alert'
 
 export function TaxonomyPage() {
+  usePageTitle('Fənn və kateqoriyalar')
   const programs = usePrograms()
   const [programId, setProgramId] = useState<number | null>(null)
   const [subjectId, setSubjectId] = useState<number | null>(null)
@@ -62,11 +63,11 @@ export function TaxonomyPage() {
       </div>
 
       {programs.isError ? (
-        <Alert variant="destructive">
-          <AlertDescription>
-            {normalizeError(programs.error).message}
-          </AlertDescription>
-        </Alert>
+        <QueryErrorAlert
+          error={programs.error}
+          onRetry={() => programs.refetch()}
+          isRetrying={programs.isFetching}
+        />
       ) : null}
 
       <Card>
@@ -81,11 +82,11 @@ export function TaxonomyPage() {
                   <Skeleton className="h-9 w-full" />
                 </div>
               ) : subjects.isError ? (
-                <Alert variant="destructive">
-                  <AlertDescription>
-                    {normalizeError(subjects.error).message}
-                  </AlertDescription>
-                </Alert>
+                <QueryErrorAlert
+                  error={subjects.error}
+                  onRetry={() => subjects.refetch()}
+                  isRetrying={subjects.isFetching}
+                />
               ) : programId !== null ? (
                 <SubjectList
                   key={programId}

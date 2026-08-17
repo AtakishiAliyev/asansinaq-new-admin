@@ -137,7 +137,7 @@ export function BookFormFields({
               </Select>
             )}
           />
-          <FieldDescription>Tək-fənnli kitab üçün seçin.</FieldDescription>
+          <FieldDescription>Tək-fənli kitab üçün seçin.</FieldDescription>
         </Field>
       </div>
 

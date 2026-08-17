@@ -144,12 +144,16 @@ export function useBackfillPageCount() {
         .eq('id', id)
       if (error) throw error
     },
+    retry: 2,
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: bookKeys.list() }),
+    onError: () => toast.warning('Səhifə sayı yazılmadı'),
   })
 }
 
 // Fire-and-forget processing trail; merged atomically server-side.
+// Quiet on success, loud on failure — a silently stale trail would corrupt
+// the resume hints and the Emal column.
 export function useMarkPagesWorked() {
   const queryClient = useQueryClient()
   return useMutation({
@@ -166,8 +170,11 @@ export function useMarkPagesWorked() {
       })
       if (error) throw error
     },
+    retry: 2,
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: bookKeys.list() }),
+    onError: () =>
+      toast.warning('Emal qeydi yazılmadı — səhifə tarixçəsi natamam ola bilər'),
   })
 }
 

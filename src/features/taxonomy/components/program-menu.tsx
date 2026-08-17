@@ -18,6 +18,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 import {
   Dialog,
   DialogContent,
@@ -58,12 +59,24 @@ function ManageProgramsDialog() {
   const [pendingDelete, setPendingDelete] = useState<Program | null>(null)
 
   return (
-    <DialogContent className="max-w-sm">
+    <DialogContent
+      className="max-w-sm"
+      // Radix hears Escape on document in the capture phase, so the inline
+      // NameForm's own handler can't stop it — cancel the edit here instead
+      // of letting Escape close the whole dialog mid-edit.
+      onEscapeKeyDown={(event) => {
+        if (editingId !== null || adding) {
+          event.preventDefault()
+          setEditingId(null)
+          setAdding(false)
+        }
+      }}
+    >
       <DialogHeader>
         <DialogTitle>Proqramlar</DialogTitle>
         <DialogDescription>
           İmtahan sistemləri — hər proqramın öz fənn və kateqoriyaları var.
-          Silmək üçün əvvəlcə fənnləri silinməlidir.
+          Silmək üçün əvvəlcə onun fənlərini silin.
         </DialogDescription>
       </DialogHeader>
 
@@ -90,7 +103,7 @@ function ManageProgramsDialog() {
               className="group flex items-center justify-between gap-2 rounded-md px-2 py-1.5"
             >
               <span className="text-sm font-medium">{program.name}</span>
-              <span className="flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+              <span className="flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100">
                 <Button
                   variant="ghost"
                   size="icon-sm"
@@ -138,7 +151,7 @@ function ManageProgramsDialog() {
       <AlertDialog
         open={pendingDelete !== null}
         onOpenChange={(open) => {
-          if (!open) setPendingDelete(null)
+          if (!open && !deleteProgram.isPending) setPendingDelete(null)
         }}
       >
         <AlertDialogContent>
@@ -147,7 +160,7 @@ function ManageProgramsDialog() {
               «{pendingDelete?.name}» silinsin?
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Proqramın fənnləri varsa, əvvəlcə onlar silinməlidir. Bu əməliyyat
+              Proqramın fənləri varsa, əvvəlcə onlar silinməlidir. Bu əməliyyat
               geri qaytarıla bilməz.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -166,6 +179,9 @@ function ManageProgramsDialog() {
                 })
               }}
             >
+              {deleteProgram.isPending ? (
+                <Spinner data-icon="inline-start" />
+              ) : null}
               Sil
             </AlertDialogAction>
           </AlertDialogFooter>

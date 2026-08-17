@@ -8,6 +8,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { Spinner } from '@/components/ui/spinner'
 import type { CategoryNode } from '@/features/taxonomy/schemas'
 
 interface DeleteCategoryDialogProps {
@@ -26,7 +27,13 @@ export function DeleteCategoryDialog({
   const childCount = category?.children.length ?? 0
 
   return (
-    <AlertDialog open={category !== null} onOpenChange={onOpenChange}>
+    <AlertDialog
+      open={category !== null}
+      onOpenChange={(next) => {
+        if (!next && isPending) return
+        onOpenChange(next)
+      }}
+    >
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>«{category?.name}» silinsin?</AlertDialogTitle>
@@ -46,6 +53,7 @@ export function DeleteCategoryDialog({
               onConfirm()
             }}
           >
+            {isPending ? <Spinner data-icon="inline-start" /> : null}
             Sil
           </AlertDialogAction>
         </AlertDialogFooter>

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
+import { z } from 'zod'
 import { ArrowDown, ArrowUp, FolderOpen, Pencil, Trash2 } from 'lucide-react'
-import { useNavigate } from 'react-router'
+import { useNavigate, useSearchParams } from 'react-router'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -11,7 +12,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyDescription, EmptyTitle } from '@/components/ui/empty'
@@ -35,7 +35,6 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
-import { normalizeError } from '@/lib/errors'
 import { usePrograms } from '@/features/taxonomy'
 import {
   useBooks,
@@ -45,6 +44,9 @@ import {
 import { BookDetailSheet } from '@/features/books/components/book-detail-sheet'
 import { BookFormDialog } from '@/features/books/components/book-form-dialog'
 import type { Book } from '@/features/books/schemas'
+import { usePageTitle } from '@/hooks/use-page-title'
+import { QueryErrorAlert } from '@/components/query-error-alert'
+import { Spinner } from '@/components/ui/spinner'
 
 function formatSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
@@ -58,7 +60,20 @@ function formatDate(iso: string): string {
   })
 }
 
-type SortKey = 'title' | 'pages' | 'size' | 'date' | 'progress'
+const SORT_KEYS = ['title', 'pages', 'size', 'date', 'progress'] as const
+type SortKey = (typeof SORT_KEYS)[number]
+
+// Filters live in the URL so the work-queue view survives the round-trip to
+// Import (browser back restores it exactly) and can be bookmarked. Invalid
+// params degrade to the defaults instead of erroring.
+const filterParamsSchema = z.object({
+  q: z.string().catch(''),
+  program: z.coerce.number().int().positive().optional().catch(undefined),
+  subject: z.coerce.number().int().positive().optional().catch(undefined),
+  tag: z.string().min(1).optional().catch(undefined),
+  sort: z.enum(SORT_KEYS).catch('date'),
+  desc: z.enum(['1', '0']).catch('1'),
+})
 
 const SORT_ACCESSORS: Record<SortKey, (b: Book) => string | number> = {
   title: (b) => b.title.toLocaleLowerCase('az'),
@@ -83,10 +98,14 @@ function SortHead({
 }) {
   const active = sort.key === sortKey
   return (
-    <TableHead className={className}>
+    <TableHead
+      className={className}
+      aria-sort={active ? (sort.desc ? 'descending' : 'ascending') : undefined}
+    >
       <button
         type="button"
         onClick={() => onSort(sortKey)}
+        aria-label={`${label} üzrə çeşidlə${active ? (sort.desc ? ' — azalan' : ' — artan') : ''}`}
         className={cn(
           'hover:text-foreground inline-flex items-center gap-1',
           active && 'text-foreground font-medium',
@@ -106,20 +125,38 @@ function SortHead({
 }
 
 export function BooksPage() {
+  usePageTitle('Kitablar')
   const navigate = useNavigate()
   const books = useBooks()
   const programs = usePrograms()
   const updateBook = useUpdateBook()
   const deleteBook = useDeleteBook()
 
-  const [search, setSearch] = useState('')
-  const [programFilter, setProgramFilter] = useState<'all' | number>('all')
-  const [subjectFilter, setSubjectFilter] = useState<'all' | number>('all')
-  const [tagFilter, setTagFilter] = useState<'all' | string>('all')
-  const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({
-    key: 'date',
-    desc: true,
-  })
+  const [searchParams, setSearchParams] = useSearchParams()
+  const params = useMemo(
+    () => filterParamsSchema.parse(Object.fromEntries(searchParams.entries())),
+    [searchParams],
+  )
+  const search = params.q
+  const programFilter: 'all' | number = params.program ?? 'all'
+  const subjectFilter: 'all' | number = params.subject ?? 'all'
+  const tagFilter: 'all' | string = params.tag ?? 'all'
+  const sort = { key: params.sort, desc: params.desc === '1' }
+
+  // replace, not push: keystrokes and filter tweaks must not spam history.
+  function updateParams(patch: Record<string, string | null>) {
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current)
+        for (const [key, value] of Object.entries(patch)) {
+          if (value === null || value === '') next.delete(key)
+          else next.set(key, value)
+        }
+        return next
+      },
+      { replace: true },
+    )
+  }
   const [detail, setDetail] = useState<Book | null>(null)
   const [editing, setEditing] = useState<Book | null>(null)
   const [pendingDelete, setPendingDelete] = useState<Book | null>(null)
@@ -188,15 +225,13 @@ export function BooksPage() {
     programFilter,
     effectiveSubjectFilter,
     effectiveTagFilter,
-    sort,
+    sort.key,
+    sort.desc,
   ])
 
   function toggleSort(key: SortKey) {
-    setSort((current) =>
-      current.key === key
-        ? { key, desc: !current.desc }
-        : { key, desc: key === 'date' },
-    )
+    const desc = sort.key === key ? !sort.desc : key === 'date'
+    updateParams({ sort: key, desc: desc ? '1' : '0' })
   }
 
   function openInImport(book: Book) {
@@ -210,17 +245,16 @@ export function BooksPage() {
       <div className="flex flex-wrap items-center gap-2">
         <Input
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Ad üzrə axtar…"
-          className="max-w-60"
+          onChange={(e) => updateParams({ q: e.target.value })}
+          placeholder="Ad, fayl və ya fənn üzrə axtar…"
+          className="max-w-72"
           aria-label="Kitab axtar"
         />
         <Select
           value={programFilter === 'all' ? 'all' : String(programFilter)}
-          onValueChange={(v) => {
-            setProgramFilter(v === 'all' ? 'all' : Number(v))
-            setSubjectFilter('all')
-          }}
+          onValueChange={(v) =>
+            updateParams({ program: v === 'all' ? null : v, subject: null })
+          }
         >
           <SelectTrigger className="w-40" aria-label="Proqram süzgəci">
             <SelectValue />
@@ -244,7 +278,7 @@ export function BooksPage() {
                 : String(effectiveSubjectFilter)
             }
             onValueChange={(v) =>
-              setSubjectFilter(v === 'all' ? 'all' : Number(v))
+              updateParams({ subject: v === 'all' ? null : v })
             }
           >
             <SelectTrigger className="w-40" aria-label="Fənn süzgəci">
@@ -252,7 +286,7 @@ export function BooksPage() {
             </SelectTrigger>
             <SelectContent>
               <SelectGroup>
-                <SelectItem value="all">Bütün fənnlər</SelectItem>
+                <SelectItem value="all">Bütün fənlər</SelectItem>
                 {subjectOptions.map(([id, name]) => (
                   <SelectItem key={id} value={String(id)}>
                     {name}
@@ -268,7 +302,7 @@ export function BooksPage() {
               effectiveTagFilter === 'all' ? 'all' : `tag:${effectiveTagFilter}`
             }
             onValueChange={(v) =>
-              setTagFilter(v === 'all' ? 'all' : v.slice(4))
+              updateParams({ tag: v === 'all' ? null : v.slice(4) })
             }
           >
             <SelectTrigger className="w-40" aria-label="Tag süzgəci">
@@ -287,11 +321,9 @@ export function BooksPage() {
           </Select>
         ) : null}
         <span className="text-muted-foreground ml-auto text-sm tabular-nums">
-          {filtered.length}
-          {filtered.length !== (books.data?.length ?? 0)
-            ? ` / ${books.data?.length ?? 0}`
-            : ''}{' '}
-          kitab
+          {books.isSuccess
+            ? `${filtered.length}${filtered.length !== books.data.length ? ` / ${books.data.length}` : ''} kitab`
+            : '—'}
         </span>
       </div>
 
@@ -302,11 +334,11 @@ export function BooksPage() {
           ))}
         </div>
       ) : books.isError ? (
-        <Alert variant="destructive">
-          <AlertDescription>
-            {normalizeError(books.error).message}
-          </AlertDescription>
-        </Alert>
+        <QueryErrorAlert
+          error={books.error}
+          onRetry={() => books.refetch()}
+          isRetrying={books.isFetching}
+        />
       ) : filtered.length === 0 ? (
         <Empty>
           <EmptyTitle>
@@ -370,9 +402,18 @@ export function BooksPage() {
                   onClick={() => setDetail(book)}
                 >
                   <TableCell className="max-w-56">
-                    <span className="block truncate font-medium">
+                    {/* Real button: the row's onClick alone is unreachable
+                        by keyboard and invisible to screen readers. */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setDetail(book)
+                      }}
+                      className="block w-full truncate text-left font-medium"
+                    >
                       {book.title}
-                    </span>
+                    </button>
                     <span className="text-muted-foreground text-xs">
                       {book.programs?.name ?? '—'}
                       {book.storage_path === null
@@ -413,7 +454,7 @@ export function BooksPage() {
                   </TableCell>
                   <TableCell>{formatDate(book.created_at)}</TableCell>
                   <TableCell onClick={(e) => e.stopPropagation()}>
-                    <span className="flex items-center justify-end gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                    <span className="flex items-center justify-end gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100">
                       <Button
                         variant="ghost"
                         size="icon-sm"
@@ -490,7 +531,7 @@ export function BooksPage() {
       <AlertDialog
         open={pendingDelete !== null}
         onOpenChange={(open) => {
-          if (!open) setPendingDelete(null)
+          if (!open && !deleteBook.isPending) setPendingDelete(null)
         }}
       >
         <AlertDialogContent>
@@ -518,6 +559,7 @@ export function BooksPage() {
                 })
               }}
             >
+              {deleteBook.isPending ? <Spinner data-icon="inline-start" /> : null}
               Sil
             </AlertDialogAction>
           </AlertDialogFooter>

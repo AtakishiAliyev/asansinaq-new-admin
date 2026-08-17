@@ -9,6 +9,7 @@ import { EmailStep } from '@/features/auth/components/email-step'
 import { LoginStep } from '@/features/auth/components/login-step'
 import { OtpStep } from '@/features/auth/components/otp-step'
 import { useCooldown } from '@/features/auth/hooks/use-cooldown'
+import { usePageTitle } from '@/hooks/use-page-title'
 
 // Mirrors auth.email.max_frequency in supabase/config.toml, which is the
 // source of truth — Supabase rejects a second email inside that window, so
@@ -18,6 +19,7 @@ const RESEND_COOLDOWN_SECONDS = 20
 type Step = { name: 'email'; email: string } | { name: 'otp'; email: string }
 
 export function LoginPage() {
+  usePageTitle('Daxil ol')
   const { status } = useAuth()
   const [step, setStep] = useState<Step>({ name: 'email', email: '' })
   const requestOtp = useRequestOtp()

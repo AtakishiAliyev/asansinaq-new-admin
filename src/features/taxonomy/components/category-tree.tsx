@@ -1,10 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Plus } from 'lucide-react'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyDescription, EmptyTitle } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
-import { normalizeError } from '@/lib/errors'
 import {
   useCategories,
   useCreateCategory,
@@ -14,6 +12,7 @@ import { CategoryRow, SubCategoryRow } from '@/features/taxonomy/components/cate
 import { DeleteCategoryDialog } from '@/features/taxonomy/components/delete-category-dialog'
 import { NameForm } from '@/features/taxonomy/components/name-form'
 import type { Category, CategoryNode } from '@/features/taxonomy/schemas'
+import { QueryErrorAlert } from '@/components/query-error-alert'
 
 function buildTree(categories: Category[]): CategoryNode[] {
   const roots = categories.filter((c) => c.parent_id === null)
@@ -44,6 +43,9 @@ export function CategoryTree({ subjectId, subjectName }: CategoryTreeProps) {
 
   const [addingRoot, setAddingRoot] = useState(false)
   const [addingChildOf, setAddingChildOf] = useState<number | null>(null)
+  // Restore keyboard focus to the button that opened an inline add form —
+  // otherwise closing the form drops focus to <body>.
+  const addRootButtonRef = useRef<HTMLButtonElement>(null)
   const [expanded, setExpanded] = useState<Set<number>>(new Set())
   const [pendingDelete, setPendingDelete] = useState<CategoryNode | null>(null)
 
@@ -63,13 +65,25 @@ export function CategoryTree({ subjectId, subjectName }: CategoryTreeProps) {
     setAddingChildOf(parentId)
   }
 
+  function stopAddingRoot() {
+    setAddingRoot(false)
+    requestAnimationFrame(() => addRootButtonRef.current?.focus())
+  }
+
+  const addChildButtonRefs = useRef(new Map<number, HTMLButtonElement>())
+
+  function stopAddingChild(parentId: number) {
+    setAddingChildOf(null)
+    requestAnimationFrame(() => addChildButtonRefs.current.get(parentId)?.focus())
+  }
+
   const header = (
     <div className="flex items-center justify-between">
       <p className="text-muted-foreground text-xs tracking-wide">
         {subjectName.toLocaleUpperCase('az')} — KATEQORİYALAR
       </p>
       {!addingRoot ? (
-        <Button size="sm" onClick={() => setAddingRoot(true)}>
+        <Button size="sm" ref={addRootButtonRef} onClick={() => setAddingRoot(true)}>
           <Plus data-icon="inline-start" />
           {ADD_LABEL}
         </Button>
@@ -94,11 +108,11 @@ export function CategoryTree({ subjectId, subjectName }: CategoryTreeProps) {
     return (
       <div className="flex flex-col gap-3">
         {header}
-        <Alert variant="destructive">
-          <AlertDescription>
-            {normalizeError(categories.error).message}
-          </AlertDescription>
-        </Alert>
+        <QueryErrorAlert
+          error={categories.error}
+          onRetry={() => categories.refetch()}
+          isRetrying={categories.isFetching}
+        />
       </div>
     )
   }
@@ -129,6 +143,10 @@ export function CategoryTree({ subjectId, subjectName }: CategoryTreeProps) {
                 onToggle={() => toggle(node.id)}
                 onAddChild={() => startAddChild(node.id)}
                 onDelete={() => setPendingDelete(node)}
+                addChildButtonRef={(el) => {
+                  if (el) addChildButtonRefs.current.set(node.id, el)
+                  else addChildButtonRefs.current.delete(node.id)
+                }}
               />
               {expanded.has(node.id)
                 ? node.children.map((child) => (
@@ -145,11 +163,11 @@ export function CategoryTree({ subjectId, subjectName }: CategoryTreeProps) {
                   <NameForm
                     placeholder="Sub-kateqoriyanın adı"
                     isPending={createCategory.isPending}
-                    onCancel={() => setAddingChildOf(null)}
+                    onCancel={() => stopAddingChild(node.id)}
                     onSubmit={(name) =>
                       createCategory.mutate(
                         { subjectId, parentId: node.id, name },
-                        { onSuccess: () => setAddingChildOf(null) },
+                        { onSuccess: () => stopAddingChild(node.id) },
                       )
                     }
                   />
@@ -163,11 +181,11 @@ export function CategoryTree({ subjectId, subjectName }: CategoryTreeProps) {
               <NameForm
                 placeholder="Kateqoriyanın adı"
                 isPending={createCategory.isPending}
-                onCancel={() => setAddingRoot(false)}
+                onCancel={stopAddingRoot}
                 onSubmit={(name) =>
                   createCategory.mutate(
                     { subjectId, parentId: null, name },
-                    { onSuccess: () => setAddingRoot(false) },
+                    { onSuccess: stopAddingRoot },
                   )
                 }
               />

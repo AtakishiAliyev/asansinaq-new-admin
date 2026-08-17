@@ -1,6 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm } from 'react-hook-form'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import {
@@ -15,11 +14,12 @@ import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import { useAuth } from '@/hooks/use-auth'
-import { normalizeError } from '@/lib/errors'
 import { useSignOut } from '@/features/auth'
 import { useProfile } from '@/features/profile/api/use-profile'
 import { useUpdateProfile } from '@/features/profile/api/use-update-profile'
 import { profileFormSchema, type ProfileFormValues } from '@/features/profile/schemas'
+import { usePageTitle } from '@/hooks/use-page-title'
+import { QueryErrorAlert } from '@/components/query-error-alert'
 
 function NameForm({ defaultName }: { defaultName: string }) {
   const updateProfile = useUpdateProfile()
@@ -63,6 +63,7 @@ function NameForm({ defaultName }: { defaultName: string }) {
 }
 
 export function ProfilePage() {
+  usePageTitle('Profil')
   const { session } = useAuth()
   const profile = useProfile()
   const signOut = useSignOut()
@@ -95,11 +96,11 @@ export function ProfilePage() {
               <Skeleton className="h-9 w-full" />
             </div>
           ) : profile.isError ? (
-            <Alert variant="destructive">
-              <AlertDescription>
-                {normalizeError(profile.error).message}
-              </AlertDescription>
-            </Alert>
+            <QueryErrorAlert
+              error={profile.error}
+              onRetry={() => profile.refetch()}
+              isRetrying={profile.isFetching}
+            />
           ) : (
             <NameForm
               key={profile.data.full_name}

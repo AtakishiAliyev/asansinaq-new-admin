@@ -12,6 +12,7 @@ interface CategoryRowProps {
   onToggle: () => void
   onAddChild: () => void
   onDelete: () => void
+  addChildButtonRef?: (el: HTMLButtonElement | null) => void
 }
 
 export function CategoryRow({
@@ -21,6 +22,7 @@ export function CategoryRow({
   onToggle,
   onAddChild,
   onDelete,
+  addChildButtonRef,
 }: CategoryRowProps) {
   const [editing, setEditing] = useState(false)
   const editButtonRef = useRef<HTMLButtonElement>(null)
@@ -58,7 +60,8 @@ export function CategoryRow({
           variant="ghost"
           size="icon-xs"
           onClick={onToggle}
-          aria-label={expanded ? 'Yığ' : 'Aç'}
+          aria-expanded={expanded}
+          aria-label={`${node.name} alt-kateqoriyaları`}
         >
           {expanded ? <ChevronDown /> : <ChevronRight />}
         </Button>
@@ -72,11 +75,12 @@ export function CategoryRow({
         {childCount > 0 ? `${childCount} sub` : 'sub yoxdur'}
       </span>
 
-      <span className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+      <span className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100">
         <Button
           variant="ghost"
           size="icon-sm"
           aria-label="Sub-kateqoriya əlavə et"
+          ref={addChildButtonRef}
           onClick={onAddChild}
         >
           <Plus />
@@ -146,7 +150,7 @@ export function SubCategoryRow({
   return (
     <div className="group text-muted-foreground flex items-center gap-2 border-b py-1.5 pr-2 pl-9 text-sm">
       <span className="flex-1">{node.name}</span>
-      <span className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+      <span className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100">
         <Button
           ref={editButtonRef}
           variant="ghost"

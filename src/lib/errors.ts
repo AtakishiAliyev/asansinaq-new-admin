@@ -31,34 +31,34 @@ export function normalizeError(error: unknown): AppError {
   if (error instanceof ZodError) {
     return {
       code: 'validation_error',
-      message: 'Received unexpected data from the server. Please try again.',
+      message: 'Serverdən gözlənilməz cavab gəldi. Yenidən cəhd edin.',
       cause: error,
     }
   }
   if (isAuthError(error)) {
     return {
       code: error.code ?? 'auth_error',
-      message: 'Authentication failed. Please sign in again.',
+      message: 'Giriş uğursuz oldu. Yenidən daxil olun.',
       cause: error,
     }
   }
   if (isAxiosError(error)) {
     return {
       code: error.code ?? 'network_error',
-      message: 'A network request failed. Please try again.',
+      message: 'Şəbəkə sorğusu alınmadı. Yenidən cəhd edin.',
       cause: error,
     }
   }
   if (isPostgrestError(error)) {
     return {
       code: error.code,
-      message: 'A database request failed. Please try again.',
+      message: 'Baza sorğusu alınmadı. Yenidən cəhd edin.',
       cause: error,
     }
   }
   return {
     code: 'unknown_error',
-    message: 'Something went wrong. Please try again.',
+    message: 'Xəta baş verdi. Yenidən cəhd edin.',
     cause: error,
   }
 }

@@ -60,7 +60,7 @@ export function NameForm({
       </Field>
       <Button type="submit" size="sm" disabled={isPending}>
         {isPending ? <Spinner data-icon="inline-start" /> : null}
-        Saxla
+        Yadda saxla
       </Button>
       <Button
         type="button"

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Pencil, Plus, Trash2 } from 'lucide-react'
 import {
   AlertDialog,
@@ -11,6 +11,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
 import {
   useCreateSubject,
@@ -39,11 +40,25 @@ export function SubjectList({
   const [adding, setAdding] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [pendingDelete, setPendingDelete] = useState<Subject | null>(null)
+  // Closing an inline form unmounts the focused element, dropping keyboard
+  // focus to <body>; restore it to the control that opened the form.
+  const editButtonRefs = useRef(new Map<number, HTMLButtonElement>())
+  const addButtonRef = useRef<HTMLButtonElement>(null)
+
+  function stopEditing(id: number) {
+    setEditingId(null)
+    requestAnimationFrame(() => editButtonRefs.current.get(id)?.focus())
+  }
+
+  function stopAdding() {
+    setAdding(false)
+    requestAnimationFrame(() => addButtonRef.current?.focus())
+  }
 
   return (
     <div className="flex flex-col gap-1">
       <p className="text-muted-foreground mb-1 px-1 text-xs tracking-wide">
-        FƏNNLƏR
+        FƏNLƏR
       </p>
 
       {subjects.map((subject) =>
@@ -53,11 +68,11 @@ export function SubjectList({
               defaultName={subject.name}
               placeholder="Fənnin adı"
               isPending={renameSubject.isPending}
-              onCancel={() => setEditingId(null)}
+              onCancel={() => stopEditing(subject.id)}
               onSubmit={(name) =>
                 renameSubject.mutate(
                   { programId, id: subject.id, name },
-                  { onSuccess: () => setEditingId(null) },
+                  { onSuccess: () => stopEditing(subject.id) },
                 )
               }
             />
@@ -87,11 +102,15 @@ export function SubjectList({
                 </span>
               ) : null}
             </button>
-            <span className="flex items-center pr-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+            <span className="flex items-center pr-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100">
               <Button
                 variant="ghost"
                 size="icon-sm"
                 aria-label={`${subject.name} adını dəyiş`}
+                ref={(el) => {
+                  if (el) editButtonRefs.current.set(subject.id, el)
+                  else editButtonRefs.current.delete(subject.id)
+                }}
                 onClick={() => setEditingId(subject.id)}
               >
                 <Pencil />
@@ -115,11 +134,11 @@ export function SubjectList({
           <NameForm
             placeholder="Fənnin adı"
             isPending={createSubject.isPending}
-            onCancel={() => setAdding(false)}
+            onCancel={stopAdding}
             onSubmit={(name) =>
               createSubject.mutate(
                 { programId, name },
-                { onSuccess: () => setAdding(false) },
+                { onSuccess: stopAdding },
               )
             }
           />
@@ -129,6 +148,7 @@ export function SubjectList({
           variant="ghost"
           size="sm"
           className="mt-1 justify-start"
+          ref={addButtonRef}
           onClick={() => setAdding(true)}
         >
           <Plus data-icon="inline-start" />
@@ -139,7 +159,7 @@ export function SubjectList({
       <AlertDialog
         open={pendingDelete !== null}
         onOpenChange={(open) => {
-          if (!open) setPendingDelete(null)
+          if (!open && !deleteSubject.isPending) setPendingDelete(null)
         }}
       >
         <AlertDialogContent>
@@ -169,6 +189,9 @@ export function SubjectList({
                 )
               }}
             >
+              {deleteSubject.isPending ? (
+                <Spinner data-icon="inline-start" />
+              ) : null}
               Sil
             </AlertDialogAction>
           </AlertDialogFooter>

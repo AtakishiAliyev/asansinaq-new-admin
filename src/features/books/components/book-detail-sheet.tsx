@@ -144,7 +144,7 @@ export function BookDetailSheet({
               </Button>
               <Button variant="outline" onClick={() => onEdit(book)}>
                 <Pencil data-icon="inline-start" />
-                Redaktə
+                Redaktə et
               </Button>
               <Button
                 variant="outline"
