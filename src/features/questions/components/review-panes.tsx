@@ -37,6 +37,7 @@ export function ReviewPanes({
         <div className="rounded-md border bg-white p-3">
           {item.stem ? (
             <QuestionPreview
+              answer={item.answer}
               question={{
                 stem: item.stem,
                 options: parseOptions(item.options),
