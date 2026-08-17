@@ -100,6 +100,12 @@ export function ImportPage() {
   const [currentBook, setCurrentBook] = useState<Book | null>(null)
   const [rangeInput, setRangeInput] = useState('')
   const [rangeError, setRangeError] = useState<string | null>(null)
+  // Questions and answer keys are different page sets — one shared input meant
+  // retyping the other every time you switched task. Clicking a thumbnail
+  // fills whichever field the operator last touched.
+  const [keyRangeInput, setKeyRangeInput] = useState('')
+  const [keyRangeError, setKeyRangeError] = useState<string | null>(null)
+  const [activeRange, setActiveRange] = useState<'questions' | 'keys'>('questions')
   const [searchParams, setSearchParams] = useSearchParams()
   const books = useBooks()
   const createBook = useCreateBook()
@@ -155,6 +161,9 @@ export function ImportPage() {
     setSelectedKeys(new Set())
     setRangeInput(opts.initialRange ?? '')
     setRangeError(null)
+    setKeyRangeInput('')
+    setKeyRangeError(null)
+    setActiveRange('questions')
     setFileName(name)
     setDoc(loaded)
     setDocSeq(seq)
@@ -272,16 +281,20 @@ export function ImportPage() {
 
   function toggleThumb(page: number) {
     if (!doc) return
-    const strict = parsePageRange(rangeInput, doc.numPages)
-    if (strict.ok || rangeInput.trim() === '') {
-      const pages = parsePagesLenient(rangeInput, doc.numPages)
+    const isKeys = activeRange === 'keys'
+    const value = isKeys ? keyRangeInput : rangeInput
+    const setValue = isKeys ? setKeyRangeInput : setRangeInput
+    const setError = isKeys ? setKeyRangeError : setRangeError
+    const strict = parsePageRange(value, doc.numPages)
+    if (strict.ok || value.trim() === '') {
+      const pages = parsePagesLenient(value, doc.numPages)
       if (pages.has(page)) pages.delete(page)
       else pages.add(page)
-      setRangeInput(formatPages([...pages]))
+      setValue(formatPages([...pages]))
     } else {
-      setRangeInput(rangeInput.trim() ? `${rangeInput}, ${page}` : String(page))
+      setValue(value.trim() ? `${value}, ${page}` : String(page))
     }
-    setRangeError(null)
+    setError(null)
   }
 
   function startSegmentation() {
@@ -313,12 +326,12 @@ export function ImportPage() {
   // operator is already looking at the book with the page numbers in view.
   function startAnswerKeys() {
     if (!doc || !currentBook) return
-    const parsed = parsePageRange(rangeInput, doc.numPages)
+    const parsed = parsePageRange(keyRangeInput, doc.numPages)
     if (!parsed.ok) {
-      setRangeError(parsed.error)
+      setKeyRangeError(parsed.error)
       return
     }
-    setRangeError(null)
+    setKeyRangeError(null)
     void answerKeys
       .run(doc, parsed.pages, currentBook.id)
       .then((result) => {
@@ -523,71 +536,118 @@ export function ImportPage() {
                 key={docSeq}
                 doc={doc}
                 pageCount={doc.numPages}
-                selected={parsePagesLenient(rangeInput, doc.numPages)}
+                selected={parsePagesLenient(
+                  activeRange === 'keys' ? keyRangeInput : rangeInput,
+                  doc.numPages,
+                )}
                 onOpen={setPreviewPage}
               />
-              <Field data-invalid={rangeError ? true : undefined}>
-                <FieldLabel htmlFor="range">Səhifə aralığı</FieldLabel>
-                <div className="flex gap-2">
-                  <Input
-                    id="range"
-                    value={rangeInput}
-                    placeholder="məs. 4-8, 11"
-                    className="max-w-60"
-                    aria-invalid={rangeError ? true : undefined}
-                    onChange={(e) => {
-                      setRangeInput(e.target.value)
-                      setRangeError(null)
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') startSegmentation()
-                    }}
-                  />
-                  <Button onClick={startSegmentation} disabled={running}>
-                    {running ? (
-                      <Spinner data-icon="inline-start" />
-                    ) : (
-                      <Play data-icon="inline-start" />
-                    )}
-                    Sualları çıxar
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={startAnswerKeys}
-                    disabled={
-                      running ||
-                      answerKeys.status === 'running' ||
-                      !currentBook
-                    }
-                    title={
-                      currentBook
-                        ? 'Seçilən səhifələri cavab açarı kimi oxu'
-                        : 'Əvvəlcə arxivdən kitab açın'
-                    }
-                  >
-                    {answerKeys.status === 'running' ? (
-                      <Spinner data-icon="inline-start" />
-                    ) : (
-                      <KeyRound data-icon="inline-start" />
-                    )}
-                    Cavab açarı çıxar
-                  </Button>
-                </div>
-                {rangeError ? (
-                  <p className="text-destructive text-sm">{rangeError}</p>
-                ) : (
-                  <FieldDescription>
-                    Yazı ilə (4-8, 11) və ya yuxarıdakı səhifələrə kliklə seçin
-                    — cəmi {doc.numPages} səhifə.
-                  </FieldDescription>
-                )}
-              </Field>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field data-invalid={rangeError ? true : undefined}>
+                  <FieldLabel htmlFor="range">Sual səhifələri</FieldLabel>
+                  <div className="flex gap-2">
+                    <Input
+                      id="range"
+                      value={rangeInput}
+                      placeholder="məs. 4-8, 11"
+                      aria-invalid={rangeError ? true : undefined}
+                      onFocus={() => setActiveRange('questions')}
+                      onChange={(e) => {
+                        setRangeInput(e.target.value)
+                        setRangeError(null)
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') startSegmentation()
+                      }}
+                    />
+                    <Button onClick={startSegmentation} disabled={running}>
+                      {running ? (
+                        <Spinner data-icon="inline-start" />
+                      ) : (
+                        <Play data-icon="inline-start" />
+                      )}
+                      Çıxar
+                    </Button>
+                  </div>
+                  {rangeError ? (
+                    <p className="text-destructive text-sm">{rangeError}</p>
+                  ) : (
+                    <FieldDescription>
+                      {activeRange === 'questions'
+                        ? 'Səhifələrə kliklə seçim bu sahəyə düşür.'
+                        : 'Kliklə seçim üçün bu sahəyə toxunun.'}
+                    </FieldDescription>
+                  )}
+                </Field>
+
+                <Field data-invalid={keyRangeError ? true : undefined}>
+                  <FieldLabel htmlFor="key-range">
+                    Cavab açarı səhifələri
+                  </FieldLabel>
+                  <div className="flex gap-2">
+                    <Input
+                      id="key-range"
+                      value={keyRangeInput}
+                      placeholder="məs. 11, 19"
+                      aria-invalid={keyRangeError ? true : undefined}
+                      onFocus={() => setActiveRange('keys')}
+                      onChange={(e) => {
+                        setKeyRangeInput(e.target.value)
+                        setKeyRangeError(null)
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') startAnswerKeys()
+                      }}
+                    />
+                    <Button
+                      variant="outline"
+                      onClick={startAnswerKeys}
+                      disabled={
+                        running ||
+                        answerKeys.status === 'running' ||
+                        !currentBook ||
+                        !keyRangeInput.trim()
+                      }
+                      title={
+                        currentBook
+                          ? 'Seçilən səhifələri cavab açarı kimi oxu'
+                          : 'Əvvəlcə arxivdən kitab açın'
+                      }
+                    >
+                      {answerKeys.status === 'running' ? (
+                        <Spinner data-icon="inline-start" />
+                      ) : (
+                        <KeyRound data-icon="inline-start" />
+                      )}
+                      Oxu
+                    </Button>
+                  </div>
+                  {keyRangeError ? (
+                    <p className="text-destructive text-sm">{keyRangeError}</p>
+                  ) : (
+                    <FieldDescription>
+                      {currentBook
+                        ? 'Cavabların çap olunduğu səhifələr.'
+                        : 'Kitab açıldıqdan sonra aktivləşir.'}
+                    </FieldDescription>
+                  )}
+                </Field>
+              </div>
+
+              <p className="text-muted-foreground text-xs">
+                Yazı ilə (4-8, 11) və ya yuxarıdakı səhifələrə kliklə seçin —
+                cəmi {doc.numPages} səhifə.
+              </p>
+
               <PagePreviewDialog
                 doc={doc}
                 pageCount={doc.numPages}
                 page={previewPage}
                 isSelected={(page) =>
-                  parsePagesLenient(rangeInput, doc.numPages).has(page)
+                  parsePagesLenient(
+                    activeRange === 'keys' ? keyRangeInput : rangeInput,
+                    doc.numPages,
+                  ).has(page)
                 }
                 onToggleSelected={toggleThumb}
                 onNavigate={setPreviewPage}
