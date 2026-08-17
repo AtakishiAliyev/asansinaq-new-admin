@@ -17,12 +17,22 @@ There is no separate backend service. The split is by what each stage needs:
 
 - **Segmentation and cropping** run in the browser, in a Web Worker (pdf.js +
   canvas). Deterministic, no secrets, no per-page cost.
-- **Every AI model call** goes through a Supabase Edge Function. Model API keys
+- **Every AI model call** goes through a Supabase Edge Function
+  (`question-ops`, one function with an `op` discriminator). Model API keys
   live in function secrets and never reach the client bundle.
-- Pipeline logic (segmentation, the figure DSL, lint/verify) is written as
-  pure, runtime-agnostic modules — no DOM, no `import.meta.env` — so the same
-  code runs in the browser, in a function, and in Node for evals, and a queue
-  worker can be added later without a rewrite.
+- **Orchestration stays in the browser** and is deliberate, not temporary: the
+  vector figure must be rendered before it can be compared with the original,
+  and crops are read through the operator's own session. The function only
+  runs models; every decision (lint, repair, lane routing, verification) lives
+  client-side where the renderers are.
+- **The work list lives in the database.** `questions.queued_at` marks work to
+  do and `claimed_at`/`claimed_by` is a lease, so a closed tab loses at most
+  the batch in flight and a second tab adds throughput instead of duplicating
+  spend. Claims go through `claim_questions()` (`for update skip locked`).
+- Pipeline logic (segmentation, the figure DSL, lint/verify, answer-key
+  parsing) is written as pure, runtime-agnostic modules — no DOM, no
+  `import.meta.env` — so the same code runs in the browser, in a function, and
+  in Node for evals.
 
 The sibling `exam/` folder is a throwaway MVP kept as reference for its
 algorithms only. Its architecture — API keys in the browser, anon-writable
@@ -51,6 +61,42 @@ tables — is deliberately not carried over.
 - `npx supabase db push` — apply pending migrations to the linked project
 - `npx supabase config push` — apply `supabase/config.toml` to the linked
   project (needs `RESEND_API_KEY` in the environment: `set -a; . ./.env; set +a`)
+
+## Spending money
+
+Model calls cost real money and the question bank is measured in thousands of
+questions, so cost is a first-class concern, not an afterthought.
+
+- Nothing paid runs automatically. Crops are saved for free; structuring is
+  always an explicit operator action with a cost estimate first.
+- Every call is logged to `ops_log` (tokens, ms, estimated cost) and cached in
+  `ops_cache` keyed by a hash that includes the prompt version and the
+  resolved model — an unchanged re-run is nearly free.
+- A daily budget cap (`DAILY_BUDGET_USD`, checked via `ops_spend_today()`)
+  refuses new spend server-side. The client treats that refusal as a stop, not
+  as a per-question failure.
+- All calls pass through one shared rate gate (`lib/rate-gate.ts`): a provider
+  429 backs every caller off together and lowers the ceiling, because a 429
+  wastes the paid steps a question already completed.
+- `stores/pipeline-store.ts` holds the operator's speed/cost knobs. Every
+  default reproduces the careful behaviour; each knob's UI names the risk it
+  trades away, not just the saving.
+
+## Hallucination defences
+
+The recreation must copy the source, never improve it. Four independent
+layers, none of which the system may self-certify:
+
+1. Temperature 0, copy-only prompt rules, and the PDF text layer as a hint.
+2. Deterministic lint (`core/questions/lint.ts`) over the structured result.
+3. A second, hint-free read compared against the first — agreement is what
+   earns `verified`. On scans (no hint to withhold) the model class is swapped
+   instead, or the two reads would be the same call.
+4. Generated figures and image options are rendered and compared against the
+   original region they came from.
+
+Anything that fails a layer lands in the Diqqət queue with a flag. Auto-approve
+(off by default) only ever passes questions that cleared all four.
 
 ## Source of truth
 
@@ -140,7 +186,12 @@ src/
 │   ├── protected-layout.tsx # the one route guard
 │   └── App.tsx
 ├── core/                   # pure pipeline logic: no DOM, no env, no React.
-│                           # Shared by the app, Edge Functions, and evals.
+│   │                       # Shared by the app, Edge Functions, and evals.
+│   ├── segment/            # column/question detection from the text layer
+│   ├── extract/            # prompts, wire schemas, request builders
+│   ├── figures/            # the figure DSL (FigSpec) and its evaluators
+│   ├── questions/          # lint, compare, wire→question normalisation
+│   └── answer-key/         # deterministic key-table parsing and matching
 ├── features/
 │   └── <feature-name>/
 │       ├── api/            # query/mutation hooks + keys.ts
@@ -250,6 +301,13 @@ Decision rules:
 ## Testing
 
 No unit tests in the current phase; revisit once the UI stabilizes.
+
+**Except the pipeline core.** `core/segment` and `core/extract` changes are
+gated by the golden-parity harness against the `exam/eval` fixtures — a
+segmentation change that silently loses two questions per page is invisible in
+the UI and expensive downstream. Run it in a scratchpad Node harness before
+committing anything under `core/`.
+
 If asked to write a test ad-hoc (tricky utility, recurring bug), write it;
 otherwise skip test files.
 
