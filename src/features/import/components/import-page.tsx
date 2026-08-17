@@ -48,7 +48,6 @@ import {
   RecreationCheckDialog,
   useSaveCrops,
   useStructuringRun,
-  type SaveCropsResult,
 } from '@/features/questions'
 import { loadPdf, type PDFDocumentProxy } from '@/features/import/lib/pdf'
 import { usePageTitle } from '@/hooks/use-page-title'
@@ -105,7 +104,6 @@ export function ImportPage() {
   const segmentation = useSegmentation()
   const saveCrops = useSaveCrops()
   const structuring = useStructuringRun()
-  const [savedEntries, setSavedEntries] = useState<SaveCropsResult['saved']>([])
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set())
   const [sendConfirmOpen, setSendConfirmOpen] = useState(false)
   const [checkOpen, setCheckOpen] = useState(false)
@@ -142,7 +140,6 @@ export function ImportPage() {
     docRef.current = loaded
     segmentation.reset()
     structuring.reset()
-    setSavedEntries([])
     setSelectedKeys(new Set())
     setRangeInput(opts.initialRange ?? '')
     setRangeError(null)
@@ -294,30 +291,19 @@ export function ImportPage() {
           .filter((r) => !r.isScan || r.crops.length > 0)
           .map((r) => r.pageNumber)
         if (pages.length) markPagesWorked.mutate({ bookId: book.id, pages })
-        // Crops are free — persist ALL of them as draft questions; the paid
-        // structuring step is a separate, operator-selected action below.
-        saveCrops.mutate(
-          { book, results },
-          {
-            onSuccess: (res) => {
-              setSavedEntries(res.saved)
-              setSelectedKeys(new Set())
-            },
-          },
-        )
       })
       // run() catches per-page errors itself; this is the last-resort net.
       .catch((error) => toast.error(normalizeError(error).message))
   }
 
   const running = segmentation.status === 'running'
-  // With a book open, crops persist on completion — only live runs and
-  // bookless (ephemeral) results still need the leave guard.
+  // Crops persist only when SENT — leaving with unsent results discards them
+  // (recoverable by re-running the range, but usually accidental).
   const dirty =
     running ||
     structuring.status === 'running' ||
     saveCrops.isPending ||
-    (segmentation.results.length > 0 && !currentBook)
+    (segmentation.results.length > 0 && structuring.status === 'idle')
 
   const blocker = useBlocker(dirty)
 
@@ -340,17 +326,23 @@ export function ImportPage() {
 
   const structuringRunning = structuring.status === 'running'
   const structuredKeys = new Set(structuring.items.map((i) => cropKey(i.crop)))
+  // Crops stay in memory until the operator SENDS them — only selected crops
+  // are persisted (as rows + storage objects) right before structuring, so
+  // the bank never fills with drafts nobody asked for.
+  const allCrops = segmentation.results.flatMap((page) => page.crops)
   const eligibleKeys = new Set(
-    savedEntries
-      .filter((e) => !structuredKeys.has(cropKey(e.crop)))
-      .map((e) => cropKey(e.crop)),
+    currentBook
+      ? allCrops
+          .map((c) => cropKey(c))
+          .filter((key) => !structuredKeys.has(key))
+      : [],
   )
-  const selectedEntries = savedEntries.filter(
-    (e) => selectedKeys.has(cropKey(e.crop)) && eligibleKeys.has(cropKey(e.crop)),
+  const selectedCrops = allCrops.filter(
+    (c) => selectedKeys.has(cropKey(c)) && eligibleKeys.has(cropKey(c)),
   )
   // Rough per-lane cost constants (documented estimates, not billing).
   const laneCounts = { none: 0, rule: 0, colored: 0 }
-  for (const e of selectedEntries) laneCounts[e.crop.figureKind]++
+  for (const c of selectedCrops) laneCounts[c.figureKind]++
   const costEstimate =
     laneCounts.none * 0.006 + laneCounts.rule * 0.03 + laneCounts.colored * 0.16
 
@@ -365,17 +357,34 @@ export function ImportPage() {
 
   function startStructuring() {
     setSendConfirmOpen(false)
+    const book = currentBook
+    if (!book) return
+    const selectedResults = segmentation.results
+      .map((page) => ({
+        ...page,
+        crops: page.crops.filter((c) => selectedKeys.has(cropKey(c))),
+      }))
+      .filter((page) => page.crops.length > 0)
     setSelectedKeys(new Set())
-    void structuring
-      .run(selectedEntries.map((e) => ({ row: e.row, crop: e.crop })))
-      .then((items) => {
-        if (!items.length) return
-        const failed = items.filter((i) => i.status === 'failed').length
-        ;(failed ? toast.warning : toast.success)(
-          `${items.length - failed} sual strukturlaşdırıldı${failed ? `, ${failed} alınmadı` : ''}`,
-        )
-      })
-      .catch((error) => toast.error(normalizeError(error).message))
+    // Persist ONLY what is being sent, then structure exactly those rows.
+    saveCrops.mutate(
+      { book, results: selectedResults },
+      {
+        onSuccess: (res) => {
+          if (!res.saved.length) return
+          void structuring
+            .run(res.saved.map((e) => ({ row: e.row, crop: e.crop })))
+            .then((items) => {
+              if (!items.length) return
+              const failed = items.filter((i) => i.status === 'failed').length
+              ;(failed ? toast.warning : toast.success)(
+                `${items.length - failed} sual strukturlaşdırıldı${failed ? `, ${failed} alınmadı` : ''}`,
+              )
+            })
+            .catch((error) => toast.error(normalizeError(error).message))
+        },
+      },
+    )
   }
 
   return (
@@ -550,11 +559,11 @@ export function ImportPage() {
             ) : null}
             <Button
               size="sm"
-              disabled={selectedEntries.length === 0}
+              disabled={selectedCrops.length === 0}
               onClick={() => setSendConfirmOpen(true)}
             >
               <Send data-icon="inline-start" />
-              Çıxarılmaya göndər ({selectedEntries.length})
+              Çıxarılmaya göndər ({selectedCrops.length})
             </Button>
           </div>
         </div>
@@ -702,7 +711,7 @@ export function ImportPage() {
             <AlertDialogDescription>
               {running
                 ? 'Emal hələ davam edir. Səhifəni tərk etsəniz, dayandırılacaq və çıxarılan suallar silinəcək.'
-                : 'Çıxarılan suallar bu mərhələdə yaddaşda saxlanmır — səhifəni tərk etdikdə silinəcək.'}
+                : 'Bazaya yalnız göndərdiyin suallar yazılır — qalan crop-lar səhifəni tərk etdikdə silinəcək (yenidən emal ilə bərpa olunur).'}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -732,11 +741,12 @@ export function ImportPage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {selectedEntries.length} sual çıxarılmaya göndərilsin?
+              {selectedCrops.length} sual çıxarılmaya göndərilsin?
             </AlertDialogTitle>
             <AlertDialogDescription>
-              AI hər sualı təmiz formada yenidən yaradacaq (mətn, variantlar,
-              fiqurlar). Təxmini xərc: ≈ ${costEstimate.toFixed(2)}
+              Seçilən crop-lar bazaya yazılacaq və AI hər sualı təmiz formada
+              yenidən yaradacaq (mətn, variantlar, fiqurlar). Təxmini xərc: ≈ $
+              {costEstimate.toFixed(2)}
               {laneCounts.colored > 0 || laneCounts.rule > 0
                 ? ` (mətn: ${laneCounts.none}, sxem: ${laneCounts.rule}, rəngli fiqur: ${laneCounts.colored}; şəkilli variantlar xərci artıra bilər)`
                 : ''}
