@@ -10,6 +10,7 @@ import {
 import { lintQuestion, worstLevel, type Flag } from '@/core/questions/lint'
 import { compareQuestions, type FieldDiff } from '@/core/questions/compare'
 import { snapshotFigure } from '@/components/question/snapshot'
+import { PROMPT_VERSION } from '@/core/extract/prompts'
 import {
   opCompareFigures,
   opExtract,
@@ -290,6 +291,7 @@ export function useStructuringRun() {
           figures: dbFigures as never,
           ai_difficulty: aiDifficulty,
           model: first.model,
+          prompt_version: PROMPT_VERSION,
           flags: flags as never,
           verified,
           extraction_error: null,

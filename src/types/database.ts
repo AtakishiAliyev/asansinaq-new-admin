@@ -198,6 +198,80 @@ export type Database = {
           },
         ]
       }
+      ops_cache: {
+        Row: {
+          created_at: string
+          image_path: string | null
+          key: string
+          model: string | null
+          op: string
+          response: Json | null
+        }
+        Insert: {
+          created_at?: string
+          image_path?: string | null
+          key: string
+          model?: string | null
+          op: string
+          response?: Json | null
+        }
+        Update: {
+          created_at?: string
+          image_path?: string | null
+          key?: string
+          model?: string | null
+          op?: string
+          response?: Json | null
+        }
+        Relationships: []
+      }
+      ops_log: {
+        Row: {
+          cached: boolean
+          created_at: string
+          created_by: string | null
+          est_cost_usd: number
+          id: number
+          model: string
+          ms: number | null
+          op: string
+          output_tokens: number | null
+          prompt_tokens: number | null
+        }
+        Insert: {
+          cached?: boolean
+          created_at?: string
+          created_by?: string | null
+          est_cost_usd?: number
+          id?: never
+          model: string
+          ms?: number | null
+          op: string
+          output_tokens?: number | null
+          prompt_tokens?: number | null
+        }
+        Update: {
+          cached?: boolean
+          created_at?: string
+          created_by?: string | null
+          est_cost_usd?: number
+          id?: never
+          model?: string
+          ms?: number | null
+          op?: string
+          output_tokens?: number | null
+          prompt_tokens?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ops_log_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           created_at: string
@@ -268,6 +342,7 @@ export type Database = {
           model: string | null
           options: Json | null
           page_number: number
+          prompt_version: number | null
           q_no: number
           reviewed_at: string | null
           reviewed_by: string | null
@@ -303,6 +378,7 @@ export type Database = {
           model?: string | null
           options?: Json | null
           page_number: number
+          prompt_version?: number | null
           q_no: number
           reviewed_at?: string | null
           reviewed_by?: string | null
@@ -338,6 +414,7 @@ export type Database = {
           model?: string | null
           options?: Json | null
           page_number?: number
+          prompt_version?: number | null
           q_no?: number
           reviewed_at?: string | null
           reviewed_by?: string | null

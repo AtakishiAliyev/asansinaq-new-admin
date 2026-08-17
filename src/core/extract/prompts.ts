@@ -1,3 +1,8 @@
+// Bump on ANY change to prompts/schemas below: it versions cache keys and
+// is stamped onto structured rows so a prompt regression can be traced back
+// to the questions it produced.
+export const PROMPT_VERSION = 1
+
 // Prompt texts for the question-recreation pipeline. Shared by the
 // question-ops Edge Function and the Node eval harness — ONE source of truth,
 // so a prompt tweak is automatically covered by the regression fixtures.

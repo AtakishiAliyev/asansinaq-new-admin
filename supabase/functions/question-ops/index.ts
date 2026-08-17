@@ -5,7 +5,12 @@
 // orchestrates the flow (lint, repair loop, browser figure rendering).
 // Prompts/schemas/request bodies come from src/core/extract via the
 // import-map alias, so the eval harness exercises the exact same requests.
-import { createClient } from 'npm:@supabase/supabase-js@2'
+//
+// Cost controls: every call is logged to ops_log with an estimated cost and
+// refused once today's total passes DAILY_BUDGET_USD; deterministic ops are
+// cached in ops_cache (images in the question-crops bucket under cache/), so
+// a re-sent crop never bills the model twice for the same request.
+import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2'
 import {
   buildCompareFigures,
   buildExtract,
@@ -16,7 +21,7 @@ import {
   type GeminiRequest,
   type ModelKey,
 } from '@/core/extract/request'
-import { REDRAW_PROMPT } from '@/core/extract/prompts'
+import { PROMPT_VERSION, REDRAW_PROMPT } from '@/core/extract/prompts'
 
 const GEMINI_MODELS: Record<ModelKey, string> = {
   extract: Deno.env.get('GEMINI_EXTRACT_MODEL') ?? 'gemini-3.5-flash',
@@ -25,9 +30,20 @@ const GEMINI_MODELS: Record<ModelKey, string> = {
   verify: Deno.env.get('GEMINI_VERIFY_MODEL') ?? 'gemini-3.5-flash',
 }
 const OPENAI_IMAGE_MODEL = Deno.env.get('OPENAI_IMAGE_MODEL') ?? 'gpt-image-2'
+const DAILY_BUDGET_USD = Number(Deno.env.get('DAILY_BUDGET_USD') ?? '20')
 
 const TIMEOUT_MS = 90_000 // image generation runs longer than detection
 const MAX_BASE64_LENGTH = 8_000_000
+
+// Rough $/1M-token rates for the ESTIMATE column — visibility and the budget
+// guard, not billing. Update alongside model secrets.
+const RATE = {
+  flashIn: 0.3,
+  flashOut: 2.5,
+  proIn: 2.5,
+  proOut: 15,
+  imageFlat: 0.08,
+}
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -56,6 +72,29 @@ function badImage(p: ImagePayload): string | null {
   if (p.mime !== 'image/png' && p.mime !== 'image/jpeg')
     return 'yalnız JPEG/PNG dəstəklənir'
   return null
+}
+
+async function sha256Hex(input: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(input),
+  )
+  return [...new Uint8Array(digest)]
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+}
+
+function estGeminiCost(
+  model: string,
+  promptTokens: number | null,
+  outputTokens: number | null,
+): number {
+  const pro = model.includes('pro')
+  const inRate = pro ? RATE.proIn : RATE.flashIn
+  const outRate = pro ? RATE.proOut : RATE.flashOut
+  return (
+    ((promptTokens ?? 0) * inRate + (outputTokens ?? 0) * outRate) / 1_000_000
+  )
 }
 
 async function callGemini(
@@ -161,6 +200,93 @@ function usage(raw: Record<string, unknown>) {
   }
 }
 
+interface OpLogEntry {
+  op: string
+  model: string
+  promptTokens: number | null
+  outputTokens: number | null
+  ms: number
+  cost: number
+  cached: boolean
+}
+
+// The log line must never fail the operator's op — warn and continue.
+async function logOp(
+  supabase: SupabaseClient,
+  userId: string | null,
+  entry: OpLogEntry,
+): Promise<void> {
+  const { error } = await supabase.from('ops_log').insert({
+    op: entry.op,
+    model: entry.model,
+    prompt_tokens: entry.promptTokens,
+    output_tokens: entry.outputTokens,
+    ms: entry.ms,
+    est_cost_usd: entry.cost,
+    cached: entry.cached,
+    created_by: userId,
+  })
+  if (error) {
+    console.log(
+      JSON.stringify({ warn: 'ops_log insert failed', detail: error.message }),
+    )
+  }
+  console.log(JSON.stringify(entry))
+}
+
+async function todaysSpend(supabase: SupabaseClient): Promise<number> {
+  const dayStart = new Date()
+  dayStart.setUTCHours(0, 0, 0, 0)
+  const { data, error } = await supabase
+    .from('ops_log')
+    .select('est_cost_usd')
+    .gte('created_at', dayStart.toISOString())
+  if (error) throw new Error('büdcə yoxlaması alınmadı')
+  return (data ?? []).reduce((sum, r) => sum + Number(r.est_cost_usd ?? 0), 0)
+}
+
+interface CacheRow {
+  response: Record<string, unknown> | null
+  image_path: string | null
+  model: string | null
+}
+
+async function cacheGet(
+  supabase: SupabaseClient,
+  key: string,
+): Promise<CacheRow | null> {
+  const { data } = await supabase
+    .from('ops_cache')
+    .select('response, image_path, model')
+    .eq('key', key)
+    .maybeSingle()
+  return (data as CacheRow | null) ?? null
+}
+
+async function cachePut(
+  supabase: SupabaseClient,
+  key: string,
+  op: string,
+  fields: {
+    response?: Record<string, unknown>
+    image_path?: string
+    model?: string
+  },
+): Promise<void> {
+  const { error } = await supabase.from('ops_cache').insert({
+    key,
+    op,
+    response: fields.response ?? null,
+    image_path: fields.image_path ?? null,
+    model: fields.model ?? null,
+  })
+  if (error) {
+    console.log(
+      JSON.stringify({ warn: 'ops_cache insert failed', detail: error.message }),
+    )
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS_HEADERS })
   if (req.method !== 'POST') return json(405, { error: 'method not allowed' })
@@ -175,6 +301,8 @@ Deno.serve(async (req) => {
     return json(500, { error: 'icazə yoxlaması alınmadı — yenidən cəhd edin' })
   }
   if (!isAdmin) return json(403, { error: 'icazə yoxdur' })
+  const { data: userData } = await supabase.auth.getUser()
+  const userId = userData.user?.id ?? null
 
   let body: Record<string, unknown>
   try {
@@ -182,10 +310,17 @@ Deno.serve(async (req) => {
   } catch {
     return json(400, { error: 'yanlış sorğu gövdəsi' })
   }
-  const op = body.op
+  const op = String(body.op ?? '')
   const started = Date.now()
 
   try {
+    const spend = await todaysSpend(supabase)
+    if (spend >= DAILY_BUDGET_USD) {
+      return json(429, {
+        error: `günlük model büdcəsi dolub ($${DAILY_BUDGET_USD}) — sabah davam edin və ya DAILY_BUDGET_USD secret-ini artırın`,
+      })
+    }
+
     if (op === 'extract') {
       const bad = badImage(body)
       if (bad) return json(400, { error: bad })
@@ -193,33 +328,103 @@ Deno.serve(async (req) => {
       if (figureMode !== 'dsl' && figureMode !== 'plain' && figureMode !== 'raster') {
         return json(400, { error: 'figureMode yanlışdır' })
       }
-      const { parsed, model, raw } = await callGemini(
-        buildExtract({
-          image: body.image as string,
-          mime: body.mime as 'image/png' | 'image/jpeg',
-          textLayerHint:
-            typeof body.textLayerHint === 'string' ? body.textLayerHint : undefined,
-          testNo: Number.isFinite(Number(body.testNo)) ? Number(body.testNo) : undefined,
-          expectedNumber: Number.isFinite(Number(body.expectedNumber))
-            ? Number(body.expectedNumber)
-            : undefined,
-          figureMode: figureMode as FigureMode,
-          repairNotes:
-            typeof body.repairNotes === 'string' ? body.repairNotes : undefined,
-          modelSwap: body.modelSwap === true,
-        }),
-      )
+      const input = {
+        image: body.image as string,
+        mime: body.mime as 'image/png' | 'image/jpeg',
+        textLayerHint:
+          typeof body.textLayerHint === 'string' ? body.textLayerHint : undefined,
+        testNo: Number.isFinite(Number(body.testNo)) ? Number(body.testNo) : undefined,
+        expectedNumber: Number.isFinite(Number(body.expectedNumber))
+          ? Number(body.expectedNumber)
+          : undefined,
+        figureMode: figureMode as FigureMode,
+        repairNotes:
+          typeof body.repairNotes === 'string' ? body.repairNotes : undefined,
+        modelSwap: body.modelSwap === true,
+      }
+      const key = await sha256Hex(JSON.stringify({ v: PROMPT_VERSION, op, ...input }))
+      const hit = await cacheGet(supabase, key)
+      if (hit?.response) {
+        const ms = Date.now() - started
+        await logOp(supabase, userId, {
+          op,
+          model: hit.model ?? 'cache',
+          promptTokens: null,
+          outputTokens: null,
+          ms,
+          cost: 0,
+          cached: true,
+        })
+        return json(200, { ...hit.response, ms, cached: true })
+      }
+      const { parsed, model, raw } = await callGemini(buildExtract(input))
       const ms = Date.now() - started
-      console.log(JSON.stringify({ op, model, ms, ...usage(raw) }))
+      const u = usage(raw)
+      const cost = estGeminiCost(model, u.promptTokens, u.outputTokens)
+      await cachePut(supabase, key, op, {
+        response: { wire: parsed, model },
+        model,
+      })
+      await logOp(supabase, userId, { op, model, ...u, ms, cost, cached: false })
       return json(200, { wire: parsed, model, ms })
     }
 
     if (op === 'redraw_figure') {
       const bad = badImage(body)
       if (bad) return json(400, { error: bad })
+      const key = await sha256Hex(
+        JSON.stringify({ v: PROMPT_VERSION, op, image: body.image, mime: body.mime }),
+      )
+      const hit = await cacheGet(supabase, key)
+      if (hit?.image_path) {
+        const { data: blob } = await supabase.storage
+          .from('question-crops')
+          .download(hit.image_path)
+        if (blob) {
+          const buf = new Uint8Array(await blob.arrayBuffer())
+          let bin = ''
+          for (const b of buf) bin += String.fromCharCode(b)
+          const ms = Date.now() - started
+          await logOp(supabase, userId, {
+            op,
+            model: hit.model ?? 'cache',
+            promptTokens: null,
+            outputTokens: null,
+            ms,
+            cost: 0,
+            cached: true,
+          })
+          return json(200, {
+            image: btoa(bin),
+            mime: 'image/png',
+            model: hit.model ?? 'cache',
+            ms,
+            cached: true,
+          })
+        }
+        // cache row without its object (cleaned up?): fall through and re-run
+      }
       const out = await callOpenAIRedraw(body.image as string, body.mime as string)
       const ms = Date.now() - started
-      console.log(JSON.stringify({ op, model: out.model, ms }))
+      const path = `cache/${key}.png`
+      const { error: uploadError } = await supabase.storage
+        .from('question-crops')
+        .upload(path, base64ToBlob(out.image, out.mime), {
+          upsert: true,
+          contentType: out.mime,
+        })
+      if (!uploadError) {
+        await cachePut(supabase, key, op, { image_path: path, model: out.model })
+      }
+      await logOp(supabase, userId, {
+        op,
+        model: out.model,
+        promptTokens: null,
+        outputTokens: null,
+        ms,
+        cost: RATE.imageFlat,
+        cached: false,
+      })
       return json(200, { ...out, ms })
     }
 
@@ -237,39 +442,47 @@ Deno.serve(async (req) => {
         ),
       )
       const ms = Date.now() - started
-      console.log(JSON.stringify({ op, model, ms, ...usage(raw) }))
+      const u = usage(raw)
+      await logOp(supabase, userId, {
+        op,
+        model,
+        ...u,
+        ms,
+        cost: estGeminiCost(model, u.promptTokens, u.outputTokens),
+        cached: false,
+      })
       return json(200, { ...(parsed as Record<string, unknown>), model, ms })
     }
 
-    if (op === 'solve') {
-      if (typeof body.stem !== 'string' || !Array.isArray(body.options)) {
-        return json(400, { error: 'stem/options tələb olunur' })
-      }
-      const figure = body.figure as ImagePayload | undefined
-      if (figure) {
-        const bad = badImage(figure)
-        if (bad) return json(400, { error: bad })
-      }
-      const { parsed, model, raw } = await callGemini(
-        buildSolve({
+    if (op === 'solve' || op === 'suggest_category' || op === 'parse_answer_key') {
+      let request: GeminiRequest
+      let cachePayload: Record<string, unknown>
+      if (op === 'solve') {
+        if (typeof body.stem !== 'string' || !Array.isArray(body.options)) {
+          return json(400, { error: 'stem/options tələb olunur' })
+        }
+        const figure = body.figure as ImagePayload | undefined
+        if (figure) {
+          const bad = badImage(figure)
+          if (bad) return json(400, { error: bad })
+        }
+        request = buildSolve({
           stem: body.stem,
           options: body.options as { label: string; tex?: string }[],
           figure: figure
             ? { image: figure.image as string, mime: figure.mime as string }
             : undefined,
-        }),
-      )
-      const ms = Date.now() - started
-      console.log(JSON.stringify({ op, model, ms, ...usage(raw) }))
-      return json(200, { ...(parsed as Record<string, unknown>), model, ms })
-    }
-
-    if (op === 'suggest_category') {
-      if (typeof body.stem !== 'string' || !Array.isArray(body.categories)) {
-        return json(400, { error: 'stem/categories tələb olunur' })
-      }
-      const { parsed, model, raw } = await callGemini(
-        buildSuggestCategory({
+        })
+        cachePayload = {
+          stem: body.stem,
+          options: body.options,
+          figure: figure?.image ?? null,
+        }
+      } else if (op === 'suggest_category') {
+        if (typeof body.stem !== 'string' || !Array.isArray(body.categories)) {
+          return json(400, { error: 'stem/categories tələb olunur' })
+        }
+        request = buildSuggestCategory({
           stem: body.stem,
           options: Array.isArray(body.options) ? (body.options as string[]) : [],
           categories: body.categories as {
@@ -277,25 +490,53 @@ Deno.serve(async (req) => {
             name: string
             parentId: number | null
           }[],
-        }),
-      )
-      const ms = Date.now() - started
-      console.log(JSON.stringify({ op, model, ms, ...usage(raw) }))
-      return json(200, { ...(parsed as Record<string, unknown>), model, ms })
-    }
-
-    if (op === 'parse_answer_key') {
-      const bad = badImage(body)
-      if (bad) return json(400, { error: bad })
-      const { parsed, model, raw } = await callGemini(
-        buildParseAnswerKey({
+        })
+        cachePayload = {
+          stem: body.stem,
+          options: body.options,
+          categories: body.categories,
+        }
+      } else {
+        const bad = badImage(body)
+        if (bad) return json(400, { error: bad })
+        request = buildParseAnswerKey({
           image: body.image as string,
           mime: body.mime as string,
-        }),
+        })
+        cachePayload = { image: body.image, mime: body.mime }
+      }
+
+      const key = await sha256Hex(
+        JSON.stringify({ v: PROMPT_VERSION, op, ...cachePayload }),
       )
+      const hit = await cacheGet(supabase, key)
+      if (hit?.response) {
+        const ms = Date.now() - started
+        await logOp(supabase, userId, {
+          op,
+          model: hit.model ?? 'cache',
+          promptTokens: null,
+          outputTokens: null,
+          ms,
+          cost: 0,
+          cached: true,
+        })
+        return json(200, { ...hit.response, ms, cached: true })
+      }
+      const { parsed, model, raw } = await callGemini(request)
       const ms = Date.now() - started
-      console.log(JSON.stringify({ op, model, ms, ...usage(raw) }))
-      return json(200, { ...(parsed as Record<string, unknown>), model, ms })
+      const u = usage(raw)
+      const responseBody = { ...(parsed as Record<string, unknown>), model }
+      await cachePut(supabase, key, op, { response: responseBody, model })
+      await logOp(supabase, userId, {
+        op,
+        model,
+        ...u,
+        ms,
+        cost: estGeminiCost(model, u.promptTokens, u.outputTokens),
+        cached: false,
+      })
+      return json(200, { ...responseBody, ms })
     }
 
     return json(400, { error: 'naməlum op' })
