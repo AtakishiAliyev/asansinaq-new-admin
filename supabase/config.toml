@@ -435,3 +435,10 @@ enabled = true
 # function additionally checks is_admin() before spending Gemini budget.
 [functions.detect-questions]
 verify_jwt = true
+
+# Question recreation ops (extract / redraw / compare / solve / category /
+# answer-key). JWT verification stays on; the function additionally checks
+# is_admin() before spending model budget.
+[functions.question-ops]
+verify_jwt = true
+import_map = "./functions/question-ops/deno.json"

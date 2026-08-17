@@ -205,7 +205,6 @@ export const extractResponseSchema = {
     foreign: { type: 'boolean', description: 'fragments of a neighbouring question visible in the crop' },
     confidence: { type: 'number' },
     difficulty: { type: 'integer', description: 'estimated difficulty 1-5 in the YÖS exam context' },
-    has_figure: { type: 'boolean', description: 'raster lane only: the question has a figure (extracted separately)' },
     warnings: { type: 'array', items: T.str },
   },
   required: ['number_seen', 'stem', 'options', 'illegible', 'confidence', 'difficulty'],

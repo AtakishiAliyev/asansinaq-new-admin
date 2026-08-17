@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import {
+  Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -101,19 +102,56 @@ function PathBadge({ page }: { page: PageResult }) {
   )
 }
 
+export interface CropSelection {
+  /** natural keys eligible for selection (persisted, not yet structured) */
+  eligible: Set<string>
+  selected: Set<string>
+  onToggle: (key: string) => void
+}
+
 function CropCard({
   crop,
   onOpen,
+  selectionKey,
+  selection,
 }: {
   crop: Crop
   onOpen: () => void
+  selectionKey: string
+  selection?: CropSelection
 }) {
   const chip = FIGURE_CHIP[crop.figureKind]
+  const selectable = selection?.eligible.has(selectionKey) ?? false
+  const isSelected = selection?.selected.has(selectionKey) ?? false
   return (
-    <figure className="group bg-card flex flex-col overflow-hidden rounded-lg border shadow-xs transition-[transform,box-shadow] duration-150 hover:-translate-y-0.5 hover:shadow-md">
+    <figure
+      className={cn(
+        'group bg-card flex flex-col overflow-hidden rounded-lg border shadow-xs transition-[transform,box-shadow] duration-150 hover:-translate-y-0.5 hover:shadow-md',
+        isSelected && 'ring-primary/50 border-primary/50 ring-2',
+      )}
+    >
       <figcaption className="bg-muted/40 flex items-center justify-between gap-2 border-b px-2.5 py-1.5">
-        <span className="font-mono text-xs font-medium tracking-wide tabular-nums">
-          №{crop.number}
+        <span className="flex items-center gap-2">
+          {selectable ? (
+            <button
+              type="button"
+              role="checkbox"
+              aria-checked={isSelected}
+              aria-label={`Sual ${crop.number} seç`}
+              onClick={() => selection?.onToggle(selectionKey)}
+              className={cn(
+                'flex size-4.5 items-center justify-center rounded border transition-colors',
+                isSelected
+                  ? 'bg-primary border-primary text-primary-foreground'
+                  : 'bg-background hover:border-primary/50',
+              )}
+            >
+              {isSelected ? <Check className="size-3" /> : null}
+            </button>
+          ) : null}
+          <span className="font-mono text-xs font-medium tracking-wide tabular-nums">
+            №{crop.number}
+          </span>
         </span>
         {chip ? (
           <Badge variant="outline" className={cn('text-[11px]', chip.className)}>
@@ -318,7 +356,13 @@ function PageJump({
   )
 }
 
-export function CropGrid({ results }: { results: PageResult[] }) {
+export function CropGrid({
+  results,
+  selection,
+}: {
+  results: PageResult[]
+  selection?: CropSelection
+}) {
   const [active, setActive] = useState<number | null>(null)
   const [filter, setFilter] = useState<PageFilter>('all')
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set())
@@ -504,6 +548,8 @@ export function CropGrid({ results }: { results: PageResult[] }) {
                     key={`${crop.col}-${crop.number}`}
                     crop={crop}
                     onOpen={() => setActive(offset + i)}
+                    selectionKey={`p${crop.pageNumber}_c${crop.col}_q${crop.number}`}
+                    selection={selection}
                   />
                 ))}
               </div>

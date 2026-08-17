@@ -7,7 +7,8 @@
 // real, repeated failure mode of this exact book format. Translate carefully,
 // never "improve" casually — the eval harness is the gate for changes.
 
-const SYSTEM_HEAD = `Sən Türk/Azərbaycan riyaziyyat sual bankından BİR sualı rəqəmsallaşdırırsan. Vəzifən KÖÇÜRMƏKDİR, yaratmaq deyil — özündən heç nə əlavə etmə, heç nəyi "yaxşılaşdırma". Yalnız verilmiş JSON sxeminə uyğun cavab qaytar.
+const SYSTEM_HEAD = `Sən Türk/Azərbaycan riyaziyyat sual bankından BİR sualı rəqəmsallaşdırırsan. Yalnız verilmiş JSON sxeminə uyğun cavab qaytar.
+Sualın MƏZMUNUNA özündən heç nə əlavə etmə və heç nəyi dəyişmə — çapdakının eynisini köçür. figures/is_image kimi STRUKTUR sahələri isə sxem tələb etdiyi kimi MÜTLƏQ doldur.
 
 Qaydalar:
 1. Şəkildə diaqonal watermark ola bilər — onu TAM İQNOR ET, heç vaxt köçürmə.
@@ -55,9 +56,8 @@ const SYSTEM_TAIL = `12. Stem-də çap olunmuş hər şərt AYRICA sətirdə ols
     DÜZGÜN: "$f(a+b)=f(a)+f(b)$\\n$f(7)=?$"  SƏHV: "$f(a+b)=f(a)+f(b)\\nf(7)=?$"`
 
 // The raster lane's replacement for rules 9-11: the figure arrives from the
-// image model separately, so the vision model must NOT emit a figure spec —
-// but it must still report the figure's presence via has_figure.
-const SYSTEM_NO_FIGURE_RULE = `9. FİQURU ÇIXARMA — figures sahəsini BOŞ saxla; fiqur ayrıca sistem tərəfindən əlavə olunur. Fiqur varsa has_figure=true qoy.`
+// image model separately, so the vision model must NOT emit a figure spec.
+const SYSTEM_NO_FIGURE_RULE = `9. FİQURU ÇIXARMA — figures sahəsini BOŞ saxla; fiqur ayrıca sistem tərəfindən əlavə olunur.`
 
 /** Full system prompt for the DSL/plain lanes (declarative figure specs). */
 export const EXTRACT_SYSTEM = [SYSTEM_HEAD, SYSTEM_FIGURE_RULES, SYSTEM_TAIL].join('\n')

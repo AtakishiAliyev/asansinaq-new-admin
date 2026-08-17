@@ -1,0 +1,97 @@
+import { supabase } from '@/lib/supabase'
+import {
+  compareResponseSchema,
+  extractResponseSchema,
+  parseAnswerKeyResponseSchema,
+  redrawResponseSchema,
+  solveResponseSchema,
+  suggestCategoryResponseSchema,
+} from '@/features/questions/schemas'
+
+// Thin wrappers over the question-ops Edge Function. Model keys live in
+// function secrets; each call is admin-gated server-side. The invoke error
+// unwrap mirrors detect-questions: error.context is a Response only for HTTP
+// failures — network errors have no body to read.
+async function invokeOp<T>(
+  body: Record<string, unknown>,
+  parse: (data: unknown) => T,
+): Promise<T> {
+  const { data, error } = await supabase.functions.invoke('question-ops', {
+    body,
+  })
+  if (error) {
+    let message = 'model çağırışı alınmadı'
+    const context = (error as { context?: unknown }).context
+    if (context instanceof Response) {
+      try {
+        const payload = (await context.json()) as {
+          error?: string
+          detail?: string
+        }
+        if (payload.error) message = payload.error
+        if (payload.detail) message += ` — ${payload.detail}`
+      } catch {
+        // non-JSON error body: keep the generic message
+      }
+    }
+    throw new Error(message)
+  }
+  return parse(data)
+}
+
+export interface OpImage {
+  image: string
+  mime: 'image/png' | 'image/jpeg'
+}
+
+export function opExtract(input: {
+  image: string
+  mime: string
+  figureMode: 'dsl' | 'plain' | 'raster'
+  textLayerHint?: string
+  testNo?: number
+  expectedNumber?: number
+  repairNotes?: string
+}) {
+  return invokeOp({ op: 'extract', ...input }, (d) =>
+    extractResponseSchema.parse(d),
+  )
+}
+
+export function opRedrawFigure(input: OpImage) {
+  return invokeOp({ op: 'redraw_figure', ...input }, (d) =>
+    redrawResponseSchema.parse(d),
+  )
+}
+
+export function opCompareFigures(original: OpImage, candidate: OpImage) {
+  return invokeOp({ op: 'compare_figures', original, candidate }, (d) =>
+    compareResponseSchema.parse(d),
+  )
+}
+
+export function opSolve(input: {
+  stem: string
+  options: { label: string; tex?: string }[]
+  figure?: OpImage
+}) {
+  return invokeOp({ op: 'solve', ...input }, (d) =>
+    solveResponseSchema.parse(d),
+  )
+}
+
+export function opSuggestCategory(input: {
+  stem: string
+  options: string[]
+  categories: { id: number; name: string; parentId: number | null }[]
+}) {
+  return invokeOp({ op: 'suggest_category', ...input }, (d) =>
+    suggestCategoryResponseSchema.parse(d),
+  )
+}
+
+export function opParseAnswerKey(page: OpImage) {
+  return invokeOp({ op: 'parse_answer_key', ...page }, (d) =>
+    parseAnswerKeyResponseSchema.parse(d),
+  )
+}

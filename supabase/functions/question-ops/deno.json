@@ -1,0 +1,8 @@
+{
+  "imports": {
+    "@/core/extract/prompts": "../../../src/core/extract/prompts.ts",
+    "@/core/extract/fewshot": "../../../src/core/extract/fewshot.ts",
+    "@/core/extract/schemas": "../../../src/core/extract/schemas.ts",
+    "@/core/extract/request": "../../../src/core/extract/request.ts"
+  }
+}

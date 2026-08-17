@@ -68,6 +68,8 @@ export interface Crop {
   pageNumber: number
   dataUrl: string // for on-screen display
   figureKind: FigureKind
+  /** PDF text-layer content of the band — the extraction hint. '' on scans. */
+  textLayer: string
 }
 
 export interface CropResult {

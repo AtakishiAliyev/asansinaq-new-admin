@@ -331,6 +331,7 @@ export async function renderCrops(
         inkLum,
         scale,
       ),
+      textLayer: b.textLayer,
     })
   }
   return { crops, notes }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { FileUp, Play, Square } from 'lucide-react'
+import { Eye, FileUp, Play, Send, Square } from 'lucide-react'
 import { useBlocker, useSearchParams } from 'react-router'
 import { toast } from 'sonner'
 import {
@@ -43,6 +43,13 @@ import { CropGrid } from '@/features/import/components/crop-grid'
 import { PagePreviewDialog } from '@/features/import/components/page-preview-dialog'
 import { ThumbnailStrip } from '@/features/import/components/thumbnail-strip'
 import { useSegmentation } from '@/features/import/hooks/use-segmentation'
+import {
+  cropKey,
+  RecreationCheckDialog,
+  useSaveCrops,
+  useStructuringRun,
+  type SaveCropsResult,
+} from '@/features/questions'
 import { loadPdf, type PDFDocumentProxy } from '@/features/import/lib/pdf'
 import { usePageTitle } from '@/hooks/use-page-title'
 
@@ -96,6 +103,12 @@ export function ImportPage() {
   const markPagesWorked = useMarkPagesWorked()
   const download = useDownloadPdf()
   const segmentation = useSegmentation()
+  const saveCrops = useSaveCrops()
+  const structuring = useStructuringRun()
+  const [savedEntries, setSavedEntries] = useState<SaveCropsResult['saved']>([])
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set())
+  const [sendConfirmOpen, setSendConfirmOpen] = useState(false)
+  const [checkOpen, setCheckOpen] = useState(false)
 
   useEffect(
     () => () => {
@@ -128,6 +141,9 @@ export function ImportPage() {
     void docRef.current?.loadingTask.destroy().catch(() => {})
     docRef.current = loaded
     segmentation.reset()
+    structuring.reset()
+    setSavedEntries([])
+    setSelectedKeys(new Set())
     setRangeInput(opts.initialRange ?? '')
     setRangeError(null)
     setFileName(name)
@@ -278,14 +294,30 @@ export function ImportPage() {
           .filter((r) => !r.isScan || r.crops.length > 0)
           .map((r) => r.pageNumber)
         if (pages.length) markPagesWorked.mutate({ bookId: book.id, pages })
+        // Crops are free — persist ALL of them as draft questions; the paid
+        // structuring step is a separate, operator-selected action below.
+        saveCrops.mutate(
+          { book, results },
+          {
+            onSuccess: (res) => {
+              setSavedEntries(res.saved)
+              setSelectedKeys(new Set())
+            },
+          },
+        )
       })
       // run() catches per-page errors itself; this is the last-resort net.
       .catch((error) => toast.error(normalizeError(error).message))
   }
 
   const running = segmentation.status === 'running'
-  // Crops live only in memory at this phase: leaving the page discards them.
-  const dirty = running || segmentation.results.length > 0
+  // With a book open, crops persist on completion — only live runs and
+  // bookless (ephemeral) results still need the leave guard.
+  const dirty =
+    running ||
+    structuring.status === 'running' ||
+    saveCrops.isPending ||
+    (segmentation.results.length > 0 && !currentBook)
 
   const blocker = useBlocker(dirty)
 
@@ -299,8 +331,51 @@ export function ImportPage() {
   }, [dirty])
 
   function guardReplace(action: () => void) {
-    if (running) setPendingReplace(() => action)
-    else action()
+    if (running || structuring.status === 'running') {
+      setPendingReplace(() => action)
+    } else {
+      action()
+    }
+  }
+
+  const structuringRunning = structuring.status === 'running'
+  const structuredKeys = new Set(structuring.items.map((i) => cropKey(i.crop)))
+  const eligibleKeys = new Set(
+    savedEntries
+      .filter((e) => !structuredKeys.has(cropKey(e.crop)))
+      .map((e) => cropKey(e.crop)),
+  )
+  const selectedEntries = savedEntries.filter(
+    (e) => selectedKeys.has(cropKey(e.crop)) && eligibleKeys.has(cropKey(e.crop)),
+  )
+  // Rough per-lane cost constants (documented estimates, not billing).
+  const laneCounts = { none: 0, rule: 0, colored: 0 }
+  for (const e of selectedEntries) laneCounts[e.crop.figureKind]++
+  const costEstimate =
+    laneCounts.none * 0.006 + laneCounts.rule * 0.03 + laneCounts.colored * 0.16
+
+  function toggleSelected(key: string) {
+    setSelectedKeys((current) => {
+      const next = new Set(current)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  function startStructuring() {
+    setSendConfirmOpen(false)
+    setSelectedKeys(new Set())
+    void structuring
+      .run(selectedEntries.map((e) => ({ row: e.row, crop: e.crop })))
+      .then((items) => {
+        if (!items.length) return
+        const failed = items.filter((i) => i.status === 'failed').length
+        ;(failed ? toast.warning : toast.success)(
+          `${items.length - failed} sual strukturlaşdırıldı${failed ? `, ${failed} alınmadı` : ''}`,
+        )
+      })
+      .catch((error) => toast.error(normalizeError(error).message))
   }
 
   return (
@@ -435,7 +510,78 @@ export function ImportPage() {
       ) : null}
 
       {segmentation.results.length > 0 ? (
-        <CropGrid results={segmentation.results} />
+        <CropGrid
+          results={segmentation.results}
+          selection={
+            eligibleKeys.size > 0 && !structuringRunning
+              ? {
+                  eligible: eligibleKeys,
+                  selected: selectedKeys,
+                  onToggle: toggleSelected,
+                }
+              : undefined
+          }
+        />
+      ) : null}
+
+      {eligibleKeys.size > 0 && !structuringRunning ? (
+        <div className="bg-background sticky bottom-0 z-10 flex flex-wrap items-center gap-2 rounded-lg border p-2 shadow-xs">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setSelectedKeys(new Set(eligibleKeys))}
+          >
+            Hamısını seç ({eligibleKeys.size})
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={selectedKeys.size === 0}
+            onClick={() => setSelectedKeys(new Set())}
+          >
+            Təmizlə
+          </Button>
+          <div className="ml-auto flex items-center gap-2">
+            {structuring.items.length > 0 ? (
+              <Button variant="outline" size="sm" onClick={() => setCheckOpen(true)}>
+                <Eye data-icon="inline-start" />
+                Nəticələrə bax ({structuring.items.length})
+              </Button>
+            ) : null}
+            <Button
+              size="sm"
+              disabled={selectedEntries.length === 0}
+              onClick={() => setSendConfirmOpen(true)}
+            >
+              <Send data-icon="inline-start" />
+              Çıxarılmaya göndər ({selectedEntries.length})
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {structuringRunning ? (
+        <div className="flex items-center gap-3">
+          <Progress
+            value={(structuring.current / Math.max(1, structuring.total)) * 100}
+            className="h-2 flex-1"
+          />
+          <span className="text-muted-foreground shrink-0 text-sm tabular-nums">
+            {structuring.current}/{structuring.total} sual strukturlaşdırılır
+          </span>
+          <Button variant="outline" size="sm" onClick={structuring.stop}>
+            <Square data-icon="inline-start" />
+            Dayandır
+          </Button>
+        </div>
+      ) : null}
+      {!structuringRunning && structuring.items.length > 0 && eligibleKeys.size === 0 ? (
+        <div className="flex justify-end">
+          <Button variant="outline" size="sm" onClick={() => setCheckOpen(true)}>
+            <Eye data-icon="inline-start" />
+            Nəticələrə bax ({structuring.items.length})
+          </Button>
+        </div>
       ) : null}
 
       {segmentation.status === 'done' &&
@@ -575,6 +721,42 @@ export function ImportPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Paid step: show the lane mix and the price before any model runs. */}
+      <AlertDialog
+        open={sendConfirmOpen}
+        onOpenChange={(open) => {
+          if (!open) setSendConfirmOpen(false)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {selectedEntries.length} sual çıxarılmaya göndərilsin?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              AI hər sualı təmiz formada yenidən yaradacaq (mətn, variantlar,
+              fiqurlar). Təxmini xərc: ≈ ${costEstimate.toFixed(2)}
+              {laneCounts.colored > 0 || laneCounts.rule > 0
+                ? ` (mətn: ${laneCounts.none}, sxem: ${laneCounts.rule}, rəngli fiqur: ${laneCounts.colored}; şəkilli variantlar xərci artıra bilər)`
+                : ''}
+              . Nəticələr bazaya yazılır və sonra yoxlanıla bilər.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>İmtina</AlertDialogCancel>
+            <AlertDialogAction onClick={startStructuring}>
+              Göndər
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <RecreationCheckDialog
+        items={structuring.items}
+        open={checkOpen}
+        onClose={() => setCheckOpen(false)}
+      />
 
       {/* Opening another PDF/book while a run is live also needs a yes. */}
       <AlertDialog
