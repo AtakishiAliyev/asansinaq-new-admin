@@ -15,6 +15,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
+import { Spinner } from '@/components/ui/spinner'
 import { useBooks, type Book } from '@/features/books'
 
 interface BookPickerProps {
@@ -30,7 +31,27 @@ export function BookPicker({ disabled, onPick }: BookPickerProps) {
   const [open, setOpen] = useState(false)
   const list = books.data ?? []
 
-  if (books.isError || (!books.isPending && list.length === 0)) return null
+  // A failed load must not silently hide the archive: the toolbar hint next
+  // to this button still tells the operator to pick from it.
+  if (books.isError) {
+    return (
+      <Button
+        variant="outline"
+        className="text-destructive"
+        onClick={() => books.refetch()}
+        disabled={books.isFetching}
+      >
+        {books.isFetching ? (
+          <Spinner data-icon="inline-start" />
+        ) : (
+          <Archive data-icon="inline-start" />
+        )}
+        Arxiv yüklənmədi — yenidən cəhd et
+      </Button>
+    )
+  }
+
+  if (!books.isPending && list.length === 0) return null
 
   return (
     <Popover open={open} onOpenChange={setOpen}>

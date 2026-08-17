@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { FileUp, Play } from 'lucide-react'
-import { useSearchParams } from 'react-router'
+import { FileUp, Play, Square } from 'lucide-react'
+import { useBlocker, useSearchParams } from 'react-router'
 import { toast } from 'sonner'
 import {
   AlertDialog,
@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { Progress } from '@/components/ui/progress'
 import { Spinner } from '@/components/ui/spinner'
 import { normalizeError } from '@/lib/errors'
 import {
@@ -43,6 +44,7 @@ import { PagePreviewDialog } from '@/features/import/components/page-preview-dia
 import { ThumbnailStrip } from '@/features/import/components/thumbnail-strip'
 import { useSegmentation } from '@/features/import/hooks/use-segmentation'
 import { loadPdf, type PDFDocumentProxy } from '@/features/import/lib/pdf'
+import { usePageTitle } from '@/hooks/use-page-title'
 
 interface PendingBook {
   file: File
@@ -56,6 +58,7 @@ interface DuplicateHit {
 }
 
 export function ImportPage() {
+  usePageTitle('İmport')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [fileName, setFileName] = useState<string | null>(null)
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null)
@@ -70,6 +73,14 @@ export function ImportPage() {
   const handledBook = useRef<number | null>(null)
   const [pendingBook, setPendingBook] = useState<PendingBook | null>(null)
   const [duplicate, setDuplicate] = useState<DuplicateHit | null>(null)
+  // Hash + duplicate-check gap after the OS picker closes needs a visible
+  // pending state — on a 45MB file it is a multi-second silence otherwise.
+  const [isChecking, setIsChecking] = useState(false)
+  // Opening another document mid-run silently kills the run; the operator
+  // confirms first, and the confirmed action runs from here.
+  const [pendingReplace, setPendingReplace] = useState<(() => void) | null>(
+    null,
+  )
   const [archiveBadge, setArchiveBadge] = useState<
     'uploaded' | 'skipped-size' | null
   >(null)
@@ -146,11 +157,13 @@ export function ImportPage() {
   // parallel so the page count is ready by the time the admin fills the form.
   async function handleFile(file: File) {
     let docPromise: Promise<PDFDocumentProxy> | undefined
+    setIsChecking(true)
     try {
       const buffer = await file.arrayBuffer()
       const hash = await sha256Hex(buffer)
       const existing = await findBookByHash(hash).catch(() => null)
       if (existing) {
+        setIsChecking(false)
         setDuplicate({ book: existing, file })
         return
       }
@@ -161,6 +174,8 @@ export function ImportPage() {
       docPromise = loadPdf(buffer)
       pendingDocRef.current = docPromise
       setPendingBook({ file, hash, pageCount: null })
+      // The metadata dialog is open from here on — the badge's job is done.
+      setIsChecking(false)
       const loaded = await docPromise
       setPendingBook((current) =>
         current && current.file === file
@@ -171,6 +186,7 @@ export function ImportPage() {
       // Only the call that still owns the pending state may clear it — a late
       // rejection from an older pick must not close a newer pick's dialog.
       if (docPromise && pendingDocRef.current !== docPromise) return
+      setIsChecking(false)
       pendingDocRef.current = null
       setPendingBook((current) =>
         current && current.file === file ? null : current,
@@ -199,7 +215,6 @@ export function ImportPage() {
   function openStoredBook(book: Book) {
     if (!book.storage_path) return
     const seq = ++loadSeq.current
-    setArchiveBadge(null)
     const next = nextUnworkedPage(book)
     void openBuffer(seq, book.title, download.mutateAsync(book.storage_path), {
       book,
@@ -217,8 +232,18 @@ export function ImportPage() {
     const book = books.data.find((b) => b.id === id)
     setSearchParams({}, { replace: true })
     if (book?.storage_path) openStoredBook(book)
+    else if (book) toast.error('Bu kitabın arxiv faylı yoxdur')
+    else toast.error('Kitab tapılmadı')
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fires when the list arrives
   }, [books.data, searchParams])
+
+  // The auto-open can't run while the archive list is failing; say so instead
+  // of silently ignoring the ?book param (it stays, so a retry resumes it).
+  useEffect(() => {
+    if (books.isError && searchParams.get('book')) {
+      toast.error('Arxiv siyahısı yüklənmədi — kitab avtomatik açıla bilmədi')
+    }
+  }, [books.isError, searchParams])
 
   function toggleThumb(page: number) {
     if (!doc) return
@@ -243,14 +268,40 @@ export function ImportPage() {
     }
     setRangeError(null)
     const book = currentBook
-    void segmentation.run(doc, parsed.pages).then((results) => {
-      if (!book || !results) return
-      const pages = results.filter((r) => !r.isScan).map((r) => r.pageNumber)
-      if (pages.length) markPagesWorked.mutate({ bookId: book.id, pages })
-    })
+    void segmentation
+      .run(doc, parsed.pages)
+      .then((results) => {
+        if (!book || !results) return
+        // A page counts as worked when it was really processed — text-path
+        // pages always, scan pages only if the AI actually found questions.
+        const pages = results
+          .filter((r) => !r.isScan || r.crops.length > 0)
+          .map((r) => r.pageNumber)
+        if (pages.length) markPagesWorked.mutate({ bookId: book.id, pages })
+      })
+      // run() catches per-page errors itself; this is the last-resort net.
+      .catch((error) => toast.error(normalizeError(error).message))
   }
 
   const running = segmentation.status === 'running'
+  // Crops live only in memory at this phase: leaving the page discards them.
+  const dirty = running || segmentation.results.length > 0
+
+  const blocker = useBlocker(dirty)
+
+  useEffect(() => {
+    if (!dirty) return
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [dirty])
+
+  function guardReplace(action: () => void) {
+    if (running) setPendingReplace(() => action)
+    else action()
+  }
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
@@ -265,18 +316,30 @@ export function ImportPage() {
             className="sr-only"
             onChange={(e) => {
               const file = e.target.files?.[0]
-              if (file) void handleFile(file)
+              if (file) guardReplace(() => void handleFile(file))
               e.target.value = ''
             }}
           />
           <div className="flex flex-wrap items-center gap-3">
-            <Button onClick={() => fileInputRef.current?.click()}>
+            <Button
+              disabled={isChecking}
+              onClick={() => fileInputRef.current?.click()}
+            >
               <FileUp data-icon="inline-start" />
               PDF yüklə
             </Button>
-            <BookPicker disabled={download.isPending} onPick={openStoredBook} />
+            <BookPicker
+              disabled={download.isPending}
+              onPick={(book) => guardReplace(() => openStoredBook(book))}
+            />
             {download.isPending ? (
               <Badge variant="secondary">arxivdən endirilir…</Badge>
+            ) : null}
+            {isChecking ? (
+              <Badge variant="secondary">
+                <Spinner />
+                yoxlanılır…
+              </Badge>
             ) : null}
             {fileName ? (
               <span className="min-w-0 truncate text-sm">{fileName}</span>
@@ -327,7 +390,7 @@ export function ImportPage() {
                     ) : (
                       <Play data-icon="inline-start" />
                     )}
-                    Crop çıxar
+                    Sualları çıxar
                   </Button>
                 </div>
                 {rangeError ? (
@@ -356,11 +419,19 @@ export function ImportPage() {
       </Card>
 
       {running ? (
-        <Alert>
-          <AlertDescription>
-            Emal olunur: {segmentation.current}/{segmentation.total} səhifə…
-          </AlertDescription>
-        </Alert>
+        <div className="flex items-center gap-3">
+          <Progress
+            value={(segmentation.current / Math.max(1, segmentation.total)) * 100}
+            className="h-2 flex-1"
+          />
+          <span className="text-muted-foreground shrink-0 text-sm tabular-nums">
+            {segmentation.current}/{segmentation.total} səhifə
+          </span>
+          <Button variant="outline" size="sm" onClick={segmentation.stop}>
+            <Square data-icon="inline-start" />
+            Dayandır
+          </Button>
+        </div>
       ) : null}
 
       {segmentation.results.length > 0 ? (
@@ -373,7 +444,7 @@ export function ImportPage() {
           <AlertDescription>
             Seçilən səhifələrdə sual tapılmadı.
             {segmentation.results.some((r) => r.isScan)
-              ? ' Skan səhifələr AI yolunu gözləyir — o, növbəti addımda qurulacaq.'
+              ? ' Skan səhifələrdə AI aşkarlanması alınmadı — səhifə qeydlərinə baxın.'
               : ' Fərqli aralıq yoxlayın və ya səhifə strukturu dəstəklənmir.'}
           </AlertDescription>
         </Alert>
@@ -444,7 +515,7 @@ export function ImportPage() {
             <AlertDialogTitle>Bu PDF artıq arxivdədir</AlertDialogTitle>
             <AlertDialogDescription>
               Eyni fayl «{duplicate?.book.title}» adı ilə qeydiyyatdadır —
-              yenidən yüklməyə ehtiyac yoxdur.
+              yenidən yükləməyə ehtiyac yoxdur.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -456,7 +527,6 @@ export function ImportPage() {
                   openStoredBook(duplicate.book)
                 } else {
                   const seq = ++loadSeq.current
-                  setArchiveBadge(null)
                   void openBuffer(
                     seq,
                     duplicate.book.title,
@@ -468,6 +538,71 @@ export function ImportPage() {
               }}
             >
               Kitabı aç
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Leaving /import with unsaved crops (or a live run) needs a yes. */}
+      <AlertDialog
+        open={blocker.state === 'blocked'}
+        onOpenChange={(open) => {
+          if (!open) blocker.reset?.()
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Emal nəticələri itəcək</AlertDialogTitle>
+            <AlertDialogDescription>
+              {running
+                ? 'Emal hələ davam edir. Səhifəni tərk etsəniz, dayandırılacaq və çıxarılan suallar silinəcək.'
+                : 'Çıxarılan suallar bu mərhələdə yaddaşda saxlanmır — səhifəni tərk etdikdə silinəcək.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => blocker.reset?.()}>
+              Qal
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                segmentation.stop()
+                blocker.proceed?.()
+              }}
+            >
+              Tərk et
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Opening another PDF/book while a run is live also needs a yes. */}
+      <AlertDialog
+        open={pendingReplace !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingReplace(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Emal davam edir</AlertDialogTitle>
+            <AlertDialogDescription>
+              Yeni sənəd açılsa, gedən emal dayandırılacaq və çıxarılan suallar
+              silinəcək.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>İmtina</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                const action = pendingReplace
+                setPendingReplace(null)
+                segmentation.stop()
+                action?.()
+              }}
+            >
+              Dayandır və aç
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
