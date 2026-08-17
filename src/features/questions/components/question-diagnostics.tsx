@@ -25,6 +25,8 @@ const FLAG_HINTS: Record<string, string> = {
   watermark_leak: 'mətnə watermark qarışıb',
   point_off_curve: 'işarələnmiş nöqtə əyrinin üstündə deyil',
   second_read_failed: 'ikinci oxunuş alınmadı — müstəqil təsdiq yoxdur',
+  answer_missing: 'cavab yoxdur — açarı idxal edin və ya əl ilə seçin',
+  answer_mismatch: 'cavab açarı ilə uyğunsuzluq — yoxlayın',
   curve_invalid: 'əyri ifadəsi hesablanmır',
   venn_unknown_set: 'Venn ifadəsində tanınmayan çoxluq var',
   venn_parse: 'Venn ifadəsi oxunmur',

@@ -15,7 +15,6 @@ import {
   opCompareFigures,
   opExtract,
   opRedrawFigure,
-  opSolve,
   opSuggestCategory,
 } from '@/features/questions/api/question-ops'
 import { fetchBookAnswerKeys } from '@/features/questions/api/answer-keys'
@@ -365,59 +364,20 @@ export function useStructuringRun() {
         dbFigures = { ...dbFigures, items: dbItems }
       }
 
-      // The answer: the printed key states it, the blind solver corroborates
-      // it. The solver never sees the key — it reads the question and picks a
-      // letter, so agreement is evidence and disagreement is a flag, not a
-      // silent overwrite.
+      // The answer comes from the printed key or from the reviewer — never
+      // from a model solving the question. A machine-authored answer would
+      // look exactly like a verified one in the bank, and a wrong one is
+      // worse than none: a student would be marked wrong for being right.
       const keyAnswer =
         answerKeys.get(`${row.test_no ?? 0}:${row.q_no}`) ??
         answerKeys.get(`0:${row.q_no}`) ??
         null
-      let answer: string | null = keyAnswer
-      let answerSource: 'key' | 'solver' | null = keyAnswer ? 'key' : null
-      let answerConfidence: number | null = null
-      try {
-        checkCancelled()
-        const solved = await opSolve({
-          stem: question.stem,
-          options: question.options.map((o) => ({
-            label: o.label,
-            ...(o.tex !== undefined ? { tex: o.tex } : {}),
-          })),
-          // A picture question is unanswerable from text alone; send the crop.
-          ...(question.figures || question.options.some((o) => o.image)
-            ? { figure: original }
-            : {}),
+      if (!keyAnswer) {
+        pipelineFlags.push({
+          level: 'warning',
+          code: 'answer_missing',
+          message: 'Cavab yoxdur — cavab açarını idxal edin və ya əl ilə seçin',
         })
-        if (keyAnswer) {
-          if (solved.answer === keyAnswer) {
-            answerConfidence = 0.98
-          } else {
-            pipelineFlags.push({
-              level: 'warning',
-              code: 'answer_mismatch',
-              message: `Cavab açarı ${keyAnswer}, AI həlli ${solved.answer} — yoxlayın`,
-            })
-            answerConfidence = 0.5
-          }
-        } else {
-          answer = solved.answer
-          answerSource = 'solver'
-          answerConfidence = 0.6
-          pipelineFlags.push({
-            level: 'warning',
-            code: 'answer_unverified',
-            message: 'Cavab açarı yoxdur — cavab yalnız AI həllidir',
-          })
-        }
-      } catch {
-        if (!keyAnswer) {
-          pipelineFlags.push({
-            level: 'warning',
-            code: 'answer_missing',
-            message: 'Cavab tapılmadı — açar yoxdur, həll də alınmadı',
-          })
-        }
       }
 
       // Category suggestion: cheap, and the reviewer confirms it anyway. A
@@ -477,11 +437,11 @@ export function useStructuringRun() {
           figures: dbFigures as never,
           ai_difficulty: aiDifficulty,
           // A reviewer's answer outranks anything the pipeline produces.
-          ...(row.answer_source !== 'reviewer' && answer
+          ...(row.answer_source !== 'reviewer' && keyAnswer
             ? {
-                answer,
-                answer_source: answerSource,
-                answer_confidence: answerConfidence,
+                answer: keyAnswer,
+                answer_source: 'key' as const,
+                answer_confidence: null,
               }
             : {}),
           // Only overwrite the suggestion when one was actually requested —
