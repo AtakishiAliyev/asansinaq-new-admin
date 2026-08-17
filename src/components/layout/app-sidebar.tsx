@@ -1,4 +1,11 @@
-import { FileUp, Library, ListTree, LogOut, User } from 'lucide-react'
+import {
+  FileUp,
+  LayoutDashboard,
+  Library,
+  ListTree,
+  LogOut,
+  User,
+} from 'lucide-react'
 import { NavLink, useLocation } from 'react-router'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
@@ -18,17 +25,25 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  useSidebar,
 } from '@/components/ui/sidebar'
+import { Spinner } from '@/components/ui/spinner'
 import { useAuth } from '@/hooks/use-auth'
 import { useSignOut } from '@/features/auth'
 import { useProfile } from '@/features/profile'
 
 // Profile is reachable from the user menu below, so it stays out of the main nav.
 const NAV_ITEMS = [
+  { to: '/', label: 'İcmal', icon: LayoutDashboard },
   { to: '/import', label: 'İmport', icon: FileUp },
   { to: '/books', label: 'Kitablar', icon: Library },
   { to: '/taxonomy', label: 'Fənn və kateqoriyalar', icon: ListTree },
 ]
+
+// '/' would prefix-match every path, so the root item needs exact matching.
+function isNavActive(to: string, pathname: string) {
+  return to === '/' ? pathname === '/' : pathname.startsWith(to)
+}
 
 function initialsOf(name: string, email: string) {
   const source = name.trim() || email
@@ -42,6 +57,9 @@ export function AppSidebar() {
   const { pathname } = useLocation()
   const profile = useProfile()
   const signOut = useSignOut()
+  // On mobile the sidebar is a modal sheet: close it on navigation, or the
+  // new page loads hidden behind the overlay. No-op on desktop.
+  const { setOpenMobile } = useSidebar()
 
   const email = session?.user.email ?? ''
   const fullName = profile.data?.full_name ?? ''
@@ -65,9 +83,9 @@ export function AppSidebar() {
                 <SidebarMenuItem key={item.to}>
                   <SidebarMenuButton
                     asChild
-                    isActive={pathname.startsWith(item.to)}
+                    isActive={isNavActive(item.to, pathname)}
                   >
-                    <NavLink to={item.to}>
+                    <NavLink to={item.to} onClick={() => setOpenMobile(false)}>
                       <item.icon />
                       <span>{item.label}</span>
                     </NavLink>
@@ -84,10 +102,16 @@ export function AppSidebar() {
           <SidebarMenuItem>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <SidebarMenuButton size="lg">
-                  <Avatar className="size-8">
-                    <AvatarFallback>{initialsOf(fullName, email)}</AvatarFallback>
-                  </Avatar>
+                <SidebarMenuButton size="lg" disabled={signOut.isPending}>
+                  {signOut.isPending ? (
+                    <Spinner className="size-8 p-1.5" />
+                  ) : (
+                    <Avatar className="size-8">
+                      <AvatarFallback>
+                        {initialsOf(fullName, email)}
+                      </AvatarFallback>
+                    </Avatar>
+                  )}
                   <span className="flex min-w-0 flex-col">
                     {fullName ? (
                       <span className="truncate text-sm font-medium">
@@ -103,7 +127,7 @@ export function AppSidebar() {
               <DropdownMenuContent side="top" align="start" className="w-56">
                 <DropdownMenuGroup>
                   <DropdownMenuItem asChild>
-                    <NavLink to="/profile">
+                    <NavLink to="/profile" onClick={() => setOpenMobile(false)}>
                       <User />
                       Profil
                     </NavLink>
