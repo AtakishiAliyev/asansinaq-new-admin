@@ -76,5 +76,6 @@ export async function renderPageJpeg(
   ctx.fillRect(0, 0, canvas.width, canvas.height)
   await page.render({ canvas, viewport }).promise
   const dataUrl = canvas.toDataURL('image/jpeg', 0.85)
-  return { base64: dataUrl.split(',')[1], mime: 'image/jpeg' }
+  // toDataURL always yields "data:<mime>;base64,<payload>".
+  return { base64: dataUrl.split(',')[1]!, mime: 'image/jpeg' }
 }

@@ -21,7 +21,9 @@ function itemsFromContent(
   const out: SegItem[] = []
   for (const raw of content.items as {
     str: string
-    transform: number[]
+    // pdf.js emits the affine matrix as six numbers, so the slots destructured
+    // below always exist.
+    transform: [number, number, number, number, number, number]
     width: number
     height: number
   }[]) {
@@ -121,7 +123,8 @@ function splitColumns(
     const s0 = Math.max(0, Math.floor(it.yTop / stripeH))
     const s1 = Math.min(STRIPES - 1, Math.floor((it.yTop + it.h) / stripeH))
     for (let s = s0; s <= s1; s++) {
-      occupied[s].fill(1, from, to + 1)
+      // s0/s1 are already clamped into [0, STRIPES - 1].
+      occupied[s]!.fill(1, from, to + 1)
       stripeHasItems[s] = 1
     }
   }
@@ -136,7 +139,7 @@ function splitColumns(
   let runStart = -1
   for (let x = lo; x <= hi; x++) {
     let freeIn = 0
-    for (const s of activeStripes) if (occupied[s][x] === 0) freeIn++
+    for (const s of activeStripes) if (occupied[s]![x] === 0) freeIn++
     if (freeIn >= needed) {
       if (runStart < 0) runStart = x
     } else {
@@ -199,7 +202,9 @@ function splitColumns(
     const la = findAnchors(left, profile)
     const ra = findAnchors(right, profile)
     const ordered =
-      la.length > 0 && ra.length > 0 && ra[0].number > la[la.length - 1].number
+      la.length > 0 &&
+      ra.length > 0 &&
+      ra[0]!.number > la[la.length - 1]!.number
     const scored: Scored = { left, right, mid, ordered, dist, len: r.len }
     if (!best || betterThan(scored, best)) best = scored
   }
@@ -240,11 +245,13 @@ const LIST_ROW_GAP_PT = 40
 
 function isListChain(kept: Anchor[]): boolean {
   if (kept.length < 4) return false
+  // The slice shifts by one, so `i` still addresses the preceding anchor, and
+  // the length gate above leaves at least three gaps to take a median of.
   const gaps = kept
     .slice(1)
-    .map((a, i) => a.yTop - kept[i].yTop)
+    .map((a, i) => a.yTop - kept[i]!.yTop)
     .sort((p, q) => p - q)
-  return gaps[Math.floor(gaps.length / 2)] < LIST_ROW_GAP_PT
+  return gaps[Math.floor(gaps.length / 2)]! < LIST_ROW_GAP_PT
 }
 
 function findAnchors(colItems: SegItem[], profile: SourceProfile): Anchor[] {
@@ -287,30 +294,34 @@ function findAnchors(colItems: SegItem[], profile: SourceProfile): Anchor[] {
     // Longest increasing chain (gap ≤ 2), not first-candidate greedy: a stray
     // "2." sitting above the real question 1 must lose to the 1..n run, not
     // poison it.
+    // chainLen and prev are as long as `candidates`, every index below comes
+    // from the loop bounds, and `bestEnd` is only read once it has been set to
+    // a real position — so the assertions here restate what the loops enforce.
     const chainLen = candidates.map(() => 1)
     const prev = candidates.map(() => -1)
     let bestEnd = -1
     for (let i = 0; i < candidates.length; i++) {
       for (let j = 0; j < i; j++) {
-        const step = candidates[i].number - candidates[j].number
-        if (step >= 1 && step <= 2 && chainLen[j] + 1 > chainLen[i]) {
-          chainLen[i] = chainLen[j] + 1
+        const step = candidates[i]!.number - candidates[j]!.number
+        if (step >= 1 && step <= 2 && chainLen[j]! + 1 > chainLen[i]!) {
+          chainLen[i] = chainLen[j]! + 1
           prev[i] = j
         }
       }
-      if (bestEnd < 0 || chainLen[i] > chainLen[bestEnd]) bestEnd = i
+      if (bestEnd < 0 || chainLen[i]! > chainLen[bestEnd]!) bestEnd = i
     }
     if (bestEnd < 0) return []
     const kept: Anchor[] = []
-    for (let i = bestEnd; i >= 0; i = prev[i]) {
-      kept.unshift(candidates[i])
-      if (prev[i] < 0) break
+    for (let i = bestEnd; i >= 0; i = prev[i]!) {
+      kept.unshift(candidates[i]!)
+      if (prev[i]! < 0) break
     }
     return isListChain(kept) ? [] : kept
   }
 
+  // `all` is non-empty by the guard above, so the loop left at least one cluster.
   const primary =
-    clusters.find((cl) => cl.fused || cl.count >= 2) ?? clusters[0]
+    clusters.find((cl) => cl.fused || cl.count >= 2) ?? clusters[0]!
   let kept = chainFrom(primary.minX)
 
   // A degenerate result with other clusters available usually means the
@@ -349,25 +360,27 @@ function buildBands(
   // Body content above the first anchor (a shared passage, an instruction
   // block) belongs to question 1's crop — the header was already cut, so
   // whatever remains up there is real content that must not vanish.
-  const aboveFirst = colItems.filter((it) => it.yTop < anchors[0].yTop)
+  // Callers skip a column that produced no anchors, so there is always a first.
+  const firstAnchor = anchors[0]!
+  const aboveFirst = colItems.filter((it) => it.yTop < firstAnchor.yTop)
   const contentTop =
     (aboveFirst.length
       ? Math.min(...aboveFirst.map((it) => it.yTop))
-      : anchors[0].yTop) - 2
+      : firstAnchor.yTop) - 2
   const bands: Band[] = []
   for (let i = 0; i < anchors.length; i++) {
-    const top =
-      i === 0 ? contentTop : (anchors[i - 1].yTop + anchors[i].yTop) / 2
+    const anchor = anchors[i]!
+    const top = i === 0 ? contentTop : (anchors[i - 1]!.yTop + anchor.yTop) / 2
     const bottom =
       i === anchors.length - 1
         ? contentBottom
-        : (anchors[i].yTop + anchors[i + 1].yTop) / 2
+        : (anchor.yTop + anchors[i + 1]!.yTop) / 2
     const inside = colItems.filter(
       (it) => it.yTop >= top - 2 && it.yTop <= bottom + 2,
     )
     inside.sort((p, q) => p.yTop - q.yTop || p.x - q.x)
     bands.push({
-      number: anchors[i].number,
+      number: anchor.number,
       col,
       bbox: {
         x: colLeft - 4,
@@ -375,7 +388,7 @@ function buildBands(
         w: colRight - colLeft + 8,
         h: bottom - top,
       },
-      anchorYTop: anchors[i].yTop,
+      anchorYTop: anchor.yTop,
       textLayer: inside
         .map((it) => it.str)
         .join(' ')
@@ -397,21 +410,25 @@ export async function pageTextItems(page: PDFPageProxy): Promise<SegItem[]> {
   return itemsFromContent(content, viewport.height)
 }
 
-export async function segmentPage(
-  page: PDFPageProxy,
+/**
+ * The segmentation itself, over already-extracted text items. Split out from
+ * `segmentPage` so the heuristics can be exercised without a PDF: the eval
+ * harness feeds hand-written item layouts (two columns, a numbered list, a
+ * missing gutter) and asserts the bands that come back.
+ */
+export function segmentItems(
+  allItems: SegItem[],
+  pageNumber: number,
+  pageWidth: number,
+  pageHeight: number,
   profile: SourceProfile = DEFAULT_PROFILE,
-): Promise<PageSeg> {
-  const viewport = page.getViewport({ scale: 1 })
-  const pageWidth = viewport.width
-  const pageHeight = viewport.height
-  const content = await page.getTextContent()
-  const allItems = itemsFromContent(content, pageHeight)
+): PageSeg {
   const notes: string[] = []
 
   // Little to no text layer → scanned/image page. The AI scan path owns it.
   if (allItems.length < profile.minTextItems) {
     return {
-      pageNumber: page.pageNumber,
+      pageNumber,
       width: pageWidth,
       height: pageHeight,
       bands: [],
@@ -437,9 +454,8 @@ export async function segmentPage(
   // Geometric column bounds: the left column's own left edge, mirrored for
   // the right column's outer edge (text-only margins can lie on pages whose
   // options are graphics, so each column also knows its share of the page).
-  const col0Left = cols[0]?.length
-    ? Math.min(...cols[0].map((it) => it.x))
-    : 0
+  const col0 = cols[0]
+  const col0Left = col0?.length ? Math.min(...col0.map((it) => it.x)) : 0
   cols.forEach((colItems, ci) => {
     if (!colItems.length) return
     const anchors = findAnchors(colItems, profile)
@@ -459,7 +475,7 @@ export async function segmentPage(
   }
 
   return {
-    pageNumber: page.pageNumber,
+    pageNumber,
     width: pageWidth,
     height: pageHeight,
     testNo: header.testNo,
@@ -467,6 +483,21 @@ export async function segmentPage(
     notes,
     isScan: false,
   }
+}
+
+export async function segmentPage(
+  page: PDFPageProxy,
+  profile: SourceProfile = DEFAULT_PROFILE,
+): Promise<PageSeg> {
+  const viewport = page.getViewport({ scale: 1 })
+  const content = await page.getTextContent()
+  return segmentItems(
+    itemsFromContent(content, viewport.height),
+    page.pageNumber,
+    viewport.width,
+    viewport.height,
+    profile,
+  )
 }
 
 export async function segmentPages(

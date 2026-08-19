@@ -75,16 +75,18 @@ export function scanPageSeg(
 
     const colLeft = Math.min(...dedup.map((it) => it.xL))
     const colRight = Math.max(...dedup.map((it) => it.xR))
-    const contentTop = clamp(dedup[0].yTop - 10, 0, H)
-    const contentBottom = clamp(dedup[dedup.length - 1].yBot + 10, 0, H)
+    // colItems is non-empty and the dedup filter always keeps its first item,
+    // so dedup has at least one entry and the neighbours below stay in bounds.
+    const contentTop = clamp(dedup[0]!.yTop - 10, 0, H)
+    const contentBottom = clamp(dedup[dedup.length - 1]!.yBot + 10, 0, H)
 
     for (let i = 0; i < dedup.length; i++) {
-      const cur = dedup[i]
-      const top = i === 0 ? contentTop : (dedup[i - 1].yBot + cur.yTop) / 2
+      const cur = dedup[i]!
+      const top = i === 0 ? contentTop : (dedup[i - 1]!.yBot + cur.yTop) / 2
       const bottom =
         i === dedup.length - 1
           ? contentBottom
-          : (cur.yBot + dedup[i + 1].yTop) / 2
+          : (cur.yBot + dedup[i + 1]!.yTop) / 2
       bands.push({
         number: cur.number,
         col,

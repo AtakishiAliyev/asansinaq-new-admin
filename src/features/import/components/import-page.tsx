@@ -27,7 +27,6 @@ import {
   parsePagesLenient,
 } from '@/core/segment/page-range'
 import { matchBlockToSection } from '@/core/answer-key/match'
-import { useCategories } from '@/features/taxonomy'
 import {
   BookFormDialog,
   findBookByHash,
@@ -49,6 +48,7 @@ import {
   AnswerKeyDialog,
   cropKey,
   RecreationCheckDialog,
+  resetRateGate,
   useAnswerKeyRun,
   useEnqueue,
   useSaveAnswerKeys,
@@ -121,9 +121,6 @@ export function ImportPage() {
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set())
   const [sendConfirmOpen, setSendConfirmOpen] = useState(false)
   const [checkOpen, setCheckOpen] = useState(false)
-  // The book's subject tree travels with the batch so the model can suggest
-  // a category from EXISTING ones during structuring.
-  const bookCategories = useCategories(currentBook?.subject_id ?? null)
   const answerKeys = useAnswerKeyRun()
   const saveAnswerKeys = useSaveAnswerKeys()
   const [keyDialogOpen, setKeyDialogOpen] = useState(false)
@@ -470,15 +467,13 @@ export function ImportPage() {
               .catch(() => undefined)
             return
           }
+          // A new job starts with a clean gate; batches inside it keep what
+          // it learns about the providers' limits.
+          resetRateGate()
           void structuring
-            .run(
-              res.saved.map((e) => ({ row: e.row, crop: e.crop })),
-              (bookCategories.data ?? []).map((c) => ({
-                id: c.id,
-                name: c.name,
-                parentId: c.parent_id,
-              })),
-            )
+            .run(res.saved.map((e) => ({ row: e.row, crop: e.crop })), {
+              suggestCategories: true,
+            })
             .then((items) => {
               if (!items.length) return
               const failed = items.filter((i) => i.status === 'failed').length

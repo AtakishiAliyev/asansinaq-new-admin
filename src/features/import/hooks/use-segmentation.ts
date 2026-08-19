@@ -3,7 +3,7 @@ import { renderCrops } from '@/core/segment/crop'
 import { scanPageSeg } from '@/core/segment/scan'
 import { segmentPage } from '@/core/segment/segmenter'
 import type { Crop, PageSeg } from '@/core/segment/types'
-import { detectQuestions } from '@/features/import/api/detect-questions'
+import { isBudgetExhausted, opDetectQuestions } from '@/features/questions'
 import {
   domCanvas,
   renderPageJpeg,
@@ -55,13 +55,18 @@ async function analyzePage(
       scanMode = true
       try {
         const { base64, mime } = await renderPageJpeg(page)
-        const detection = await detectQuestions(base64, mime)
+        const detection = await opDetectQuestions({ image: base64, mime })
         seg = scanPageSeg(detection, page.pageNumber, seg.width, seg.height)
       } catch (error) {
         console.error('scan detection failed', pageNumber, error)
         seg = {
           ...seg,
-          notes: [...seg.notes, 'AI aşkarlanması alınmadı — yenidən cəhd edin'],
+          notes: [
+            ...seg.notes,
+            isBudgetExhausted()
+              ? 'Günlük model büdcəsi bitdi — bu səhifə aşkarlanmadı'
+              : 'AI aşkarlanması alınmadı — yenidən cəhd edin',
+          ],
         }
       }
     }
@@ -100,11 +105,13 @@ export function useSegmentation() {
     })
 
     const results: PageResult[] = []
-    let pending = analyzePage(doc, pages[0])
+    // The range parser refuses an empty selection, so page 0 is always there;
+    // the lookahead only ever reads a page it just bounds-checked.
+    let pending = analyzePage(doc, pages[0]!)
     for (let i = 0; i < pages.length; i++) {
       const analyzed = await pending
       if (runId.current !== id) return results // superseded by a newer run
-      if (i + 1 < pages.length) pending = analyzePage(doc, pages[i + 1])
+      if (i + 1 < pages.length) pending = analyzePage(doc, pages[i + 1]!)
 
       if ('failed' in analyzed) {
         results.push({
@@ -151,11 +158,15 @@ export function useSegmentation() {
         total: pages.length,
         results: [...results],
       })
+      // Scan pages cost a model call each. Once the day's budget is spent,
+      // stop: continuing would turn every remaining page into a detection
+      // failure that has to be re-run tomorrow anyway.
+      if (isBudgetExhausted()) break
     }
     if (runId.current !== id) return results
     setState({
       status: 'done',
-      current: pages.length,
+      current: results.length,
       total: pages.length,
       results,
     })

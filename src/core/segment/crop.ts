@@ -25,6 +25,10 @@ export interface CanvasLike {
 }
 export type MakeCanvas = (w: number, h: number) => CanvasLike
 
+// Every pixel loop below indexes `data` off the image's own width and height,
+// so the reads are in bounds by construction and `!` stands in for a check
+// that could never fail — a real guard would run 16M times to do nothing.
+//
 // Scans have grey paper and JPEG noise, so a fixed cutoff misreads them.
 // Estimate the paper tone from the brightest histogram peak, cut ~30% below.
 export function adaptiveInkThreshold(img: ImageData): number {
@@ -32,14 +36,14 @@ export function adaptiveInkThreshold(img: ImageData): number {
   const { data } = img
   for (let i = 0; i < data.length; i += 4 * 8) {
     const lum =
-      (0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]) | 0
-    hist[lum]++
+      (0.299 * data[i]! + 0.587 * data[i + 1]! + 0.114 * data[i + 2]!) | 0
+    hist[lum]!++
   }
   let bgPeak = 255
   let peakCount = 0
   for (let l = 128; l < 256; l++) {
-    if (hist[l] > peakCount) {
-      peakCount = hist[l]
+    if (hist[l]! > peakCount) {
+      peakCount = hist[l]!
       bgPeak = l
     }
   }
@@ -64,9 +68,9 @@ function coloredInkCount(
     const rowOff = y * width
     for (let x = Math.max(0, x0); x < Math.min(width, x1); x += 2) {
       const i = (rowOff + x) * 4
-      const r = data[i]
-      const g = data[i + 1]
-      const b = data[i + 2]
+      const r = data[i]!
+      const g = data[i + 1]!
+      const b = data[i + 2]!
       if (
         0.299 * r + 0.587 * g + 0.114 * b < 135 &&
         Math.max(r, g, b) - Math.min(r, g, b) > 45
@@ -103,13 +107,65 @@ function hasHorizontalRule(
     for (let x = Math.max(0, x0); x < xEnd; x++) {
       const i = (rowOff + x) * 4
       if (
-        0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2] <
+        0.299 * data[i]! + 0.587 * data[i + 1]! + 0.114 * data[i + 2]! <
         inkLum
       ) {
         if (++run >= minRun) return true
       } else {
         run = 0
       }
+    }
+  }
+  return false
+}
+
+// Plane geometry — the largest figure class in these books — has neither
+// colour nor a long horizontal rule, so the two signals above miss it and the
+// question goes to the plain lane, where no figure is drawn and none is
+// compared. What a drawing DOES leave is a tall block of rows that hold ink
+// but almost none of it: the inside of a triangle, a circle or a coordinate
+// grid is empty except for the lines crossing it. Text cannot look like that
+// — a text row is a dense run of glyphs and the space between two lines holds
+// no ink at all, so any sparse run is broken within one line height. That
+// difference is what this measures, rather than "is there a long line", which
+// a tall `cases` brace would also answer yes to.
+const SPARSE_ROW_INK_RATIO = 0.05
+const SPARSE_BLOCK_PT = 40
+
+function hasSparseInkBlock(
+  img: ImageData,
+  x0: number,
+  x1: number,
+  y0: number,
+  y1: number,
+  inkLum: number,
+  scale: number,
+): boolean {
+  const { data, width } = img
+  const xStart = Math.max(0, x0)
+  const xEnd = Math.min(width, x1)
+  const maxSparse = Math.max(1, (xEnd - xStart) * SPARSE_ROW_INK_RATIO)
+  const minBlock = Math.round(SPARSE_BLOCK_PT * scale)
+  let block = 0
+  for (let y = Math.max(0, y0); y < Math.min(img.height, y1); y++) {
+    // Every pixel, not every other one: a hairline edge is one pixel wide, and
+    // sampling by parity would find or miss the same triangle depending on
+    // where it happens to sit.
+    let count = 0
+    const rowOff = y * width
+    for (let x = xStart; x < xEnd; x++) {
+      const i = (rowOff + x) * 4
+      if (
+        0.299 * data[i]! + 0.587 * data[i + 1]! + 0.114 * data[i + 2]! <
+        inkLum
+      ) {
+        count++
+      }
+    }
+    if (count > 0 && count <= maxSparse) {
+      if (++block >= minBlock) return true
+    } else {
+      block = 0
     }
   }
   return false
@@ -129,6 +185,7 @@ export function classifyFigureRegion(
   const threshold = Math.round(FIGURE_SAMPLE_THRESHOLD * (scale / 3) ** 2)
   if (coloredInkCount(img, x0, x1, y0, y1) >= threshold) return 'colored'
   if (hasHorizontalRule(img, x0, x1, y0, y1, inkLum, scale)) return 'rule'
+  if (hasSparseInkBlock(img, x0, x1, y0, y1, inkLum, scale)) return 'rule'
   return 'none'
 }
 
@@ -144,7 +201,7 @@ function inkCountInRow(
   const rowOff = y * imgWidth
   for (let x = x0; x < x1; x += 2) {
     const i = (rowOff + x) * 4
-    if (0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2] < inkLum)
+    if (0.299 * data[i]! + 0.587 * data[i + 1]! + 0.114 * data[i + 2]! < inkLum)
       count++
   }
   return count
@@ -171,6 +228,7 @@ function refineBandBounds(
     for (let i = 0; i < colBands.length - 1; i++) {
       const a = colBands[i]
       const b = colBands[i + 1]
+      if (!a || !b) continue
       const x0 = Math.max(0, Math.floor(Math.min(a.bbox.x, b.bbox.x) * scale))
       const x1 = Math.min(
         img.width,

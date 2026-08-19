@@ -39,7 +39,7 @@ function Thumb({
     if (!el || src) return
     let cancelled = false
     const observer = new IntersectionObserver(async ([entry]) => {
-      if (!entry.isIntersecting) return
+      if (!entry?.isIntersecting) return
       observer.disconnect()
       try {
         const pdfPage = await doc.getPage(page)
