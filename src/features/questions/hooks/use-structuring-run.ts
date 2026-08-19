@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { errorDetail } from '@/lib/errors'
 import type { Crop } from '@/core/segment/types'
 import type { FigureDoc, FigItem } from '@/core/figures/figspec'
 import {
+  chooseFigureLane,
   isComplexSchemeFigure,
   wireToQuestion,
   type ExtractedQuestion,
@@ -13,17 +15,19 @@ import { snapshotFigure } from '@/components/question/snapshot'
 import { PROMPT_VERSION } from '@/core/extract/prompts'
 import {
   opCompareFigures,
+  opOptionBoxes,
   opExtract,
   opRedrawFigure,
   opSuggestCategory,
   OpError,
 } from '@/features/questions/api/question-ops'
 import { fetchBookAnswerKeys } from '@/features/questions/api/answer-keys'
-import { cropRegion, splitDataUrl } from '@/features/questions/lib/image'
 import {
-  isBudgetExhausted,
-  resetRateGate,
-} from '@/features/questions/lib/rate-gate'
+  fetchBookCategories,
+  type CategoryOption,
+} from '@/features/questions/api/book-categories'
+import { cropRegion, splitDataUrl } from '@/features/questions/lib/image'
+import { isBudgetExhausted } from '@/features/questions/lib/rate-gate'
 import type { QuestionRow } from '@/features/questions/schemas'
 import { pipelineSettings } from '@/stores/pipeline-store'
 
@@ -63,11 +67,25 @@ interface RunEntry {
 // repair of the CONTENT, never a silent un-approval.
 const REVIEWED = new Set(['approved', 'rejected'])
 
-/** The subject's category tree, sent so the model picks an EXISTING id. */
-export interface CategoryOption {
-  id: number
-  name: string
-  parentId: number | null
+export type { CategoryOption }
+
+export interface RunOptions {
+  /**
+   * Ask the model to suggest a category. The tree is never passed in: it is
+   * resolved per book from the book's own subject, so a batch spanning books
+   * cannot file one book's question under another subject's category. Left
+   * off, the row's existing suggestion is not touched.
+   */
+  suggestCategories?: boolean
+}
+
+/** Per-book facts the pipeline needs, resolved once per run. */
+interface BookContext {
+  answerKeys: Map<string, string>
+  /** false when the key fetch itself failed — "no key imported" is different
+   *  from "we could not read the key", and only one of them is the book's. */
+  answerKeysRead: boolean
+  categories: CategoryOption[]
 }
 
 // The exam MVP's processDraft orchestrator, rebuilt over the Edge Function:
@@ -89,19 +107,36 @@ export function useStructuringRun() {
 
   const run = useCallback(async (
     entries: RunEntry[],
-    categories: CategoryOption[] = [],
+    options: RunOptions = {},
   ) => {
     const id = ++runId.current
-    resetRateGate()
     // Read once per run: a knob flipped mid-run would make half the batch
     // cost one thing and half another, with no record of which was which.
     const settings = pipelineSettings()
     const imageQuality = settings.mediumImages ? ('medium' as const) : ('high' as const)
-    // One lookup per run: the printed key, if this book has one imported.
-    const bookId = entries[0]?.row.book_id
-    const answerKeys = bookId
-      ? await fetchBookAnswerKeys(bookId).catch(() => new Map<string, string>())
-      : new Map<string, string>()
+    // One lookup per BOOK, not per run: a batch spans books whenever the queue
+    // falls back to claiming from anywhere, or the bank is restructured with
+    // the book filter on "all". Keyed by the run's own book, question 12 of
+    // book A would otherwise be stamped with book B's printed answer — a
+    // confidently wrong answer, which the pipeline treats as worse than none.
+    const books = [...new Set(entries.map((e) => e.row.book_id))]
+    const context = new Map<number, BookContext>()
+    await Promise.all(
+      books.map(async (book) => {
+        const [keys, categories] = await Promise.all([
+          fetchBookAnswerKeys(book)
+            .then((answerKeys) => ({ answerKeys, answerKeysRead: true }))
+            .catch(() => ({
+              answerKeys: new Map<string, string>(),
+              answerKeysRead: false,
+            })),
+          options.suggestCategories
+            ? fetchBookCategories(book).catch(() => [])
+            : Promise.resolve([]),
+        ])
+        context.set(book, { ...keys, categories })
+      }),
+    )
     setState({ status: 'running', current: 0, total: entries.length, items: [] })
     const items: StructuringItem[] = []
     let cursor = 0
@@ -198,6 +233,38 @@ export function useStructuringRun() {
 
       const pipelineFlags: Flag[] = []
 
+      // The answer comes from the printed key or from the reviewer — never
+      // from a model solving the question. A machine-authored answer would
+      // look exactly like a verified one in the bank, and a wrong one is
+      // worse than none: a student would be marked wrong for being right.
+      //
+      // Resolved HERE, before the flag snapshot further down: pushed after it,
+      // the warning never reached the row, and an answerless question read as
+      // clean to review, to bulk approve and to auto-approve.
+      const book = context.get(row.book_id)
+      const categories = book?.categories ?? []
+      const keyAnswer =
+        book?.answerKeys.get(`${row.test_no ?? 0}:${row.q_no}`) ??
+        book?.answerKeys.get(`0:${row.q_no}`) ??
+        null
+      if (!keyAnswer) {
+        pipelineFlags.push(
+          book && !book.answerKeysRead
+            ? {
+                level: 'warning',
+                code: 'answer_key_unread',
+                message:
+                  'Cavab açarı oxunmadı (şəbəkə xətası) — sual açarsız qaldı, yenidən çıxarın',
+              }
+            : {
+                level: 'warning',
+                code: 'answer_missing',
+                message:
+                  'Cavab yoxdur — cavab açarını idxal edin və ya əl ilə seçin',
+              },
+        )
+      }
+
       // Each attempt is a fresh function invocation with its own wall-clock
       // budget — one client-side retry covers slow gpt-image generations.
       const redrawSafe = async (
@@ -224,9 +291,51 @@ export function useStructuringRun() {
           imageOptionBoxes.set(o.label, o.box as [number, number, number, number])
         }
       }
+      // Locating five small drawings is a different task from reading a
+      // question, and asked as one field among thirty the model answers it
+      // with nothing: on an IQ page it marked all five options as pictures and
+      // boxed none of them. Asked on its own — the same shape of request that
+      // finds questions on a page, which never misses — it answers. Costs a
+      // fraction of a cent and only runs when the boxes are actually absent.
+      const claimedImages = wire.options.filter((o) => o.is_image)
+      if (claimedImages.length && claimedImages.some((o) => !o.box)) {
+        try {
+          checkCancelled()
+          const found = await opOptionBoxes(original)
+          for (const o of found.options) {
+            if (!imageOptionBoxes.has(o.label)) {
+              imageOptionBoxes.set(o.label, o.box as [number, number, number, number])
+            }
+          }
+        } catch (error) {
+          // Swallowing this was a mistake made twice today: a paid step that
+          // fails quietly looks identical to one that never ran, and the only
+          // way to tell was to read the ledger and find nothing there. The
+          // question still survives — the options are flagged below — but the
+          // reason is on the row now.
+          pipelineFlags.push({
+            level: 'error',
+            code: 'option_boxes_failed',
+            message: `variantların yeri tapılmadı: ${errorDetail(error)}`,
+          })
+        }
+      }
       const processOption = async (option: (typeof question.options)[number]) => {
         const box = imageOptionBoxes.get(option.label)
-        if (!box) return
+        if (!box) {
+          // Declared a picture but gave no region to cut. Returning quietly
+          // left the option with neither text nor image, and `isImage` was
+          // enough to satisfy lint — so a question with four blank options
+          // reached review looking clean.
+          if (option.isImage) {
+            pipelineFlags.push({
+              level: 'error',
+              code: 'option_image_no_box',
+              message: `${option.label} variantı şəkil kimi işarələnib, amma yeri göstərilməyib`,
+            })
+          }
+          return
+        }
         try {
           const referenceUrl = await cropRegion(crop.dataUrl, box)
           const reference = splitDataUrl(referenceUrl)
@@ -249,7 +358,7 @@ export function useStructuringRun() {
           pipelineFlags.push({
             level: 'error',
             code: 'option_figure_failed',
-            message: `${option.label} variantının şəkli yaradıla bilmədi: ${error instanceof Error ? error.message : 'naməlum xəta'}`,
+            message: `${option.label} variantının şəkli yaradıla bilmədi: ${errorDetail(error)}`,
           })
         }
       }
@@ -261,6 +370,23 @@ export function useStructuringRun() {
       const figureBox = Array.isArray(wire.figure_box)
         ? (wire.figure_box.slice(0, 4) as [number, number, number, number])
         : null
+
+      // The lane rule is in core/ so `npm run eval` guards it: the failure it
+      // prevents — a geometry question reaching review with its figure
+      // silently missing — is invisible in the UI.
+      const lane = chooseFigureLane({
+        figureMode,
+        hasDslFigures: Boolean(question.figures?.items.length),
+        hasFigureBox: Boolean(figureBox),
+      })
+      if (lane === 'raster' && figureMode !== 'raster') {
+        pipelineFlags.push({
+          level: 'warning',
+          code: 'figure_lane_promoted',
+          message:
+            'Vektor yolu bu fiquru ifadə edə bilmədi — şəkil generasiyasına keçildi',
+        })
+      }
       const figureReference = async () => {
         if (!figureBox) return original
         try {
@@ -317,9 +443,9 @@ export function useStructuringRun() {
 
       const figureWork = async () => {
         try {
-          if (figureMode === 'raster') {
+          if (lane === 'raster') {
             await rasterRedraw()
-          } else if (figureMode === 'dsl' && question.figures?.items.length) {
+          } else if (lane === 'dsl' && question.figures?.items.length) {
             const figures = question.figures
             if (isComplexSchemeFigure(figures)) {
               await rasterRedraw()
@@ -330,7 +456,27 @@ export function useStructuringRun() {
                   await figureReference(),
                   splitDataUrl(snapshot),
                 )
-                if (!cmp.match) await rasterRedraw()
+                if (!cmp.match) {
+                  // A structured spec that does not match is worth replacing:
+                  // a wrong venn or graph is cheap to redraw and the DSL gives
+                  // no way to tell which part is wrong. A hand-written SVG is
+                  // different — it IS the drawing, there is no cheaper correct
+                  // version of it, and comparing clean vectors against a
+                  // photocopy rejects nearly all of them. Replacing it meant
+                  // paying for the model to write an SVG and then paying again
+                  // for an image, every time. It is kept and flagged; a human
+                  // has to look at raw_svg anyway.
+                  const isRawSvg = figures.items.every((i) => i.kind === 'raw_svg')
+                  if (isRawSvg) {
+                    pipelineFlags.push({
+                      level: 'warning',
+                      code: 'raw_svg_mismatch',
+                      message: `çəkilən fiqur orijinaldan fərqli görünür — gözlə yoxlayın: ${(cmp.differences ?? []).join('; ')}`,
+                    })
+                  } else {
+                    await rasterRedraw()
+                  }
+                }
               } catch {
                 await rasterRedraw()
               }
@@ -342,7 +488,7 @@ export function useStructuringRun() {
           pipelineFlags.push({
             level: 'error',
             code: 'figure_failed',
-            message: `fiqur yaradıla bilmədi: ${error instanceof Error ? error.message : 'naməlum xəta'}`,
+            message: `fiqur yaradıla bilmədi: ${errorDetail(error)}`,
           })
         }
       }
@@ -389,7 +535,16 @@ export function useStructuringRun() {
             upsert: true,
             contentType: m,
           })
-        if (error) throw error
+        // Supabase rejections are plain objects, not Errors, so the generic
+        // handler below used to print "naməlum xəta" and throw the real reason
+        // away. The size is included because the bucket caps objects at 5 MB
+        // and a generated figure is the only thing here that can approach it.
+        if (error) {
+          const kb = Math.round(bytes.length / 1024)
+          throw new Error(
+            `şəkil yüklənmədi (${path}, ${kb} kb, ${m}): ${errorDetail(error)}`,
+          )
+        }
         return path
       }
       const keyBase = `${row.book_id}/p${row.page_number}_c${row.col}_q${row.q_no}`
@@ -397,6 +552,9 @@ export function useStructuringRun() {
         question.options.map(async (o) => ({
           label: o.label,
           tex: o.tex,
+          // Kept: without it the row cannot say whether a blank option was a
+          // picture that failed or a reading that came back empty.
+          ...(o.isImage ? { isImage: true } : {}),
           image: o.image?.startsWith('data:')
             ? await uploadDataUrl(o.image, `${keyBase}_opt${o.label}.png`)
             : o.image,
@@ -412,22 +570,6 @@ export function useStructuringRun() {
           ),
         )
         dbFigures = { ...dbFigures, items: dbItems }
-      }
-
-      // The answer comes from the printed key or from the reviewer — never
-      // from a model solving the question. A machine-authored answer would
-      // look exactly like a verified one in the bank, and a wrong one is
-      // worse than none: a student would be marked wrong for being right.
-      const keyAnswer =
-        answerKeys.get(`${row.test_no ?? 0}:${row.q_no}`) ??
-        answerKeys.get(`0:${row.q_no}`) ??
-        null
-      if (!keyAnswer) {
-        pipelineFlags.push({
-          level: 'warning',
-          code: 'answer_missing',
-          message: 'Cavab yoxdur — cavab açarını idxal edin və ya əl ilə seçin',
-        })
       }
 
       // Category suggestion: cheap, and the reviewer confirms it anyway. A
@@ -452,9 +594,18 @@ export function useStructuringRun() {
         }
       }
 
-      // An empty stem can never satisfy the row's CHECK constraint, and the
-      // raw Postgres error would replace every pipeline flag with noise.
-      if (!question.stem.trim()) {
+      // A question with no stem, no options and no figure is a failed read —
+      // there is nothing to review and nothing to repair from. But a stem-less
+      // question that HAS a diagram and five options is a real format in these
+      // books, where the instruction is printed once above a group and each
+      // item is only a picture. Failing those discarded the figure that had
+      // just been generated and paid for, and left the operator a row they
+      // could not even open for editing.
+      const isEmptyRead =
+        !question.stem.trim() &&
+        !question.options.length &&
+        !question.figures?.items.length
+      if (isEmptyRead) {
         await supabase
           .from('questions')
           .update({
@@ -462,7 +613,7 @@ export function useStructuringRun() {
             flags: [...lintLane(question), ...pipelineFlags] as never,
             verified: false,
             extraction_error:
-              'Sual mətni oxunmadı — crop-u yenidən kəsin və ya əl ilə daxil edin',
+              'Crop-dan heç nə oxunmadı — sərhədləri yenidən kəsin və ya əl ilə daxil edin',
           })
           .eq('id', row.id)
         return {
@@ -472,7 +623,7 @@ export function useStructuringRun() {
           verified: false,
           verifyDiffs: [],
           status: 'failed',
-          error: 'sual mətni boş çıxdı',
+          error: 'crop-dan heç nə oxunmadı',
         }
       }
 
@@ -482,7 +633,9 @@ export function useStructuringRun() {
         .from('questions')
         .update({
           status: REVIEWED.has(row.status) ? row.status : 'structured',
-          stem: question.stem,
+          // NULL, not '': the column forbids a blank string precisely so a
+          // missing wording cannot be confused with a present empty one.
+          stem: question.stem.trim() || null,
           options: dbOptions,
           figures: dbFigures as never,
           ai_difficulty: aiDifficulty,
@@ -511,7 +664,9 @@ export function useStructuringRun() {
           extraction_error: null,
         })
         .eq('id', row.id)
-      if (updateError) throw updateError
+      if (updateError) {
+        throw new Error(`sətir yazılmadı: ${errorDetail(updateError)}`)
+      }
 
       return {
         row,
@@ -533,13 +688,13 @@ export function useStructuringRun() {
           // marking every remaining question failed.
           if (isBudgetExhausted()) return
           const entry = entries[cursor++]
+          if (!entry) continue
           let item: StructuringItem
           try {
             item = await processOne(entry)
           } catch (error) {
             if (error === CANCELLED) return
-            const message =
-              error instanceof Error ? error.message : 'naməlum xəta'
+            const message = errorDetail(error)
             await supabase
               .from('questions')
               .update({
