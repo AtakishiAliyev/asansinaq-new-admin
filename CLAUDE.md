@@ -18,8 +18,10 @@ There is no separate backend service. The split is by what each stage needs:
 - **Segmentation and cropping** run in the browser, in a Web Worker (pdf.js +
   canvas). Deterministic, no secrets, no per-page cost.
 - **Every AI model call** goes through a Supabase Edge Function
-  (`question-ops`, one function with an `op` discriminator). Model API keys
-  live in function secrets and never reach the client bundle.
+  (`question-ops`, one function with an `op` discriminator) — page detection
+  included. Model API keys live in function secrets and never reach the client
+  bundle, and one door is also what keeps the budget cap, the ledger and the
+  cache impossible to bypass by adding a second function.
 - **Orchestration stays in the browser** and is deliberate, not temporary: the
   vector figure must be rendered before it can be compared with the original,
   and crops are read through the operator's own session. The function only
@@ -28,7 +30,10 @@ There is no separate backend service. The split is by what each stage needs:
 - **The work list lives in the database.** `questions.queued_at` marks work to
   do and `claimed_at`/`claimed_by` is a lease, so a closed tab loses at most
   the batch in flight and a second tab adds throughput instead of duplicating
-  spend. Claims go through `claim_questions()` (`for update skip locked`).
+  spend. Claims go through `claim_questions()` (`for update skip locked`); a
+  worker renews its lease (`renew_claims`) while a batch runs, and handing work
+  back (`release_questions`) returns the attempt — only a worker that never
+  came back spends one.
 - Pipeline logic (segmentation, the figure DSL, lint/verify, answer-key
   parsing) is written as pure, runtime-agnostic modules — no DOM, no
   `import.meta.env` — so the same code runs in the browser, in a function, and
@@ -52,6 +57,7 @@ tables — is deliberately not carried over.
 ## Commands
 
 - `npm run dev` — dev server
+- `npm run eval` — pipeline-core regression suite (free, offline; see `eval/README.md`)
 - `npm run typecheck` — TS check (a hook runs this automatically after edits)
 - `npm run lint` / `npm run lint:fix` — oxlint
 - `npm run format` — Prettier write
@@ -59,8 +65,10 @@ tables — is deliberately not carried over.
 - `npm run types:gen` — regenerate `src/types/database.ts` from Supabase schema
 - `npx supabase migration new <name>` — start a migration in `supabase/migrations/`
 - `npx supabase db push` — apply pending migrations to the linked project
-- `npx supabase config push` — apply `supabase/config.toml` to the linked
-  project (needs `RESEND_API_KEY` in the environment: `set -a; . ./.env; set +a`)
+- `npm run config:push` — apply `supabase/config.toml` to the linked project.
+  Needs the `.env` values loaded (`set -a; . ./.env; set +a`) and refuses to
+  push loopback auth URLs, which would repoint production sign-in at a laptop.
+  Never call `npx supabase config push` directly — that is the unguarded path.
 
 ## Spending money
 
@@ -179,6 +187,7 @@ supabase/
 ├── seed.sql                # data, not schema — e.g. the admin allowlist
 ├── templates/              # auth email bodies, referenced from config.toml
 └── migrations/             # the schema and RLS — committed, never ad-hoc SQL
+eval/                       # core regression suites — `npm run eval`, no deps
 src/
 ├── app/                    # routing, providers, root setup
 │   ├── providers.tsx       # QueryClient, auth bootstrap, toaster
@@ -302,11 +311,12 @@ Decision rules:
 
 No unit tests in the current phase; revisit once the UI stabilizes.
 
-**Except the pipeline core.** `core/segment` and `core/extract` changes are
-gated by the golden-parity harness against the `exam/eval` fixtures — a
-segmentation change that silently loses two questions per page is invisible in
-the UI and expensive downstream. Run it in a scratchpad Node harness before
-committing anything under `core/`.
+**Except the pipeline core.** Anything under `src/core/` is gated by
+`npm run eval` — a segmentation change that silently loses two questions per
+page is invisible in the UI and expensive downstream. The harness lives in
+`eval/`, runs free and offline against the real core modules, and its README
+states plainly what it does not cover (no model calls, no PDFs, no rendering).
+A core change lands with its case in the matching suite.
 
 If asked to write a test ad-hoc (tricky utility, recurring bug), write it;
 otherwise skip test files.
