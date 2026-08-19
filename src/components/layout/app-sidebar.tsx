@@ -6,6 +6,7 @@ import {
   ListTree,
   LogOut,
   User,
+  Wallet,
 } from 'lucide-react'
 import { NavLink, useLocation } from 'react-router'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -40,6 +41,7 @@ const NAV_ITEMS = [
   { to: '/books', label: 'Kitablar', icon: Library },
   { to: '/questions', label: 'Suallar', icon: ListChecks },
   { to: '/taxonomy', label: 'Fənn və kateqoriyalar', icon: ListTree },
+  { to: '/ops', label: 'Xərclər', icon: Wallet },
 ]
 
 // '/' would prefix-match every path, so the root item needs exact matching.
@@ -49,8 +51,11 @@ function isNavActive(to: string, pathname: string) {
 
 function initialsOf(name: string, email: string) {
   const source = name.trim() || email
-  const words = source.split(/\s+/).filter(Boolean)
-  if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase()
+  // filter(Boolean) drops empty pieces, so a present word always has a first
+  // letter — charAt keeps that fact out of the type.
+  const [first, second] = source.split(/\s+/).filter(Boolean)
+  if (first !== undefined && second !== undefined)
+    return (first.charAt(0) + second.charAt(0)).toUpperCase()
   return source.slice(0, 2).toUpperCase()
 }
 
