@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   CircleAlert,
   ListEnd,
@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils'
 import { useClearQueue, useThroughput } from '@/features/questions/api/queue'
 import { PipelineSettingsDialog } from '@/features/questions/components/pipeline-settings-dialog'
 import { useQueueWorker } from '@/features/questions/hooks/use-queue-worker'
+import { gateStatus } from '@/features/questions/lib/rate-gate'
 
 function Stat({
   label,
@@ -43,6 +44,12 @@ function Stat({
   )
 }
 
+function formatEta(hours: number): string {
+  if (hours < 1) return `~${Math.max(1, Math.round(hours * 60))} dəq`
+  if (hours < 24) return `~${hours.toFixed(hours < 10 ? 1 : 0)} saat`
+  return `~${(hours / 24).toFixed(1)} gün`
+}
+
 // The operator's control room for a job measured in days, not seconds: what
 // is left, how fast it is going, what it costs, and one switch to run it.
 export function QueuePanel() {
@@ -54,6 +61,22 @@ export function QueuePanel() {
   const queued = stats.data?.queued ?? 0
   const batch = worker.batch
 
+  // What the operator actually needs from a job measured in days: when it ends.
+  // Derived from the last hour's real throughput, so it already accounts for
+  // cache hits, retries and whatever pace the providers are allowing.
+  const perHour = stats.data?.structured_hour ?? 0
+  const eta = queued && perHour ? formatEta(queued / perHour) : null
+
+  // How many model calls are actually in flight. The queue counts questions,
+  // which is not the same thing — one question is several calls — and without
+  // this there is no way to tell a working fleet from a stalled one.
+  const [gate, setGate] = useState(gateStatus)
+  useEffect(() => {
+    if (!isRunning) return
+    const id = setInterval(() => setGate(gateStatus()), 1000)
+    return () => clearInterval(id)
+  }, [isRunning])
+
   return (
     <div className="bg-card flex flex-col gap-3 rounded-xl border p-4">
       <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
@@ -63,6 +86,12 @@ export function QueuePanel() {
           tone={queued ? undefined : 'muted'}
         />
         <Stat label="son saat" value={stats.data?.structured_hour ?? '—'} />
+        <Stat
+          label="qalan vaxt"
+          value={eta ?? '—'}
+          tone={eta ? undefined : 'muted'}
+        />
+        <Stat label="işləyir" value={stats.data?.running ?? '—'} tone="muted" />
         <Stat label="bu gün" value={stats.data?.structured_today ?? '—'} />
         <Stat
           label="avtomatik təsdiq"
@@ -122,7 +151,12 @@ export function QueuePanel() {
           />
           <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
             <Spinner data-icon="inline-start" className="inline" />
-            paket {batch.current}/{batch.total} · bu sessiyada {worker.processed}
+            paket {batch.current}/{batch.total} · mətn {gate.text.inFlight}/
+            {gate.text.ceiling} · şəkil {gate.image.inFlight}/{gate.image.ceiling}
+            {gate.text.waiting + gate.image.waiting > 0
+              ? ` · ${gate.text.waiting + gate.image.waiting} gözləyir`
+              : ''}
+            {' · '}bu sessiyada {worker.processed}
             {worker.approved ? ` · ${worker.approved} avto-təsdiq` : ''}
             {worker.failed ? ` · ${worker.failed} xəta` : ''}
           </span>

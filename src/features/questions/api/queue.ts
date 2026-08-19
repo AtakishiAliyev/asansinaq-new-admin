@@ -21,37 +21,31 @@ export const throughputSchema = z.object({
 
 export type Throughput = z.infer<typeof throughputSchema>
 
+const clearQueueSchema = z.object({ cleared: z.number(), held: z.number() })
+
 /**
- * Put questions in line for structuring. Enqueueing is free and reversible —
- * the spend happens when a worker claims the row, which is why this is a
- * plain write and the claim is the guarded RPC.
+ * Put questions in line for structuring. Rows a worker is actively holding are
+ * skipped rather than reset — clearing their lease would let a second worker
+ * claim a question the first is still spending money on. Returns how many rows
+ * actually entered the queue.
  */
 export async function enqueueQuestions(ids: number[]): Promise<number> {
   if (!ids.length) return 0
-  const { error } = await supabase
-    .from('questions')
-    .update({ queued_at: new Date().toISOString(), claimed_at: null, attempts: 0 })
-    .in('id', ids)
+  const { data, error } = await supabase.rpc('enqueue_questions', { p_ids: ids })
   if (error) throw error
-  return ids.length
+  return Number(data ?? 0)
 }
 
-export async function dequeueQuestions(ids: number[]): Promise<void> {
-  if (!ids.length) return
-  const { error } = await supabase
-    .from('questions')
-    .update({ queued_at: null, claimed_at: null })
-    .in('id', ids)
+/**
+ * Empties the queue except for batches a worker is still holding: nulling
+ * their lease would let the next enqueue hand the same questions to a second
+ * worker while the first is still paying for them. Held rows leave the queue
+ * by themselves when their worker finishes.
+ */
+export async function clearQueue(): Promise<{ cleared: number; held: number }> {
+  const { data, error } = await supabase.rpc('clear_queue')
   if (error) throw error
-}
-
-/** Clears the whole queue, including rows another tab is holding. */
-export async function clearQueue(): Promise<void> {
-  const { error } = await supabase
-    .from('questions')
-    .update({ queued_at: null, claimed_at: null })
-    .not('queued_at', 'is', null)
-  if (error) throw error
+  return clearQueueSchema.parse(data)
 }
 
 /**
@@ -82,16 +76,25 @@ export async function finishQuestions(ids: number[]): Promise<void> {
 }
 
 /**
- * Hands rows back to the queue without consuming an attempt's worth of time:
- * used when a run is stopped mid-batch, so another worker can take them
- * immediately instead of waiting out the 15-minute lease.
+ * Hands rows back so another worker can take them immediately instead of
+ * waiting out the lease. The attempt is given back too: stopping the worker is
+ * not a failed attempt, and counting it as one used to retire rows that had
+ * never actually been processed after three stop/starts.
  */
 export async function releaseQuestions(ids: number[]): Promise<void> {
   if (!ids.length) return
-  const { error } = await supabase
-    .from('questions')
-    .update({ claimed_at: null })
-    .in('id', ids)
+  const { error } = await supabase.rpc('release_questions', { p_ids: ids })
+  if (error) throw error
+}
+
+/**
+ * Keeps the batch in flight. The lease is sized for a normal batch, but a
+ * figure-heavy one — or one waiting out a provider's rate limit — can outrun
+ * it, and a reclaimed row is a row two workers pay for.
+ */
+export async function renewClaims(ids: number[]): Promise<void> {
+  if (!ids.length) return
+  const { error } = await supabase.rpc('renew_claims', { p_ids: ids })
   if (error) throw error
 }
 
@@ -132,9 +135,12 @@ export function useClearQueue() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: clearQueue,
-    onSuccess: () => {
+    onSuccess: ({ cleared, held }) => {
       queryClient.invalidateQueries({ queryKey: questionKeys.all })
-      toast.success('Növbə boşaldıldı')
+      ;(held ? toast.warning : toast.success)(
+        `${cleared} sual növbədən çıxarıldı` +
+          (held ? `, ${held} hazırda işlənir və toxunulmadı` : ''),
+      )
     },
     onError: (error) => toast.error(normalizeError(error).message),
   })

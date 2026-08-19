@@ -1,20 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
-import { fetchCategories } from '@/features/taxonomy'
 import { questionKeys } from '@/features/questions/api/keys'
 import {
   claimQuestions,
   finishQuestions,
   releaseQuestions,
+  renewClaims,
   nextQueuedBook,
 } from '@/features/questions/api/queue'
-import {
-  useStructuringRun,
-  type CategoryOption,
-} from '@/features/questions/hooks/use-structuring-run'
+import { useStructuringRun } from '@/features/questions/hooks/use-structuring-run'
 import { toCropEntries } from '@/features/questions/lib/crop-entry'
-import { isBudgetExhausted } from '@/features/questions/lib/rate-gate'
+import {
+  isBudgetExhausted,
+  resetRateGate,
+} from '@/features/questions/lib/rate-gate'
 import { questionRowSchema } from '@/features/questions/schemas'
 import { pipelineSettings } from '@/stores/pipeline-store'
 
@@ -52,8 +52,18 @@ async function autoApprove(
   const rows = data.map((r) => questionRowSchema.parse(r))
   const ready = rows.filter((r) => {
     if (!r.verified || !r.ai_category_id) return false
-    const flags = Array.isArray(r.flags) ? (r.flags as { level?: string }[]) : []
-    if (flags.some((f) => f.level === 'error' || f.level === 'warning')) return false
+    const flags = Array.isArray(r.flags)
+      ? (r.flags as { level?: string; code?: string }[])
+      : []
+    // A missing answer is the operator's call, not a defect: when the knob
+    // says answers are not required, its own flag must not veto what the knob
+    // permits. Every other warning still blocks.
+    const blocking = flags.filter(
+      (f) =>
+        (f.level === 'error' || f.level === 'warning') &&
+        !(f.code === 'answer_missing' && !needsAnswer),
+    )
+    if (blocking.length) return false
     return !needsAnswer || (r.answer !== null && r.answer_source === 'key')
   })
   let done = 0
@@ -122,11 +132,23 @@ export function useQueueWorker() {
     if (running.current) return
     running.current = true
     setState({ ...IDLE, status: 'running' })
+    // Once per job, not per batch: the gate's learned ceiling is the whole
+    // point of having a gate, and it has to survive the batch boundary.
+    resetRateGate()
     const settings = pipelineSettings()
-    const categoryCache = new Map<number, CategoryOption[]>()
     let processed = 0
     let approved = 0
     let failed = 0
+
+    // A batch is claimed for the length of the lease. Renewing at half that
+    // interval keeps a slow batch — figure generations, a provider backoff —
+    // from being reclaimed and paid for a second time by the next worker.
+    const heartbeat = setInterval(
+      () => {
+        if (held.current.length) void renewClaims(held.current).catch(() => {})
+      },
+      7 * 60 * 1000,
+    )
 
     try {
       while (running.current) {
@@ -141,26 +163,6 @@ export function useQueueWorker() {
         const bookId = await nextQueuedBook()
         if (bookId === null) break
         setState((s) => ({ ...s, book: bookId }))
-
-        if (!categoryCache.has(bookId)) {
-          const { data: book } = await supabase
-            .from('books')
-            .select('subject_id')
-            .eq('id', bookId)
-            .maybeSingle()
-          const subjectId = book?.subject_id ?? null
-          const categories = subjectId
-            ? await fetchCategories(subjectId).catch(() => [])
-            : []
-          categoryCache.set(
-            bookId,
-            categories.map((c) => ({
-              id: c.id,
-              name: c.name,
-              parentId: c.parent_id,
-            })),
-          )
-        }
 
         const rows = await claimQuestions(settings.batchSize, bookId)
         if (!rows.length) {
@@ -181,10 +183,11 @@ export function useQueueWorker() {
           continue
         }
 
-        const items = await structuringRef.current.run(
-          entries,
-          categoryCache.get(bookId) ?? [],
-        )
+        // The fallback claim above can return rows from any book, so the
+        // pipeline resolves each book's key and category tree itself.
+        const items = await structuringRef.current.run(entries, {
+          suggestCategories: true,
+        })
         if (!running.current) {
           await releaseQuestions(held.current)
           held.current = []
@@ -226,6 +229,7 @@ export function useQueueWorker() {
         error: error instanceof Error ? error.message : 'növbə dayandı',
       }))
     } finally {
+      clearInterval(heartbeat)
       running.current = false
       void queryClient.invalidateQueries({ queryKey: questionKeys.all })
     }

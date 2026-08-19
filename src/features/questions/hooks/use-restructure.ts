@@ -1,7 +1,7 @@
 import { useCallback } from 'react'
 import {
   useStructuringRun,
-  type CategoryOption,
+  type RunOptions,
 } from '@/features/questions/hooks/use-structuring-run'
 import { toCropEntries } from '@/features/questions/lib/crop-entry'
 import type { QuestionRow } from '@/features/questions/schemas'
@@ -13,10 +13,10 @@ export function useRestructure() {
   const structuring = useStructuringRun()
 
   const run = useCallback(
-    async (rows: QuestionRow[], categories: CategoryOption[] = []) => {
+    async (rows: QuestionRow[], options: RunOptions = {}) => {
       const entries = await toCropEntries(rows)
       if (!entries.length) throw new Error('crop faylları açıla bilmədi')
-      return structuring.run(entries, categories)
+      return structuring.run(entries, options)
     },
     [structuring],
   )
