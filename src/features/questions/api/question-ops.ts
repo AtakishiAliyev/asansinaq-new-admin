@@ -1,23 +1,26 @@
 import { supabase } from '@/lib/supabase'
+import { scanDetectionSchema } from '@/core/segment/scan'
 import {
   acquireSlot,
   noteBudgetExhausted,
   noteRateLimit,
   noteSuccess,
+  noteTimeout,
   releaseSlot,
+  type Lane,
 } from '@/features/questions/lib/rate-gate'
 import {
   compareResponseSchema,
   extractResponseSchema,
+  optionBoxesResponseSchema,
   parseAnswerKeyResponseSchema,
   redrawResponseSchema,
   suggestCategoryResponseSchema,
 } from '@/features/questions/schemas'
 
 // Thin wrappers over the question-ops Edge Function. Model keys live in
-// function secrets; each call is admin-gated server-side. The invoke error
-// unwrap mirrors detect-questions: error.context is a Response only for HTTP
-// failures — network errors have no body to read.
+// function secrets; each call is admin-gated server-side. `error.context` is a
+// Response only for HTTP failures — network errors have no body to read.
 /** Carries the server's classification so callers can react, not just fail. */
 export class OpError extends Error {
   readonly kind?: 'rate_limit' | 'budget'
@@ -28,11 +31,19 @@ export class OpError extends Error {
   }
 }
 
+// Image generation is paced separately from the text models: it does not
+// refuse work under pressure, it just takes longer, until calls cross their
+// abort and the retries make it worse.
+function laneFor(op: unknown): Lane {
+  return op === 'redraw_figure' ? 'image' : 'text'
+}
+
 async function invokeOp<T>(
   body: Record<string, unknown>,
   parse: (data: unknown) => T,
 ): Promise<T> {
-  await acquireSlot()
+  const lane = laneFor(body.op)
+  await acquireSlot(lane)
   try {
     const { data, error } = await supabase.functions.invoke('question-ops', {
       body,
@@ -55,14 +66,18 @@ async function invokeOp<T>(
           // non-JSON error body: keep the generic message
         }
       }
-      if (kind === 'rate_limit') noteRateLimit()
+      if (kind === 'rate_limit') noteRateLimit(lane)
       if (kind === 'budget') noteBudgetExhausted()
+      // A wall-clock abort is the same pressure as a 429, arriving as latency
+      // instead of a refusal — the lane has to slow down for it too, or every
+      // call keeps aborting at the same pace.
+      if (!kind && /abort|timeout|vaxt aşım/i.test(message)) noteTimeout(lane)
       throw new OpError(message, kind)
     }
-    noteSuccess()
+    noteSuccess(lane)
     return parse(data)
   } finally {
-    releaseSlot()
+    releaseSlot(lane)
   }
 }
 
@@ -98,6 +113,14 @@ export function opRedrawFigure(
   )
 }
 
+/** Where the picture options sit. Asked separately because asked in passing
+ *  during extraction it comes back empty every time. */
+export function opOptionBoxes(input: OpImage) {
+  return invokeOp({ op: 'option_boxes', ...input }, (d) =>
+    optionBoxesResponseSchema.parse(d),
+  )
+}
+
 export function opCompareFigures(original: OpImage, candidate: OpImage) {
   return invokeOp({ op: 'compare_figures', original, candidate }, (d) =>
     compareResponseSchema.parse(d),
@@ -117,5 +140,17 @@ export function opSuggestCategory(input: {
 export function opParseAnswerKey(page: OpImage) {
   return invokeOp({ op: 'parse_answer_key', ...page }, (d) =>
     parseAnswerKeyResponseSchema.parse(d),
+  )
+}
+
+/**
+ * Where the questions are on a scanned page. It lives here, with the other
+ * ops, rather than in the import feature: segmentation is the highest-volume
+ * paid call in the product, and only this path gives it the budget cap, the
+ * cache and the shared rate gate.
+ */
+export function opDetectQuestions(page: OpImage) {
+  return invokeOp({ op: 'detect_questions', ...page }, (d) =>
+    scanDetectionSchema.parse(d),
   )
 }
