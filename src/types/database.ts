@@ -347,6 +347,7 @@ export type Database = {
           id: number
           is_scan: boolean
           model: string | null
+          needs_attention: boolean | null
           options: Json | null
           page_number: number
           prompt_version: number | null
@@ -389,6 +390,7 @@ export type Database = {
           id?: never
           is_scan?: boolean
           model?: string | null
+          needs_attention?: boolean | null
           options?: Json | null
           page_number: number
           prompt_version?: number | null
@@ -431,6 +433,7 @@ export type Database = {
           id?: never
           is_scan?: boolean
           model?: string | null
+          needs_attention?: boolean | null
           options?: Json | null
           page_number?: number
           prompt_version?: number | null
@@ -561,6 +564,7 @@ export type Database = {
           id: number
           is_scan: boolean
           model: string | null
+          needs_attention: boolean | null
           options: Json | null
           page_number: number
           prompt_version: number | null
@@ -584,14 +588,21 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      clear_queue: { Args: never; Returns: Json }
+      enqueue_questions: { Args: { p_ids: number[] }; Returns: number }
       is_admin: { Args: never; Returns: boolean }
       mark_pages_worked: {
         Args: { p_book_id: number; p_pages: number[] }
         Returns: undefined
       }
       next_queued_book: { Args: never; Returns: number }
+      ops_spend_daily: { Args: { p_days?: number }; Returns: Json }
       ops_spend_today: { Args: never; Returns: number }
+      ops_summary_today: { Args: never; Returns: Json }
       questions_throughput: { Args: never; Returns: Json }
+      queue_lease: { Args: never; Returns: string }
+      release_questions: { Args: { p_ids: number[] }; Returns: number }
+      renew_claims: { Args: { p_ids: number[] }; Returns: number }
     }
     Enums: {
       [_ in never]: never

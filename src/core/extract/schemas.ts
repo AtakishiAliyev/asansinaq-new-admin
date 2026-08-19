@@ -26,7 +26,7 @@ const figureObject = {
   properties: {
     kind: {
       type: 'string',
-      enum: ['function_graph', 'venn', 'division_scheme', 'vertical_arithmetic', 'table', 'number_line'],
+      enum: ['function_graph', 'venn', 'division_scheme', 'vertical_arithmetic', 'table', 'number_line', 'raw_svg'],
     },
     // function_graph
     panels: {
@@ -172,6 +172,14 @@ const figureObject = {
         ticks: { type: 'array', items: tick },
       },
     },
+    // raw_svg — the escape hatch, for a diagram none of the kinds above can
+    // express. Geometry constructions live here: rays, marked angles,
+    // labelled points.
+    raw_svg: {
+      type: 'string',
+      description:
+        'complete <svg> markup with a viewBox, under 3000 characters, drawn to match the original: only shapes, lines, paths, text and markers, integer coordinates. No script, no images, no external references, no styles.',
+    },
     note: T.str,
   },
   required: ['kind'],
@@ -188,12 +196,18 @@ export const extractResponseSchema = {
         type: 'object',
         properties: {
           label: { type: 'string', enum: ['A', 'B', 'C', 'D', 'E'] },
-          tex: T.str,
-          is_image: { type: 'boolean', description: 'true when the option content is a figure, not text' },
+          tex: {
+            type: 'string',
+            description: 'the option value as LaTeX, without $ delimiters. Short: a number, a set, an interval. Never prose, never a note about the extraction',
+          },
+          is_image: {
+            type: 'boolean',
+            description: 'true when the option content is a figure, not text — requires box, and leave tex empty',
+          },
           box: {
             type: 'array',
             items: T.num,
-            description: '[ymin,xmin,ymax,xmax] 0-1000 normalized box of an image option content (label letter excluded)',
+            description: '[ymin,xmin,ymax,xmax] 0-1000 normalized box of an image option content (label letter excluded). MANDATORY whenever is_image is true — without it the option is lost',
           },
         },
         required: ['label'],
@@ -203,7 +217,11 @@ export const extractResponseSchema = {
     illegible: { type: 'boolean', description: 'true if any field is unreadable/overprinted — return empty rather than guessing' },
     clipped: { type: 'boolean' },
     foreign: { type: 'boolean', description: 'fragments of a neighbouring question visible in the crop' },
-    confidence: { type: 'number' },
+    confidence: {
+      type: 'number',
+      description:
+        'reading accuracy 0-1, NOT question difficulty: 1.0 every glyph read cleanly, 0.85 a character or two uncertain, 0.5 much of it guessed. Anything under 0.85 is routed to a human, so report honestly',
+    },
     difficulty: { type: 'integer', description: 'estimated difficulty 1-5 in the YÖS exam context' },
     figure_box: {
       type: 'array',
@@ -237,9 +255,47 @@ export const suggestCategorySchema = {
   type: 'object',
   properties: {
     category_id: { type: 'integer', nullable: true },
-    confidence: { type: 'number' },
+    confidence: {
+      type: 'number',
+      description: 'reading accuracy 0-1 for this page: how sure you are that every question was found and bounded correctly',
+    },
   },
   required: ['confidence'],
+}
+
+export const detectQuestionsSchema = {
+  type: 'object',
+  properties: {
+    columns: {
+      type: 'integer',
+      description: 'number of question columns on the page (1 or 2)',
+    },
+    test_no: {
+      type: 'integer',
+      description: 'test/deneme number if a banner shows one',
+    },
+    questions: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          number: { type: 'integer', description: 'the printed question number' },
+          column: {
+            type: 'integer',
+            description: '0 = left column, 1 = right column, 0 if single column',
+          },
+          box: {
+            type: 'array',
+            items: { type: 'number' },
+            description:
+              '[ymin, xmin, ymax, xmax] normalized 0-1000, covering the WHOLE question (number through last option/figure)',
+          },
+        },
+        required: ['number', 'column', 'box'],
+      },
+    },
+  },
+  required: ['columns', 'questions'],
 }
 
 export const parseAnswerKeySchema = {
@@ -260,3 +316,33 @@ export const parseAnswerKeySchema = {
   },
   required: ['entries'],
 }
+
+// Where the five picture options sit inside a crop.
+//
+// The extraction call already has a `box` field per option, and the model
+// reliably ignores it: on an IQ page it marked all five options as pictures
+// and gave a box for none. Boxes are a different kind of task from reading —
+// `detect_questions` does exactly this on a full page and never misses — so
+// this asks for them on their own, with nothing else to attend to and every
+// field required.
+export const optionBoxesSchema = {
+  type: 'object',
+  properties: {
+    options: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          label: { type: 'string', enum: ['A', 'B', 'C', 'D', 'E'] },
+          box: {
+            type: 'array',
+            items: { type: 'number' },
+            description: '[ymin,xmin,ymax,xmax] 0-1000 normalized, the drawing only — not the letter',
+          },
+        },
+        required: ['label', 'box'],
+      },
+    },
+  },
+  required: ['options'],
+} as const

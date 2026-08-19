@@ -5,6 +5,8 @@
 // prompts.ts and the caller assembles the FormData itself.
 import {
   COMPARE_FIGURES_PROMPT,
+  OPTION_BOXES_PROMPT,
+  DETECT_QUESTIONS_PROMPT,
   EXTRACT_SYSTEM,
   EXTRACT_SYSTEM_RASTER,
   PARSE_ANSWER_KEY_PROMPT,
@@ -13,13 +15,15 @@ import {
 import { FEWSHOT_FIGURES } from '@/core/extract/fewshot'
 import {
   compareFiguresSchema,
+  detectQuestionsSchema,
   extractResponseSchema,
+  optionBoxesSchema,
   parseAnswerKeySchema,
   suggestCategorySchema,
 } from '@/core/extract/schemas'
 
 /** Which secret-configured model class the op should run on. */
-export type ModelKey = 'extract' | 'figure' | 'verify'
+export type ModelKey = 'extract' | 'figure' | 'verify' | 'detect'
 
 export interface GeminiRequest {
   modelKey: ModelKey
@@ -156,6 +160,29 @@ export function buildSuggestCategory(input: SuggestCategoryInput): GeminiRequest
   }
 }
 
+/** Where the questions are on a scanned page — the AI half of segmentation. */
+export function buildDetectQuestions(page: ImageInput): GeminiRequest {
+  return {
+    modelKey: 'detect',
+    body: {
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { inlineData: { mimeType: page.mime, data: page.image } },
+            { text: DETECT_QUESTIONS_PROMPT },
+          ],
+        },
+      ],
+      generationConfig: {
+        temperature: 0,
+        responseMimeType: 'application/json',
+        responseSchema: detectQuestionsSchema,
+      },
+    },
+  }
+}
+
 export function buildParseAnswerKey(page: ImageInput): GeminiRequest {
   return {
     modelKey: 'verify',
@@ -173,6 +200,30 @@ export function buildParseAnswerKey(page: ImageInput): GeminiRequest {
         temperature: 0,
         responseMimeType: 'application/json',
         responseSchema: parseAnswerKeySchema,
+      },
+    },
+  }
+}
+
+/** Where the picture options sit — asked on its own, because asked in passing
+ *  during extraction the model simply does not answer it. */
+export function buildOptionBoxes(crop: ImageInput): GeminiRequest {
+  return {
+    modelKey: 'detect',
+    body: {
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { inlineData: { mimeType: crop.mime, data: crop.image } },
+            { text: OPTION_BOXES_PROMPT },
+          ],
+        },
+      ],
+      generationConfig: {
+        temperature: 0,
+        responseMimeType: 'application/json',
+        responseSchema: optionBoxesSchema,
       },
     },
   }

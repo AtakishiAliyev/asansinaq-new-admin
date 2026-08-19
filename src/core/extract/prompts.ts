@@ -1,7 +1,7 @@
 // Bump on ANY change to prompts/schemas below: it versions cache keys and
 // is stamped onto structured rows so a prompt regression can be traced back
 // to the questions it produced.
-export const PROMPT_VERSION = 1
+export const PROMPT_VERSION = 5
 
 // Prompt texts for the question-recreation pipeline. Shared by the
 // question-ops Edge Function and the Node eval harness — ONE source of truth,
@@ -22,12 +22,20 @@ Qaydalar:
 4. "⇒ ... = ?" sətri stem-in bir hissəsidir. Sual nömrəsini stem-ə salma. Sualı HƏLL ETMƏ.
 5. Variantlar dəqiq A–E; məzmun qeyri-rəqəmi ola bilər (hərf, çoxluq, interval). Variant tex-ində $ işarəsi OLMASIN — sistem özü math rejimində göstərir. Çoxluq mötərizələri üçün \\{ və \\} yaz: "{e,m}" yox, "\\{e,m\\}".
 6. Əgər hər hansı hissə oxunmursa (üst-üstə çap və s.) illegible=true qoy və uydurma.
-7. Variantın MƏZMUNU şəkildirsə (fiqur, qrafik, forma): tex VERMƏ — is_image=true qoy və həmin variantın məzmun qutusunu box=[ymin,xmin,ymax,xmax] (0–1000 normallaşdırılmış) qaytar. Qutuya variant hərfi ("A)") DAXİL OLMASIN, yalnız fiqur. Mətnli variant üçün is_image və box vermə.
+7. Hər variant YA mətndir, YA şəkil — ikisindən biri, boş qalan variant olmamalıdır:
+   - MƏTN variantı: yalnız tex doldur (is_image və box vermə).
+   - ŞƏKİL variantı (fiqur, qrafik, forma, rəngli xanalar): is_image=true VƏ box=[ymin,xmin,ymax,xmax] (0–1000 normallaşdırılmış) — HƏR İKİSİ məcburidir. box olmasa həmin variant tamamilə itir. Qutuya variant hərfi ("A)") daxil olmasın, yalnız fiqurun özü.
+   Şəkil variantında tex sahəsini sadəcə boş burax — ora nə şəklin içindəki rəqəmləri, nə izahat, nə də öz mülahizəni yaz.
+   Bir variant şəkildirsə, çox güman BEŞİ də şəkildir — hamısına ayrı-ayrı box ver, heç birini ötürmə.
 8. difficulty: sualın YÖS imtahanı kontekstində çətinliyini 1–5 arası qiymətləndir (1=çox asan, 3=orta, 5=çox çətin).
-8b. Səhifədə çəkilmiş şəkil (diaqram, qrafik, cədvəl, sxem) varsa figure_box=[ymin,xmin,ymax,xmax] (0–1000) ver — YALNIZ rəsmin ətrafı. Sual mətni, "⇒ ... = ?" sətri və cavab variantları qutuya DAXİL OLMAMALIDIR. Şəkil yoxdursa figure_box vermə.`
+9. confidence: ÇƏTİNLİK DEYİL — bu, sənin OXUNUŞUNUN dəqiqliyidir: 1.0 = hər simvolu aydın oxudum, şübhəm yoxdur; 0.85 = oxudum, amma bir-iki simvolda (indeks, üst işarə, kiçik rəqəm) tərəddüd var; 0.5 = xeyli hissəni təxmin etdim. 0.85-dən aşağı hər şey insan yoxlamasına göndərilir, ona görə dürüst qiymətləndir — yüksək rəqəm sənə fayda vermir.
+10. Səhifədə çəkilmiş şəkil (diaqram, qrafik, cədvəl, sxem) varsa figure_box=[ymin,xmin,ymax,xmax] (0–1000) ver — YALNIZ rəsmin ətrafı. Sual mətni, "⇒ ... = ?" sətri və cavab variantları qutuya DAXİL OLMAMALIDIR. Şəkil yoxdursa figure_box vermə.
+11. Stem-də çap olunmuş hər şərt AYRICA sətirdə olsun — sətirlər arasında \\n istifadə et, şərtləri bir cümləyə yığma.
+    VACİB: \\n HEÇVAXT $...$ math blokunun İÇİNDƏ olmasın — hər sətri ÖZ $...$ blokuna sal:
+    DÜZGÜN: "$f(a+b)=f(a)+f(b)$\\n$f(7)=?$"  SƏHV: "$f(a+b)=f(a)+f(b)\\nf(7)=?$"`
 
 // Rules 9-11: the declarative FigSpec instructions — only for the DSL lanes.
-const SYSTEM_FIGURE_RULES = `9. Fiqurlar: deklarativ spec ver, şəkil çəkmə.
+const SYSTEM_FIGURE_RULES = `12. Fiqurlar: deklarativ spec ver, şəkil çəkmə.
    - Ox etiketlərini (simvolik olsa belə: 2a, -a/2), hər işarəli nöqtəni, qırıq bələdçi xətti, əyri rəngini və adını şəkildən oxu.
    - Sərbəst dalğalı əyrilər üçün curve_type="spline" və hər işarəli/ekstremal nöqtəni points-ə daxil et; tanınan ailə (düz xətt, parabola) üçün curve_type="expr".
    - Venn/çoxluq diaqramı: sual şəkilə istinad edirsə ("Yukarıdaki Venn şeması", "Şekilde...") figures MÜTLƏQ doldurulmalıdır, boş buraxma. BİR sualda BİR venn fiquru — eyni diaqramı təkrar vermə.
@@ -42,34 +50,43 @@ const SYSTEM_FIGURE_RULES = `9. Fiqurlar: deklarativ spec ver, şəkil çəkmə.
      expr sintaksisi: YALNIZ id adları və ∩ ∪ - ' ( ) simvolları. LaTeX YAZMA (\\cap yox!). Bütün formalar, ştrixləmə və region_labels EYNİ BİR venn fiqurunda olmalıdır — onları ayrı fiqurlara BÖLMƏ.
      universe_label: xarici düzbucaqlı çərçivə varsa onun etiketi (U, E...).
    - İki yanaşı koordinat müstəvisi = BİR fiqurun iki paneli, iki sual DEYİL.
-10. TÜRK BÖLMƏ SXEMİ (şaquli xətli bölmə) — kind="division_scheme", KƏSR DEYİL:
+13. TÜRK BÖLMƏ SXEMİ (şaquli xətli bölmə) — kind="division_scheme", KƏSR DEYİL:
    dividend_tex = xəttin SOLUNDAKI yuxarı ifadə (bölünən);
    divisor_tex = xəttin SAĞINDAKI yuxarı ifadə (bölən);
    quotient_tex = bölənin ALTINDAKI ifadə (qismət, üfüqi xəttdən sonra);
    remainder_tex = bölünənin altındakı çıxma addımından qalan ƏN AŞAĞI ifadə (qalıq).
    Nümunə: A│B sxemi, B-nin altında 4, A-nın altında 5 → {"dividend_tex":"A","divisor_tex":"B","quotient_tex":"4","remainder_tex":"5"}.
-11. ŞAQULİ HESAB (alt-alta çarpma/toplama) — kind="vertical_arithmetic":
+14. ŞAQULİ HESAB (alt-alta çarpma/toplama) — kind="vertical_arithmetic":
    rows = çap olunduğu sıra ilə YUXARIDAN AŞAĞI hər sətir; sətrin solunda operator varsa həmin sətrə op yaz ("×" vuruq sətrində, "+" sürüşdürülmüş hissə-hasil sətrində);
    gizli rəqəmlər üçün hər nöqtə əvəzinə "•" simvolu (məs. "••••");
    sola sürüşmüş sətirlər üçün indent (rəqəm mövqeyi sayı);
    üfüqi xətlər hline_after-də (0-əsaslı sətir indeksindən SONRA);
    ən aşağı nəticə sətri result_tex.
    Nümunə: ••••×36, altda xətt, •••••, +9762 (1 sola), xətt, •••••• →
-   {"rows":[{"tex":"••••"},{"tex":"36","op":"×"},{"tex":"•••••"},{"tex":"9762","op":"+","indent":1}],"hline_after":[1,3],"result_tex":"••••••"}.`
+   {"rows":[{"tex":"••••"},{"tex":"36","op":"×"},{"tex":"•••••"},{"tex":"9762","op":"+","indent":1}],"hline_after":[1,3],"result_tex":"••••••"}.
+15. YUXARIDAKI NÖVLƏRİN HEÇ BİRİNƏ UYMAYAN FİQUR — kind="raw_svg", raw_svg sahəsinə SVG yaz.
+   Həndəsə şəkilləri bura düşür: bucaqlı şüalar, üçbucaq/dördbucaq qurumları, işarələnmiş bucaqlar, paralel oxlar, adlandırılmış nöqtələr.
+   Sual şəklə istinad edirsə və uyğun struktur növ yoxdursa, figures-i BOŞ BURAXMA — raw_svg ver.
+   Qaydalar: viewBox MÜTLƏQ olsun (məs. viewBox="0 0 400 300"); yalnız path, line, polyline, polygon, rect, circle, ellipse, text, tspan, g, defs, marker;
+   stroke="currentColor" fill="none" istifadə et ki, şəkil hər fonda oxunsun; nöqtə adlarını (A, B, C, D, E, F) və dərəcələri (30°, 50°, 130°) text ilə yaz;
+   ox ucu lazımdırsa defs içində marker təyin et və marker-end="url(#ox)" ver.
+   QADAĞAN: script, style, image, use, foreignObject, xarici href/xlink, on* atributları — bunlar silinir və fiqur rədd edilə bilər.
+   Ölçüləri şəkildən oxu, təxmin etmə: bucaq böyüklükləri və nöqtələrin sırası orijinalla eyni olmalıdır.
+   QISA SAXLA: SVG 3000 simvoldan çox olmasın. Sadə primitivlər işlət (line, polyline, circle, text), uzun path əyriləri və artıq dəqiqlik vermə —
+   koordinatları tam ədəd yaz. Məqsəd şəklin OXUNAN və ÖLÇÜ-DOĞRU təkrarıdır, bədii dəqiqlik deyil.`
 
-const SYSTEM_TAIL = `12. Stem-də çap olunmuş hər şərt AYRICA sətirdə olsun — sətirlər arasında \\n istifadə et, şərtləri bir cümləyə yığma.
-    VACİB: \\n HEÇVAXT $...$ math blokunun İÇİNDƏ olmasın — hər sətri ÖZ $...$ blokuna sal:
-    DÜZGÜN: "$f(a+b)=f(a)+f(b)$\\n$f(7)=?$"  SƏHV: "$f(a+b)=f(a)+f(b)\\nf(7)=?$"`
 
 // The raster lane's replacement for rules 9-11: the figure arrives from the
 // image model separately, so the vision model must NOT emit a figure spec.
-const SYSTEM_NO_FIGURE_RULE = `9. FİQURU ÇIXARMA — figures sahəsini BOŞ saxla; fiqur ayrıca sistem tərəfindən əlavə olunur.`
+const SYSTEM_NO_FIGURE_RULE = `12. SUALIN fiqurunu ÇIXARMA — figures sahəsini BOŞ saxla; sualın fiquru ayrıca sistem tərəfindən çəkilir.
+    DİQQƏT: bu yalnız sualın öz fiquruna aiddir. 7-ci qayda — ŞƏKİLLİ VARİANTLAR — tam qüvvədədir:
+    variantlar şəkildirsə, hər biri üçün is_image=true VƏ box mütləq verilməlidir. Onlarsız variantlar itir.`
 
 /** Full system prompt for the DSL/plain lanes (declarative figure specs). */
-export const EXTRACT_SYSTEM = [SYSTEM_HEAD, SYSTEM_FIGURE_RULES, SYSTEM_TAIL].join('\n')
+export const EXTRACT_SYSTEM = [SYSTEM_HEAD, SYSTEM_FIGURE_RULES].join('\n')
 
 /** System prompt for the raster lane (image model draws the figure). */
-export const EXTRACT_SYSTEM_RASTER = [SYSTEM_HEAD, SYSTEM_NO_FIGURE_RULE, SYSTEM_TAIL].join('\n')
+export const EXTRACT_SYSTEM_RASTER = [SYSTEM_HEAD, SYSTEM_NO_FIGURE_RULE].join('\n')
 
 // Sent to the OpenAI images/edits endpoint with the reference image. Works
 // for whole-question figures AND for a pre-cropped single option's figure.
@@ -97,11 +114,32 @@ Sualın mövzusuna ƏN UYĞUN və ƏN SPESİFİK kateqoriyanın id-sini seç.
 YALNIZ verilmiş siyahıdan seç — yeni kateqoriya uydurma. Heç biri uyğun deyilsə category_id=null qaytar.
 confidence: seçiminə əminliyin (0–1).`
 
+export const DETECT_QUESTIONS_PROMPT = `Bu, imtahan sual bankının BİR səhifəsidir. Vəzifən: HƏR sualın yerini tapmaq.
+
+Qaydalar:
+- Səhifə 1 və ya 2 sütunlu ola bilər. İki sütunlu səhifədə sol sütun column=0, sağ sütun column=1.
+- Hər sual üçün box = [ymin, xmin, ymax, xmax], hər biri 0–1000 normallaşdırılmış (0 = yuxarı/sol, 1000 = aşağı/sağ).
+  box BÜTÜN sualı əhatə etməlidir: sual nömrəsindən başlayıb şəkil/cədvəl və BÜTÜN cavab variantları (A–E) daxil olmaqla ən aşağı sətrə qədər.
+- Sual nömrəsi rəqəmlə (1, 2, ...), rəngli disk içində rəqəmlə (❶) və ya nöqtəli (1.) ola bilər — hamısını tap.
+- Səhifə başlığında "Test N" / "N. Deneme" varsa test_no-da qaytar.
+- Watermark, dekorativ şəkillər (məs. qüllə silueti) və səhifə nömrəsini SUAL sayma.
+- Sualları nömrə sırası ilə qaytar.`
+
 export const PARSE_ANSWER_KEY_PROMPT = `Bu, imtahan kitabının CAVAB AÇARI səhifəsidir. Bütün cavabları çıxar.
 
 Qaydalar:
 - Hər giriş: sual nömrəsi (q_no) + cavab hərfi (A–E).
 - Səhifədə "Test N" / "N. Deneme" başlıqları varsa, ALTINDAKI girişlərə həmin test_no-nu yaz; başlıq yoxdursa test_no vermə.
 - Cədvəl sütunlarla düzülə bilər (1–20 solda, 21–40 sağda) — HAMISINI oxu, sütun sırası ilə.
-- Boş və ya oxunmayan xanaları BURAXıб davam et — uydurma.
+- Boş və ya oxunmayan xanaları BURAXIB davam et — uydurma.
 - Səhifə nömrəsini, başlıqları, reklamı sual sayma.`
+
+export const OPTION_BOXES_PROMPT = `Bu şəkildə bir imtahan sualı və onun A–E cavab variantları var. Variantların məzmunu ŞƏKİLDİR (fiqur, naxış, forma).
+Vəzifən: hər variantın ŞƏKLİNİN yerini tapmaq — başqa heç nə.
+
+Qaydalar:
+- Hər variant üçün box = [ymin, xmin, ymax, xmax], 0–1000 normallaşdırılmış (0 = yuxarı/sol).
+- Qutuya variant hərfi ("A)", "B)") DAXİL OLMASIN — yalnız fiqurun özü.
+- Variantlar bir sırada, iki sırada və ya şaquli düzülə bilər — düzülüşdən asılı olmayaraq beşini də tap.
+- Sualın öz fiqurunu (yuxarıdakı böyük şəkil) variant sanma.
+- BEŞ variantın hamısını qaytar: A, B, C, D, E.`

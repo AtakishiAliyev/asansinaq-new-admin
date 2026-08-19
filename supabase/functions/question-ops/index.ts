@@ -21,6 +21,8 @@
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2'
 import {
   buildCompareFigures,
+  buildDetectQuestions,
+  buildOptionBoxes,
   buildExtract,
   buildParseAnswerKey,
   buildSuggestCategory,
@@ -34,13 +36,18 @@ const GEMINI_MODELS: Record<ModelKey, string> = {
   extract: Deno.env.get('GEMINI_EXTRACT_MODEL') ?? 'gemini-3.5-flash',
   figure: Deno.env.get('GEMINI_FIGURE_MODEL') ?? 'gemini-3.1-pro-preview',
   verify: Deno.env.get('GEMINI_VERIFY_MODEL') ?? 'gemini-3.5-flash',
+  detect: Deno.env.get('GEMINI_DETECT_MODEL') ?? 'gemini-3.5-flash',
 }
 const OPENAI_IMAGE_MODEL = Deno.env.get('OPENAI_IMAGE_MODEL') ?? 'gpt-image-2'
 const DAILY_BUDGET_USD = Number(Deno.env.get('DAILY_BUDGET_USD') ?? '20')
 
 // A strong model reading a dense figure page routinely passes 90s; the
 // client retries on a fresh invocation, so this only has to cover one attempt.
-const TIMEOUT_MS = 120_000
+// Measured, not guessed: once the figure lane began returning an SVG with the
+// text, extract on the figure model went from a 22 s average to 95 s, with a
+// 111 s peak. At 120 s the tail was landing on the ceiling and a question that
+// had been fully read was thrown away for it.
+const TIMEOUT_MS = 135_000
 // Complex references push gpt-image past 90s; stay just under the edge
 // function's own wall-clock budget so WE report the timeout, not the platform.
 const IMAGE_TIMEOUT_MS = 140_000
@@ -639,6 +646,151 @@ Deno.serve(async (req) => {
       const ms = Date.now() - started
       const u = usage(raw)
       const responseBody = { ...(parsed as Record<string, unknown>), model }
+      await cachePut(db, key, op, { response: responseBody, model })
+      await logOp(db, userId, {
+        op,
+        model,
+        ...u,
+        ms,
+        cost: estGeminiCost(model, u.promptTokens, u.outputTokens),
+        cached: false,
+      })
+      return json(200, { ...responseBody, ms })
+    }
+
+    // Free, and the only way the browser can know the cap: DAILY_BUDGET_USD is
+    // a function secret, so a copy in a VITE_ variable would be a second
+    // number that silently disagrees with the one actually enforced.
+    if (op === 'budget_status') {
+      const spent = await todaysSpend(db)
+      return json(200, {
+        spent,
+        budget: DAILY_BUDGET_USD,
+        remaining: Math.max(0, DAILY_BUDGET_USD - spent),
+      })
+    }
+
+    if (op === 'option_boxes') {
+      const bad = badImage(body)
+      if (bad) return json(400, { error: bad })
+      const request = buildOptionBoxes({
+        image: body.image as string,
+        mime: body.mime as string,
+      })
+      const model = GEMINI_MODELS[request.modelKey]
+      const key = await sha256Hex(
+        JSON.stringify({ v: PROMPT_VERSION, m: model, op, image: body.image, mime: body.mime }),
+      )
+      const hit = await cacheGet(db, key)
+      if (hit?.response) {
+        const ms = Date.now() - started
+        await logOp(db, userId, { op, model: hit.model ?? 'cache', promptTokens: null, outputTokens: null, ms, cost: 0, cached: true })
+        return json(200, { ...hit.response, ms, cached: true })
+      }
+      const refusal = await budgetRefusal(db)
+      if (refusal) return refusal
+      const { parsed, raw } = await callGemini(request, deadline)
+      const out = parsed as Record<string, unknown>
+      // Same rule as the page detector: a box with any non-finite number is
+      // dropped whole rather than forwarded as NaN and failing further in.
+      const boxes = (Array.isArray(out.options) ? (out.options as Record<string, unknown>[]) : [])
+        .map((o) => {
+          const rawBox = Array.isArray(o.box) ? (o.box as unknown[]) : []
+          if (rawBox.length < 4) return null
+          const box = rawBox.slice(0, 4).map(Number)
+          const label = String(o.label ?? '')
+          if (!'ABCDE'.includes(label) || label.length !== 1) return null
+          if (box.some((n) => !Number.isFinite(n))) return null
+          return { label, box }
+        })
+        .filter((b) => b !== null)
+      const responseBody = { options: boxes }
+      const ms = Date.now() - started
+      await cachePut(db, key, op, { response: responseBody, model })
+      const u = usage(raw)
+      await logOp(db, userId, {
+        op, model,
+        promptTokens: u.promptTokens,
+        outputTokens: u.outputTokens,
+        ms,
+        cost: estimateCost(model, u.promptTokens, u.outputTokens),
+        cached: false,
+      })
+      return json(200, { ...responseBody, ms })
+    }
+
+    if (op === 'detect_questions') {
+      const bad = badImage(body)
+      if (bad) return json(400, { error: bad })
+      const request = buildDetectQuestions({
+        image: body.image as string,
+        mime: body.mime as string,
+      })
+      const model = GEMINI_MODELS[request.modelKey]
+      const key = await sha256Hex(
+        JSON.stringify({
+          v: PROMPT_VERSION,
+          m: model,
+          op,
+          image: body.image,
+          mime: body.mime,
+        }),
+      )
+      // Segmentation is re-run whenever an operator reopens a book, so the
+      // cache is what keeps a second pass over the same pages free.
+      const hit = await cacheGet(db, key)
+      if (hit?.response) {
+        const ms = Date.now() - started
+        await logOp(db, userId, {
+          op,
+          model: hit.model ?? 'cache',
+          promptTokens: null,
+          outputTokens: null,
+          ms,
+          cost: 0,
+          cached: true,
+        })
+        return json(200, { ...hit.response, ms, cached: true })
+      }
+      const refusal = await budgetRefusal(db)
+      if (refusal) return refusal
+      const { parsed, raw } = await callGemini(request, deadline)
+      const out = parsed as Record<string, unknown>
+
+      // Symmetric sanitization: an anchor with ANY non-finite numeric field is
+      // dropped whole, never forwarded as NaN/null to break the client schema.
+      // Per-anchor column is not forwarded at all — the client reassigns
+      // columns from box geometry anyway.
+      const rawQuestions = Array.isArray(out.questions)
+        ? (out.questions as Record<string, unknown>[])
+        : []
+      const anchors = rawQuestions
+        .map((q) => {
+          const rawBox = Array.isArray(q.box) ? (q.box as unknown[]) : []
+          if (rawBox.length < 4) return null
+          const box = rawBox.slice(0, 4).map(Number)
+          const number = Number(q.number)
+          if (!Number.isFinite(number) || box.some((n) => !Number.isFinite(n))) {
+            return null
+          }
+          return { number, box }
+        })
+        .filter((a) => a !== null)
+      const rawTestNo = Number(out.test_no)
+      const rawColumns = Number(out.columns)
+      const responseBody = {
+        // The page has one or two columns; anything else is a misread, and the
+        // segmenter would flatten it to the same range anyway.
+        columns: Number.isFinite(rawColumns)
+          ? Math.min(2, Math.max(1, Math.round(rawColumns)))
+          : 1,
+        testNo:
+          out.test_no != null && Number.isFinite(rawTestNo) ? rawTestNo : undefined,
+        anchors,
+      }
+
+      const ms = Date.now() - started
+      const u = usage(raw)
       await cachePut(db, key, op, { response: responseBody, model })
       await logOp(db, userId, {
         op,
