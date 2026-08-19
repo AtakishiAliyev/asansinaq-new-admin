@@ -17,7 +17,6 @@ import { QueryErrorAlert } from '@/components/query-error-alert'
 import { cn } from '@/lib/utils'
 import { usePageTitle } from '@/hooks/use-page-title'
 import { useBooks } from '@/features/books'
-import { useCategories } from '@/features/taxonomy'
 import {
   DEFAULT_FILTERS,
   isAttention,
@@ -32,6 +31,7 @@ import { QuestionsSelectionBar } from '@/features/questions/components/questions
 import { QuestionsTable } from '@/features/questions/components/questions-table'
 import { ReviewScreen } from '@/features/questions/components/review-screen'
 import { useRestructure } from '@/features/questions/hooks/use-restructure'
+import { resetRateGate } from '@/features/questions/lib/rate-gate'
 import { STATUS_LABEL } from '@/features/questions/lib/status'
 
 const STATUS_ORDER = [
@@ -59,6 +59,9 @@ export function QuestionsPage() {
   // The review cursor is an id, not an index: approving removes the row from a
   // filtered list, and a positional cursor would then skip the next question.
   const [reviewId, setReviewId] = useState<number | null>(null)
+  // Set while review pulls the next page: the cursor is empty for a moment and
+  // the overlay must not read that as "nothing left to review".
+  const [advancing, setAdvancing] = useState(false)
   const books = useBooks()
   const questions = useQuestions(filters, page)
   const counts = useQuestionCounts(filters.bookId)
@@ -80,10 +83,30 @@ export function QuestionsPage() {
   // Rows leave the filter under us (a bulk approve empties the last page of the
   // «strukturlaşıb» view), and an offset past the end returns nothing at all.
   useEffect(() => {
-    if (page > 0 && !questions.isFetching && !questions.isError && loaded === 0) {
+    if (
+      page > 0 &&
+      !advancing &&
+      !questions.isFetching &&
+      !questions.isError &&
+      loaded === 0
+    ) {
       setPage((p) => Math.max(0, p - 1))
     }
-  }, [page, loaded, questions.isFetching, questions.isError])
+  }, [page, advancing, loaded, questions.isFetching, questions.isError])
+
+  // The next review page arrived: land the cursor on its first question, or
+  // end the session if the filter turned out to be empty after all.
+  useEffect(() => {
+    if (!advancing || questions.isFetching) return
+    setReviewId(items[0]?.id ?? null)
+    setAdvancing(false)
+  }, [advancing, items, questions.isFetching])
+
+  function reviewNextPage() {
+    setAdvancing(true)
+    setReviewId(null)
+    setPage((p) => p + 1)
+  }
 
   // Deleted or approved-away rows must not stay selected: the action bar would
   // keep counting questions the list no longer holds.
@@ -116,12 +139,6 @@ export function QuestionsPage() {
       : (books.data ?? []).find((b) => b.id === filters.bookId)
   const reviewSubjectId =
     reviewedBook?.subject_id ?? currentBook?.subject_id ?? null
-  const categories = useCategories(reviewSubjectId)
-  const categoryOptions = (categories.data ?? []).map((c) => ({
-    id: c.id,
-    name: c.name,
-    parentId: c.parent_id,
-  }))
 
   function toggleOne(id: number) {
     setSelectedIds((current) => {
@@ -140,8 +157,10 @@ export function QuestionsPage() {
   }
 
   function runRestructure(targets: QuestionListItem[]) {
+    // A new job starts with a clean gate; batches inside it keep what it learns.
+    resetRateGate()
     void restructure
-      .run(targets, categoryOptions)
+      .run(targets, { suggestCategories: true })
       .then(() => questions.refetch())
       .catch((error) =>
         toast.error(
@@ -217,9 +236,9 @@ export function QuestionsPage() {
         >
           {(
             [
-              { key: 'all', label: 'Hamısı' },
-              { key: 'attention', label: 'Diqqət' },
-              { key: 'clean', label: 'Təmiz' },
+              { key: 'all', label: 'Hamısı', count: null },
+              { key: 'attention', label: 'Diqqət', count: counts.data?.attention },
+              { key: 'clean', label: 'Təmiz', count: counts.data?.clean },
             ] as const
           ).map((q) => (
             <Button
@@ -230,6 +249,7 @@ export function QuestionsPage() {
               onClick={() => updateFilters({ queue: q.key })}
             >
               {q.label}
+              {q.count === null || q.count === undefined ? '' : ` ${q.count}`}
             </Button>
           ))}
         </div>
@@ -237,7 +257,7 @@ export function QuestionsPage() {
 
       <div className="flex flex-wrap items-center gap-2">
         {items.length > 0 ? (
-          <Button size="sm" onClick={() => setReviewId(items[0].id)}>
+          <Button size="sm" onClick={() => setReviewId(items[0]!.id)}>
             <Eye data-icon="inline-start" />
             Review başlat
           </Button>
@@ -251,15 +271,6 @@ export function QuestionsPage() {
             <Sparkles data-icon="inline-start" />
             Təmizləri seç ({bulkReady.length})
           </Button>
-        ) : null}
-        {/* The queue rule reads flags/verified, which live in jsonb — it can
-            only be applied to the loaded page, so say so instead of implying
-            more. */}
-        {filters.queue !== 'all' && total > QUESTIONS_PAGE_SIZE ? (
-          <p className="text-muted-foreground text-xs">
-            «{filters.queue === 'attention' ? 'Diqqət' : 'Təmiz'}» süzgəci
-            yalnız bu səhifədəki {loaded} suala tətbiq olunur.
-          </p>
         ) : null}
       </div>
 
@@ -335,13 +346,19 @@ export function QuestionsPage() {
         onClear={() => setSelectedIds(new Set())}
       />
 
-      {reviewId !== null ? (
+      {reviewId !== null || advancing ? (
         <ReviewScreen
           items={items}
           index={reviewIndex}
           subjectId={reviewSubjectId}
+          hasNextPage={offset + loaded < total}
+          isAdvancing={advancing}
+          onNextPage={reviewNextPage}
           onNavigate={setReviewId}
-          onClose={() => setReviewId(null)}
+          onClose={() => {
+            setAdvancing(false)
+            setReviewId(null)
+          }}
           onRestructure={(item) => runRestructure([item])}
         />
       ) : null}

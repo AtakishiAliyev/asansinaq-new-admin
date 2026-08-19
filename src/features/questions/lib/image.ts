@@ -6,7 +6,7 @@ export function splitDataUrl(dataUrl: string): {
 } {
   const m = dataUrl.match(/^data:(image\/(?:png|jpeg));base64,(.*)$/)
   if (!m) throw new Error('yanlış dataUrl')
-  return { mime: m[1] as 'image/png' | 'image/jpeg', image: m[2] }
+  return { mime: m[1] as 'image/png' | 'image/jpeg', image: m[2]! }
 }
 
 /** Cut a 0-1000-normalized [ymin,xmin,ymax,xmax] region out of an image. */

@@ -55,10 +55,10 @@ export function BookFormDialog({
   // A single program (today: only YÖS) should not cost a click on every upload.
   const programs = usePrograms()
   useEffect(() => {
-    if (programId === null && programs.data?.length === 1) {
-      const only = programs.data[0].id
-      setValue('program_id', only)
-      setProgramId(only)
+    const only = programs.data?.length === 1 ? programs.data[0] : undefined
+    if (programId === null && only) {
+      setValue('program_id', only.id)
+      setProgramId(only.id)
     }
   }, [programId, programs.data, setValue])
 

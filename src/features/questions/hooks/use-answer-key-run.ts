@@ -52,12 +52,10 @@ export function useAnswerKeyRun() {
         try {
           const items = await pageTextItems(page)
           let entries: AnswerKeyEntry[] = []
-          let testNo: number | undefined
 
           if (items.length >= MIN_TEXT_ITEMS) {
             const parsed = parseAnswerKeyPage(items)
             entries = parsed.entries
-            testNo = parsed.entries[0]?.testNo
             notes.push(...parsed.notes.map((n) => `s.${pageNumber}: ${n}`))
           } else {
             const { base64, mime } = await renderPageJpeg(page)
@@ -67,15 +65,24 @@ export function useAnswerKeyRun() {
               answer: e.answer,
               ...(e.test_no != null ? { testNo: e.test_no } : {}),
             }))
-            testNo = entries[0]?.testNo
             notes.push(`s.${pageNumber}: skan səhifə — AI ilə oxundu`)
           }
 
-          if (entries.length) {
+          // One block per test, not per page. A key page routinely prints a
+          // grid of tests; taking the page's first test number for the whole
+          // page matched every later test's answers against test 1's
+          // questions, where they simply did not exist.
+          const byTest = new Map<number | undefined, AnswerKeyEntry[]>()
+          for (const entry of entries) {
+            const list = byTest.get(entry.testNo) ?? []
+            list.push(entry)
+            byTest.set(entry.testNo, list)
+          }
+          for (const [testNo, testEntries] of byTest) {
             blocks.push({
               ...(testNo !== undefined ? { testNo } : {}),
               sourcePage: pageNumber,
-              entries,
+              entries: testEntries,
             })
           }
         } catch (error) {

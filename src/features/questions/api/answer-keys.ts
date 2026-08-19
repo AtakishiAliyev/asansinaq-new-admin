@@ -93,16 +93,29 @@ export function useSaveAnswerKeys() {
   })
 }
 
-/** The printed answer for one question, used during structuring. */
+/**
+ * The printed answers for a book, keyed `test:q_no`, used during structuring.
+ * Paged for the same reason the matcher is: a book with twenty tests passes
+ * PostgREST's 1000-row ceiling, and a truncated read would leave the tail of
+ * the book answerless while looking exactly like a book with no key.
+ */
 export async function fetchBookAnswerKeys(
   bookId: number,
 ): Promise<Map<string, string>> {
-  const { data, error } = await supabase
-    .from('answer_keys')
-    .select('test_no, q_no, answer')
-    .eq('book_id', bookId)
-  if (error) throw error
   const map = new Map<string, string>()
-  for (const row of data ?? []) map.set(`${row.test_no}:${row.q_no}`, row.answer)
+  const PAGE = 1000
+  for (let offset = 0; ; offset += PAGE) {
+    const { data, error } = await supabase
+      .from('answer_keys')
+      .select('test_no, q_no, answer')
+      .eq('book_id', bookId)
+      .order('test_no')
+      .order('q_no')
+      .range(offset, offset + PAGE - 1)
+    if (error) throw error
+    const rows = data ?? []
+    for (const row of rows) map.set(`${row.test_no}:${row.q_no}`, row.answer)
+    if (rows.length < PAGE) break
+  }
   return map
 }

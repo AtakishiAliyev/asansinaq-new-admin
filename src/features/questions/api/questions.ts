@@ -34,13 +34,30 @@ function toItem(row: unknown): QuestionListItem {
   return { ...parsed, bookTitle: books?.title ?? null }
 }
 
-// Attention vs clean is a client-side read of flags/verified rather than a
-// column: the rule evolves with the pipeline, and a stored copy would drift.
+// The lane is a generated column now (20260818123000_needs_attention.sql), so
+// the UI reads exactly what the server filtered and counted on — the two can
+// no longer disagree about which rows are in the queue.
 export function isAttention(q: QuestionListItem): boolean {
-  if (q.status === 'failed') return true
-  if (q.status !== 'structured') return false
-  const flags = Array.isArray(q.flags) ? (q.flags as { level?: string }[]) : []
-  return !q.verified || flags.some((f) => f.level === 'error' || f.level === 'warning')
+  return q.needs_attention
+}
+
+/**
+ * Lane filter, applied server-side.
+ *
+ * `needs_attention` is a column the generated `Database` type does not know
+ * until the migration is pushed and `npm run types:gen` re-runs, so the cast
+ * is confined here — remove it then.
+ */
+type LaneQuery = { eq: (column: string, value: unknown) => LaneQuery }
+
+function applyLane<T>(query: T, queue: QuestionFilters['queue']): T {
+  if (queue === 'all') return query
+  const q = query as LaneQuery
+  return (
+    queue === 'attention'
+      ? q.eq('needs_attention', true)
+      : q.eq('needs_attention', false).eq('status', 'structured')
+  ) as T
 }
 
 export const QUESTIONS_PAGE_SIZE = 50
@@ -71,18 +88,14 @@ async function fetchQuestions(
     .range(offset, offset + QUESTIONS_PAGE_SIZE - 1)
   if (filters.bookId !== 'all') query = query.eq('book_id', filters.bookId)
   if (filters.status !== 'all') query = query.eq('status', filters.status)
+  query = applyLane(query, filters.queue)
   const { data, error, count } = await query
   if (error) throw error
-  const rows = (data ?? []).map(toItem)
-  // The queue predicate reads flags/verified, which no column carries, so it
-  // can only run here — over the loaded page, never over the whole table.
-  const items =
-    filters.queue === 'attention'
-      ? rows.filter(isAttention)
-      : filters.queue === 'clean'
-        ? rows.filter((q) => q.status === 'structured' && !isAttention(q))
-        : rows
-  return { items, loaded: rows.length, total: count ?? rows.length, offset }
+  // Every row the server returns is already in the lane, so a page is a full
+  // page of work and `total` is the lane's real size — not the size of the
+  // status filter it happened to be a subset of.
+  const items = (data ?? []).map(toItem)
+  return { items, loaded: items.length, total: count ?? items.length, offset }
 }
 
 export function useQuestions(filters: QuestionFilters, page: number) {
@@ -98,6 +111,9 @@ export interface QuestionCounts {
   approved: number
   rejected: number
   failed: number
+  /** rows in the Diqqət lane, whole book — not just the loaded page */
+  attention: number
+  clean: number
 }
 
 const COUNTED_STATUSES = [
@@ -108,29 +124,40 @@ const COUNTED_STATUSES = [
   'failed',
 ] as const satisfies readonly (keyof QuestionCounts)[]
 
-// One head-only exact count per status: counting rows client-side capped the
+// One head-only exact count per bucket: counting rows client-side capped the
 // numbers at PostgREST's 1000-row default and quietly under-reported.
 async function fetchCounts(bookId: number | 'all'): Promise<QuestionCounts> {
-  const counts: QuestionCounts = {
-    cropped: 0,
-    structured: 0,
-    approved: 0,
-    rejected: 0,
-    failed: 0,
+  const scoped = () => {
+    const query = supabase
+      .from('questions')
+      .select('*', { count: 'exact', head: true })
+    return bookId === 'all' ? query : query.eq('book_id', bookId)
   }
-  await Promise.all(
-    COUNTED_STATUSES.map(async (status) => {
-      let query = supabase
-        .from('questions')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', status)
-      if (bookId !== 'all') query = query.eq('book_id', bookId)
-      const { count, error } = await query
-      if (error) throw error
-      counts[status] = count ?? 0
-    }),
-  )
-  return counts
+  const run = async (query: ReturnType<typeof scoped>) => {
+    const { count, error } = await query
+    if (error) throw error
+    return count ?? 0
+  }
+
+  const [statuses, attention, clean] = await Promise.all([
+    Promise.all(
+      COUNTED_STATUSES.map(async (status) => [
+        status,
+        await run(scoped().eq('status', status)),
+      ] as const),
+    ),
+    run(applyLane(scoped(), 'attention')),
+    run(applyLane(scoped(), 'clean')),
+  ])
+
+  return {
+    ...(Object.fromEntries(statuses) as Pick<
+      QuestionCounts,
+      (typeof COUNTED_STATUSES)[number]
+    >),
+    attention,
+    clean,
+  }
 }
 
 export function useQuestionCounts(bookId: number | 'all') {
@@ -207,7 +234,7 @@ export function useRejectQuestion() {
 
 export interface EditInput {
   id: number
-  stem: string
+  stem: string | null
   options: { label: string; tex?: string; image?: string }[]
 }
 

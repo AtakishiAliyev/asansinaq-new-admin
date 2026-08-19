@@ -9,4 +9,9 @@ export { AnswerKeyDialog } from '@/features/questions/components/answer-key-dial
 export { useAnswerKeyRun } from '@/features/questions/hooks/use-answer-key-run'
 export { useSaveAnswerKeys } from '@/features/questions/api/answer-keys'
 export { useEnqueue } from '@/features/questions/api/queue'
+export { opDetectQuestions } from '@/features/questions/api/question-ops'
+export {
+  isBudgetExhausted,
+  resetRateGate,
+} from '@/features/questions/lib/rate-gate'
 export { cropKey, type QuestionRow } from '@/features/questions/schemas'

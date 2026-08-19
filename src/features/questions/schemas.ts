@@ -56,6 +56,15 @@ export const suggestCategoryResponseSchema = z.object({
   confidence: z.number().min(0).max(1).catch(0),
 })
 
+export const optionBoxesResponseSchema = z.object({
+  options: z.array(
+    z.object({
+      label: z.enum(['A', 'B', 'C', 'D', 'E']),
+      box: z.array(z.number()).length(4),
+    }),
+  ),
+})
+
 export const parseAnswerKeyResponseSchema = z.object({
   entries: z.array(
     z.object({
@@ -93,6 +102,10 @@ export const questionRowSchema = z.object({
   model: z.string().nullable(),
   flags: z.unknown(),
   verified: z.boolean(),
+  // Generated in Postgres, never written by the client. Required, not
+  // defaulted: if the migration that adds it has not been pushed, the parse
+  // must fail loudly rather than quietly report every question as clean.
+  needs_attention: z.boolean(),
   extraction_error: z.string().nullable(),
   queued_at: z.string().nullable().default(null),
   claimed_at: z.string().nullable().default(null),

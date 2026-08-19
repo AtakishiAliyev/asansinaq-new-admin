@@ -16,7 +16,7 @@ const MESSAGES: Record<string, string> = {
 
 export function authErrorMessage(error: unknown): string {
   if (isAuthError(error) && error.code && error.code in MESSAGES) {
-    return MESSAGES[error.code]
+    return MESSAGES[error.code]!
   }
   if (isAuthError(error)) {
     return 'Giriş alınmadı. Yenidən cəhd edin.'
