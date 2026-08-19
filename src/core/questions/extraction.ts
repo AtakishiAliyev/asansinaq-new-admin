@@ -6,6 +6,7 @@
 //
 // responseSchema moved to core/extract/schemas.ts
 
+import { sanitizeSvg, svgNodeCount } from '@/core/figures/svg-safe'
 import type {
   ColorToken,
   Curve,
@@ -116,7 +117,7 @@ export function fixLeakedNewlines(stem: string): string {
   while ((m = re.exec(stem)) !== null) {
     out.push(stem.slice(last, m.index).replace(/\\n/g, '\n'))
     const display = m[1] !== undefined
-    const parts = splitMathOnLeakedNewlines(m[1] ?? m[2])
+    const parts = splitMathOnLeakedNewlines(m[1] ?? m[2]!)
     out.push(parts.map((p) => (display ? `$$${p}$$` : `$${p}$`)).join('\n'))
     last = re.lastIndex
   }
@@ -176,6 +177,19 @@ function wireVennGeom(s: Record<string, unknown>): VennGeom {
 function wireFigure(w: Record<string, unknown>): FigItem | null {
   const kind = w.kind as string
   switch (kind) {
+    case 'raw_svg': {
+      // Sanitized at the boundary, not at render time: after this point the
+      // figure is a checked tree, and no later caller can accidentally
+      // reintroduce the markup it came from.
+      const { node, dropped } = sanitizeSvg(String(w.raw_svg ?? ''))
+      if (!node || svgNodeCount(node) < 2) return null
+      return {
+        kind: 'raw_svg',
+        node,
+        ...(dropped.length ? { dropped } : {}),
+        ...(w.note ? { note: String(w.note) } : {}),
+      }
+    }
     case 'function_graph':
       return { kind: 'function_graph', panels: ((w.panels as Record<string, unknown>[]) ?? []).map(wirePanel) }
     case 'venn':
@@ -310,4 +324,40 @@ export function wireToQuestion(raw: Record<string, unknown>): ExtractedQuestion 
     confidence: Number(raw.confidence ?? 0),
     warnings: (raw.warnings as string[]) ?? [],
   }
+}
+
+/** Which figure lane a question runs, after the model has answered. */
+export type FigureLane = 'plain' | 'dsl' | 'raster'
+
+/**
+ * Picks the lane from what the model returned, not from what the pixels
+ * predicted.
+ *
+ * `figureMode` is a guess made by the crop classifier before the question was
+ * read, and on plane geometry it is wrong in both directions: a plain
+ * black-and-white drawing has neither colour nor a long horizontal rule, so it
+ * reads as `plain`, while a bare diagram of straight strokes reads as `dsl`
+ * and is handed to a vector vocabulary that cannot express an arbitrary angle
+ * figure. The second mistake was the silent one — the vector lane with no spec
+ * to render simply did nothing, and a question whose entire subject is a
+ * picture reached review without one.
+ *
+ * So the answer decides: a figure spec is rendered, a reported figure box is
+ * redrawn, and only when the model offers neither is there genuinely nothing
+ * to draw.
+ */
+export function chooseFigureLane(input: {
+  /** what the crop classifier guessed */
+  figureMode: FigureLane
+  /** the model returned a renderable figure spec */
+  hasDslFigures: boolean
+  /** the model reported where the drawing sits in the crop */
+  hasFigureBox: boolean
+}): FigureLane {
+  // Colour is the one signal the classifier is reliable about, and the vector
+  // vocabulary has no colour: trust it over anything the model says.
+  if (input.figureMode === 'raster') return 'raster'
+  if (input.hasDslFigures) return 'dsl'
+  if (input.hasFigureBox) return 'raster'
+  return 'plain'
 }

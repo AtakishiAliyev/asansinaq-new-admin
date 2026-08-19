@@ -1,3 +1,4 @@
+import { RawSvgFig } from '@/components/question/raw-svg-fig'
 import type { FigItem, FigureDoc } from '@/core/figures/figspec'
 import { FunctionGraphView } from './function-graph'
 import { VennFigView } from './venn-fig'
@@ -26,6 +27,8 @@ export function FigItemView({
       return <TableFigView fig={item} />
     case 'number_line':
       return <NumberLineView fig={item} />
+    case 'raw_svg':
+      return <RawSvgFig node={item.node} />
     case 'image':
       return (
         <img

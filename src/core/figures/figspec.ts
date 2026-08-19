@@ -1,3 +1,5 @@
+import type { SvgNode } from '@/core/figures/svg-safe'
+
 // FigSpec DSL — the declarative "drawing tool" the vision model fills in.
 // The AI never draws pixels; it emits one of these typed objects and the
 // renderers turn it into exact, watermark-free SVG. Keeping this the single
@@ -162,7 +164,20 @@ export interface ImageFig {
   note?: string
 }
 
+// The escape hatch: a diagram that fits none of the kinds above — an angle
+// figure, a labelled construction, an arbitrary schematic. The model writes
+// the SVG itself. Stored as the sanitized TREE, never as markup, so nothing
+// downstream can be tempted to inject it; see core/figures/svg-safe.ts.
+export interface RawSvgFig {
+  kind: 'raw_svg'
+  node: SvgNode
+  /** allowlist rejections, surfaced to the reviewer */
+  dropped?: string[]
+  note?: string
+}
+
 export type FigItem =
+  | RawSvgFig
   | FunctionGraphFig
   | VennFig
   | DivisionScheme
