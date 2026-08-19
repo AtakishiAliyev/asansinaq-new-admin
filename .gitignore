@@ -26,8 +26,10 @@ dist-ssr
 .env
 .claude/settings.local.json
 .claude/launch.json
-# Local test material (commercial book, never committed)
-public/segtest.pdf
+# Local test material (commercial books, never committed). Deliberately NOT
+# under public/: vite copies public/ into dist/ verbatim, so a book parked
+# there rides along into every build and any static deploy publishes it.
+local/
 
 # Copied from pdfjs-dist on install (scripts/copy-pdfjs-wasm.mjs)
 public/pdfjs/

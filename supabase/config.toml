@@ -156,11 +156,23 @@ max_indexes = 5
 enabled = true
 # The base URL of your website. Used as an allow-list for redirects and for constructing URLs used
 # in emails.
-site_url = "http://localhost:5173"
+# Env-driven on purpose. This file is the source of truth that gets pushed to
+# the hosted project, so a hardcoded localhost here means the first `config
+# push` from a dev machine repoints production's auth emails at a machine that
+# is not serving anything. Set these in `.env` (see `.env.example`).
+site_url = "env(SUPABASE_AUTH_SITE_URL)"
 # The public URL that Auth serves on. Defaults to the API external URL with `/auth/v1` appended.
 # external_url = ""
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
-additional_redirect_urls = ["http://localhost:5173", "http://localhost:5173/**"]
+# NOTE: env() substitution inside an ARRAY is not documented, unlike the scalar
+# form above, and could not be verified locally. Check the first `config push`
+# output: if these arrive at the project literally, replace them with the two
+# URLs spelled out. Failing that way is safe — the allowlist can only get
+# narrower, never more permissive.
+additional_redirect_urls = [
+  "env(SUPABASE_AUTH_SITE_URL)",
+  "env(SUPABASE_AUTH_REDIRECT_WILDCARD)",
+]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
 # JWT issuer URL. If not set, defaults to auth.external_url.
@@ -431,14 +443,10 @@ enabled = true
 # JSON string passed through to pg-delta SQL formatting.
 # format_options = "{\"keywordCase\":\"upper\",\"indent\":2,\"maxWidth\":80,\"commaStyle\":\"trailing\"}"
 
-# Question-detection for scanned pages. JWT verification stays on; the
-# function additionally checks is_admin() before spending Gemini budget.
-[functions.detect-questions]
-verify_jwt = true
-
-# Question recreation ops (extract / redraw / compare / solve / category /
-# answer-key). JWT verification stays on; the function additionally checks
-# is_admin() before spending model budget.
+# Every model call of the pipeline: page detection, extract, redraw, compare,
+# category and answer-key. One door, so the budget cap, the ledger and the
+# cache cannot be bypassed by adding a second function. JWT verification stays
+# on; the function additionally checks is_admin() before spending.
 [functions.question-ops]
 verify_jwt = true
 import_map = "./functions/question-ops/deno.json"

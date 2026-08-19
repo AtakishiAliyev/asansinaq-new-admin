@@ -11,7 +11,9 @@
     "format": "prettier --write .",
     "preview": "vite preview",
     "typecheck": "tsc -b",
-    "types:gen": "npx supabase gen types typescript --project-id bzcausrjnxdkwyewjfar --schema public > src/types/database.ts",
+    "eval": "node --import ./eval/loader.mjs --disable-warning=ExperimentalWarning eval/run.ts",
+    "types:gen": "node scripts/gen-types.mjs",
+    "config:push": "node scripts/config-push.mjs",
     "postinstall": "node scripts/copy-pdfjs-wasm.mjs"
   },
   "dependencies": {
