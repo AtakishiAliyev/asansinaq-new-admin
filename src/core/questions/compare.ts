@@ -27,11 +27,40 @@ export function canonMath(s: string): string {
     .replace(/\\tfrac/g, '\\frac')
     .replace(/\\cdot|\\times/g, '*')
     .replace(/\\left|\\right/g, '')
-    .replace(/\\!/g, '')
+    // Spacing macros carry no meaning, and two temperature-0 models disagree
+    // about them constantly. Each disagreement costs a reviewer's attention.
+    .replace(/\\qquad|\\quad|\\;|\\:|\\,|\\!/g, '')
+    // The same operator, spelled two ways.
+    .replace(/\\leq/g, '\\le')
+    .replace(/\\geq/g, '\\ge')
+    .replace(/\\neq/g, '\\ne')
+    // A single token needs no braces: x^{2} is x^2, \sqrt{5} is \sqrt5, {,} is
+    // the decimal comma. Longer groups keep theirs, so x^{12} and x^12 stay
+    // distinguishable — and \{ \} (an escaped set brace) never matches.
+    .replace(/\{([^{}\\])\}/g, '$1')
     .replace(/\{\}/g, '')
     .replace(/[−–—]/g, '-') // unicode minus variants → ascii
-    .replace(/\\,/g, '')
     .toLowerCase()
+}
+
+// Numbers written in prose are content, not wording. The fuzzy gate below
+// cannot see them: one digit in a hundred characters is 0.99 similar, so
+// "75 səhifə" and "76 səhifə" read as agreement and the question is verified
+// with a hallucinated number — the exact failure the second read exists to
+// catch. The number SEQUENCE is therefore compared exactly, and the words are
+// then compared with the numbers removed, so the two checks never overlap: a
+// decimal comma written as a decimal point is the same number, and must not
+// also spend part of the wording budget.
+const PROSE_NUMBER = /\d+(?:[.,]\d+)?/g
+
+function numbersIn(text: string): string[] {
+  return (text.match(PROSE_NUMBER) ?? []).map((n) => n.replace(',', '.'))
+}
+
+// Masked rather than deleted: deleting them shortens the text, and a shorter
+// text makes every remaining typo weigh more against the same ratio.
+function maskNumbers(text: string): string {
+  return text.replace(PROSE_NUMBER, (n) => '#'.repeat(n.length))
 }
 
 // Split a stem into math ($...$) and prose parts; compare part-by-part.
@@ -43,7 +72,8 @@ function parts(text: string): Part[] {
   let m: RegExpExecArray | null
   while ((m = re.exec(text)) !== null) {
     if (m.index > last) out.push({ math: false, value: text.slice(last, m.index) })
-    out.push({ math: true, value: m[1] ?? m[2] })
+    // The two alternatives each carry one group, so exactly one is set.
+    out.push({ math: true, value: m[1] ?? m[2]! })
     last = re.lastIndex
   }
   if (last < text.length) out.push({ math: false, value: text.slice(last) })
@@ -88,7 +118,11 @@ function stemDiff(a: string, b: string): string | null {
   if (mathA.join('|') !== mathB.join('|')) return `math: [${mathA.join(', ')}] ≠ [${mathB.join(', ')}]`
   const proseA = pa.filter((p) => !p.math).map((p) => p.value).join(' ')
   const proseB = pb.filter((p) => !p.math).map((p) => p.value).join(' ')
-  if (!proseSimilar(proseA, proseB)) return 'prose fərqi'
+  const numsA = numbersIn(proseA)
+  const numsB = numbersIn(proseB)
+  if (numsA.join('|') !== numsB.join('|'))
+    return `rəqəm: [${numsA.join(', ')}] ≠ [${numsB.join(', ')}]`
+  if (!proseSimilar(maskNumbers(proseA), maskNumbers(proseB))) return 'prose fərqi'
   return null
 }
 
@@ -139,8 +173,8 @@ export function compareQuestions(a: ExtractedQuestion, b: ExtractedQuestion): Co
     diffs.push({ field: 'options', a: `${a.options.length} variant`, b: `${b.options.length} variant` })
   } else {
     for (let i = 0; i < a.options.length; i++) {
-      const oa = a.options[i]
-      const ob = b.options[i]
+      const oa = a.options[i]!
+      const ob = b.options[i]!
       if (oa.label !== ob.label || !optionContentEqual(oa, ob)) {
         diffs.push({ field: `option ${oa.label}`, a: oa.tex ?? '[şəkil]', b: ob.tex ?? '[şəkil]' })
       }

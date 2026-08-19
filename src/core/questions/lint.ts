@@ -11,8 +11,36 @@ export interface Flag {
   message: string
 }
 
+// A stem that talks about a drawing. Three groups, because the books mix them:
+// the Turkish printing ("şekil", "yukarıdaki"), the Azerbaijani spelling of the
+// same words ("şəkil", "cədvəl"), and plane-geometry vocabulary — a geometry
+// stem names the shape instead of saying "figure" ("ABC üçbucağında"), which is
+// exactly the class the pixel classifier also misses, since those drawings
+// carry no colour and no long horizontal rule.
+const REFERENCES_DRAWING = new RegExp(
+  [
+    // names the drawing outright
+    'şema|şəma|şekil|şəkil|grafik|grafiğ|qrafik|venn|tablo|cədvəl|diaqram|sxem',
+    // points at it
+    'yukarıdaki|yuxarıdakı|yandaki|yandakı|aşağıdaki\\s+(çarpma|bölme|toplama)',
+    // names a shape that is only ever drawn. Deliberately excludes kare /
+    // kvadrat / kub / açı / çevrə: those are arithmetic words too ("x-in
+    // kvadratı", "açıqlayın"), and this flag is an error that costs a
+    // reviewer every time it fires.
+    // q → ğ before a vowel suffix: "üçbucaq" is "üçbucağında" once declined,
+    // which is how a stem actually reads.
+    'üçgen|üçbucaq|üçbucağ|dikdörtgen|düzbucaq|paralelkenar|paraleloqram|trapez',
+    'prizma|piramit|piramida|silindir|çember|koordinat\\s+müstəvi',
+    'sayı\\s+doğrusu|ədəd\\s+oxu',
+  ].join('|'),
+  'i',
+)
+
 // Deterministic checks run on every extraction before it reaches review. Any
 // error routes the draft to needs_review; warnings just annotate it.
+/** Real options are short: a number, a set, an interval. */
+const MAX_OPTION_TEX = 120
+
 export function lintQuestion(q: ExtractedQuestion, expectedNumber?: number): Flag[] {
   const flags: Flag[] = []
   const add = (level: Flag['level'], code: string, message: string) => flags.push({ level, code, message })
@@ -25,7 +53,23 @@ export function lintQuestion(q: ExtractedQuestion, expectedNumber?: number): Fla
   const labels = q.options.map((o) => o.label).join('')
   if (q.options.length === 5 && labels !== 'ABCDE') add('warning', 'option_labels', `Variant hərfləri: ${labels}`)
 
-  if (!q.stem.trim()) add('error', 'empty_stem', 'Sual mətni boşdur')
+  // A figure question with no printed stem is a real format, not a failure:
+  // these books print the instruction once above a group ("aşağıdaki
+  // şekillerde taralı bölge…") and each numbered item is then just a diagram
+  // and five options. The crop holds the item, not the heading. Treated as an
+  // error it threw away work that was already paid for; the honest reading is
+  // that the question is legible and its wording lives outside the crop.
+  if (!q.stem.trim()) {
+    if (q.figures?.items.length) {
+      add(
+        'warning',
+        'stem_from_figure',
+        'Sual mətni yoxdur — şərt şəkildən oxunur, çap olunmuş şərt crop-dan kənardadır',
+      )
+    } else {
+      add('error', 'empty_stem', 'Sual mətni boşdur')
+    }
+  }
   if (/saveh|oca/i.test(q.stem)) add('error', 'watermark_leak', 'Mətndə watermark izi (saveh/oca)')
 
   // math compiles
@@ -33,9 +77,29 @@ export function lintQuestion(q: ExtractedQuestion, expectedNumber?: number): Fla
     if (!texCompiles(t)) add('error', 'stem_latex', `Stem-də LaTeX xətası: ${t.slice(0, 40)}`)
   })
   q.options.forEach((o) => {
-    if (!o.tex && !o.image && !o.isImage)
-      add('error', 'option_empty', `${o.label} variantı boşdur — nə TeX, nə şəkil var`)
+    // `isImage` used to satisfy this check on its own, which made it possible
+    // for an option to be declared a picture, never have one generated, and
+    // still pass as complete. The flag is the model's intent; only `image` is
+    // the thing a student would see.
+    if (!o.tex && !o.image) {
+      add(
+        'error',
+        'option_empty',
+        o.isImage
+          ? `${o.label} variantı şəkil kimi işarələnib, amma şəkli yaradılmayıb`
+          : `${o.label} variantı boşdur — nə TeX, nə şəkil var`,
+      )
+    }
     if (o.tex && !texCompiles(o.tex)) add('error', 'option_latex', `${o.label} variantında LaTeX xətası`)
+    // An option is a value, not a sentence. When the model narrates — quoting
+    // our own rules back at us, explaining what it decided to omit — the text
+    // compiles as LaTeX and every other check passes it.
+    if (o.tex && o.tex.length > MAX_OPTION_TEX)
+      add(
+        'error',
+        'option_prose',
+        `${o.label} variantı mətn deyil, izahat kimi görünür (${o.tex.length} simvol)`,
+      )
   })
 
   // A well-formed multiple choice never repeats an answer: two identical
@@ -67,7 +131,7 @@ export function lintQuestion(q: ExtractedQuestion, expectedNumber?: number): Fla
 
   // Stem references a drawing but the model returned no figure — almost always
   // an extraction failure, never auto-approvable.
-  if (!q.figures && /şema|şekil|grafik|grafiğ|yukarıdaki|yandaki|venn|tablo|aşağıdaki\s+(çarpma|bölme|toplama)/i.test(q.stem))
+  if (!q.figures && REFERENCES_DRAWING.test(q.stem))
     add('error', 'missing_figure', 'Stem şəkilə istinad edir, amma fiqur çıxarılmayıb')
 
   if (q.figures) flags.push(...lintFigures(q.figures))
@@ -88,16 +152,28 @@ function lintFigures(doc: FigureDoc): Flag[] {
       for (const p of item.panels) {
         const sampled = p.curves.map((c) => sampleCurve(c.def))
         sampled.forEach((s, i) => {
-          if (!s.ok) flags.push({ level: 'error', code: 'curve_invalid', message: `Əyri "${p.curves[i].id}" render olunmur: ${s.error ?? ''}` })
+          if (!s.ok) flags.push({ level: 'error', code: 'curve_invalid', message: `Əyri "${p.curves[i]!.id}" render olunmur: ${s.error ?? ''}` })
         })
         const marks = (p.points ?? []).map((pt) => [pt.x, pt.y] as [number, number])
         if (marks.length) {
           const on = pointsLieOnCurves(marks, sampled)
           on.forEach((ok, i) => {
-            if (!ok) flags.push({ level: 'warning', code: 'point_off_curve', message: `İşarəli nöqtə (${marks[i][0]}, ${marks[i][1]}) heç bir əyri üzərində deyil` })
+            if (!ok) flags.push({ level: 'warning', code: 'point_off_curve', message: `İşarəli nöqtə (${marks[i]![0]}, ${marks[i]![1]}) heç bir əyri üzərində deyil` })
           })
         }
       }
+    }
+    if (item.kind === 'raw_svg') {
+      // The one figure kind nothing can check for us: no schema, no geometry
+      // to re-derive, only markup a model wrote. It is worth having, and it is
+      // never worth trusting unseen.
+      flags.push({
+        level: 'warning',
+        code: 'raw_svg',
+        message: item.dropped?.length
+          ? `sərbəst SVG fiquru — insan yoxlaması şərtdir (təmizlənən: ${item.dropped.join(', ')})`
+          : 'sərbəst SVG fiquru — insan yoxlaması şərtdir',
+      })
     }
     if (item.kind === 'venn') {
       const ids = new Set(item.shapes.map((s) => s.id))
@@ -125,7 +201,7 @@ function extractTex(text: string): string[] {
   const out: string[] = []
   const re = /\$\$([\s\S]+?)\$\$|\$([^$]+?)\$/g
   let m: RegExpExecArray | null
-  while ((m = re.exec(text)) !== null) out.push(m[1] ?? m[2])
+  while ((m = re.exec(text)) !== null) out.push(m[1] ?? m[2]!)
   return out
 }
 

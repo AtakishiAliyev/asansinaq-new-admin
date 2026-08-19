@@ -52,23 +52,6 @@ function bareNumber(s: string): number | null {
   return m ? Number(m[1]) : null
 }
 
-/**
- * Section number printed on the page itself. Key pages carry it even in books
- * whose question pages do not — that is what makes end-of-book keys matchable.
- */
-export function findSectionNumber(items: SegItem[]): number | undefined {
-  const joined = items
-    .slice()
-    .sort((a, b) => a.yTop - b.yTop || a.x - b.x)
-    .map((it) => it.str)
-    .join(' ')
-  for (const re of SECTION_PATTERNS) {
-    const m = joined.match(re)
-    if (m) return Number(m[1])
-  }
-  return undefined
-}
-
 /** Group items into visual rows by their vertical position. */
 function toRows(items: SegItem[]): SegItem[][] {
   const sorted = items
@@ -78,9 +61,10 @@ function toRows(items: SegItem[]): SegItem[][] {
   const means: number[] = []
   for (const it of sorted) {
     const lastIndex = rows.length - 1
-    if (lastIndex >= 0 && Math.abs(means[lastIndex] - it.yTop) <= ROW_TOLERANCE_PT) {
-      const row = rows[lastIndex]
-      means[lastIndex] = (means[lastIndex] * row.length + it.yTop) / (row.length + 1)
+    // rows and means are pushed together, so lastIndex addresses both.
+    if (lastIndex >= 0 && Math.abs(means[lastIndex]! - it.yTop) <= ROW_TOLERANCE_PT) {
+      const row = rows[lastIndex]!
+      means[lastIndex] = (means[lastIndex]! * row.length + it.yTop) / (row.length + 1)
       row.push(it)
     } else {
       rows.push([it])
@@ -90,52 +74,153 @@ function toRows(items: SegItem[]): SegItem[][] {
   return rows.map((r) => r.sort((a, b) => a.x - b.x))
 }
 
+interface SectionHeader {
+  testNo: number
+  x: number
+  yTop: number
+}
+
+/**
+ * Every "N. DENEME" / "TEST N" label on the page, with where it is printed.
+ * Matched across the joined row rather than per item (a label is usually split
+ * into "8." and "DENEME"), then mapped back to the item it starts in — a grid
+ * of tests prints its headers side by side on ONE line, so a row can carry
+ * several, and each needs its own x to own the column beneath it.
+ */
+function findSectionHeaders(rows: SegItem[][]): SectionHeader[] {
+  const headers: SectionHeader[] = []
+  for (const row of rows) {
+    const spans: { start: number; end: number; item: SegItem }[] = []
+    let text = ''
+    for (const it of row) {
+      spans.push({ start: text.length, end: text.length + it.str.length, item: it })
+      text += it.str + ' '
+    }
+    const found = new Map<number, SectionHeader>()
+    for (const re of SECTION_PATTERNS) {
+      for (const m of text.matchAll(new RegExp(re.source, 'gi'))) {
+        if (m.index === undefined) continue
+        const span =
+          spans.find((s) => m.index! >= s.start && m.index! < s.end) ?? spans[0]
+        if (!span) continue
+        // Two patterns can match the same label ("TEST 3. DENEME"); the
+        // position is what makes them the same header, not the wording.
+        if (!found.has(span.item.x)) {
+          found.set(span.item.x, {
+            testNo: Number(m[1]),
+            x: span.item.x,
+            yTop: span.item.yTop,
+          })
+        }
+      }
+    }
+    headers.push(...found.values())
+  }
+  return headers
+}
+
+/** Two headers printed side by side sit within a line of each other. */
+const HEADER_BAND_PT = 20
+
+/**
+ * Which test an entry belongs to. Books print several tests on one key page —
+ * stacked, or side by side in a grid — and reading a single page-level number
+ * collapsed all of them into test 1, which then turned every repeated question
+ * number into a conflict.
+ */
+function sectionFor(
+  headers: SectionHeader[],
+  x: number,
+  yTop: number,
+): number | undefined {
+  if (!headers.length) return undefined
+  // One header means one test, including for anything printed above it.
+  if (headers.length === 1) return headers[0]!.testNo
+  const above = headers.filter((h) => h.yTop <= yTop)
+  if (!above.length) return undefined
+  // Nearest band above, then nearest across — which resolves a stacked layout
+  // by row and a side-by-side grid by column.
+  const lowest = Math.max(...above.map((h) => h.yTop))
+  const band = above.filter((h) => lowest - h.yTop <= HEADER_BAND_PT)
+  return band.reduce((best, h) =>
+    Math.abs(h.x - x) < Math.abs(best.x - x) ? h : best,
+  ).testNo
+}
+
 export function parseAnswerKeyPage(items: SegItem[]): AnswerKeyParse {
   const notes: string[] = []
-  const testNo = findSectionNumber(items)
-  const seen = new Map<number, AnswerKeyEntry>()
-  const conflicts: number[] = []
+  const rows = toRows(items)
+  const headers = findSectionHeaders(rows)
+  // Keyed by TEST and question: a page holding four tests prints question 1
+  // four times, and keying on the number alone would read each of those as the
+  // same question disagreeing with itself.
+  const seen = new Map<string, AnswerKeyEntry>()
+  const conflicts = new Set<string>()
+  const slot = (testNo: number | undefined, qNo: number) => `${testNo ?? 0}:${qNo}`
 
-  const record = (qNo: number, letter: string) => {
+  const record = (qNo: number, letter: string, x: number, yTop: number) => {
     if (qNo < 1 || qNo > 999) return
     const answer = letter.trim().toUpperCase() as AnswerKeyEntry['answer']
     if (!ANSWER_LETTERS.has(answer)) return
-    const existing = seen.get(qNo)
+    const testNo = sectionFor(headers, x, yTop)
+    const key = slot(testNo, qNo)
+    // A question the page reads two ways is a question this page cannot
+    // answer. Keeping the first reading would write a confidently wrong
+    // answer, which the pipeline treats as worse than no answer at all.
+    if (conflicts.has(key)) return
+    const existing = seen.get(key)
     if (existing && existing.answer !== answer) {
-      conflicts.push(qNo)
+      conflicts.add(key)
+      seen.delete(key)
       return
     }
-    seen.set(qNo, { qNo, answer, ...(testNo !== undefined ? { testNo } : {}) })
+    seen.set(key, { qNo, answer, ...(testNo !== undefined ? { testNo } : {}) })
   }
 
-  for (const row of toRows(items)) {
+  rows.forEach((row, rowIndex) => {
     const rowText = row.map((it) => it.str).join(' ')
     // "3. DENEME SINAVI" reads as "3 → D" to any pair matcher. Section
     // headers are labels, never data.
-    if (SECTION_PATTERNS.some((re) => re.test(rowText))) continue
+    if (SECTION_PATTERNS.some((re) => re.test(rowText))) return
 
     // Pass 1: cells that already carry both parts ("12. C", "1-A 2-E 3-B").
     for (const it of row) {
-      for (const m of it.str.matchAll(PAIR_RE)) record(Number(m[1]), m[2])
+      for (const m of it.str.matchAll(PAIR_RE)) {
+        // Both PAIR_RE groups are mandatory, so a match carries both.
+        record(Number(m[1]), m[2]!, it.x, it.yTop)
+      }
     }
     // Pass 2: the number and the letter are separate cells of a table row.
     // Pair each bare number with the next letter to its right, which is how
     // every column-per-answer layout reads.
-    let pendingNo: number | null = null
+    let pending: { n: number; x: number } | null = null
     for (const it of row) {
       const n = bareNumber(it.str)
       if (n !== null) {
-        pendingNo = n
+        pending = { n, x: it.x }
         continue
       }
-      if (pendingNo !== null && isAnswerLetter(it.str)) {
-        record(pendingNo, it.str)
-        pendingNo = null
+      if (pending !== null && isAnswerLetter(it.str)) {
+        record(pending.n, it.str, pending.x, it.yTop)
+        pending = null
       }
     }
-  }
 
-  const entries = [...seen.values()].sort((a, b) => a.qNo - b.qNo)
+    // Pass 3: the numbers are a row and the answers are the row BENEATH it.
+    // Neither pass above pairs anything in that layout — the number row holds
+    // no letters — so the whole page used to come back empty and be reported
+    // as "not a key page".
+    const next = rows[rowIndex + 1]
+    if (!next || next.length !== row.length || row.length < 3) return
+    const numbers = row.map((it) => bareNumber(it.str))
+    if (numbers.some((n) => n === null)) return
+    if (!next.every((it) => isAnswerLetter(it.str))) return
+    numbers.forEach((n, i) => record(n as number, next[i]!.str, row[i]!.x, row[i]!.yTop))
+  })
+
+  const entries = [...seen.values()].sort(
+    (a, b) => (a.testNo ?? 0) - (b.testNo ?? 0) || a.qNo - b.qNo,
+  )
 
   if (entries.length && entries.length < MIN_KEY_ENTRIES) {
     return {
@@ -146,23 +231,34 @@ export function parseAnswerKeyPage(items: SegItem[]): AnswerKeyParse {
     }
   }
 
-  if (conflicts.length) {
+  if (conflicts.size) {
+    const shown = [...conflicts].slice(0, 5).map((k) => k.split(':')[1])
     notes.push(
-      `${conflicts.length} sual üçün ziddiyyətli cavab oxundu (${conflicts.slice(0, 5).join(', ')}) — ötürüldü`,
+      `${conflicts.size} sual üçün ziddiyyətli cavab oxundu (${shown.join(', ')}) — ötürüldü`,
     )
   }
   if (!entries.length) notes.push('Bu səhifədə cavab açarı tapılmadı')
-  // A key table is a dense run of numbers; a gap usually means a missed cell.
-  if (entries.length > 2) {
+  if (headers.length > 1) {
+    notes.push(`Səhifədə ${headers.length} test başlığı tapıldı`)
+  }
+  // A key table is a dense run of numbers, per test; a gap usually means a
+  // missed cell. Counted from 1, not from the first entry: a key whose opening
+  // rows were missed would otherwise look complete.
+  const byTest = new Map<number, Set<number>>()
+  for (const e of entries) {
+    const set = byTest.get(e.testNo ?? 0) ?? new Set<number>()
+    set.add(e.qNo)
+    byTest.set(e.testNo ?? 0, set)
+  }
+  for (const [testNo, numbers] of byTest) {
+    if (numbers.size <= 2) continue
+    const last = Math.max(...numbers)
     const missing: number[] = []
-    // Start from 1, not from the first entry: a key whose opening rows were
-    // missed would otherwise look complete.
-    for (let n = 1; n < entries[entries.length - 1].qNo; n++) {
-      if (!seen.has(n)) missing.push(n)
-    }
+    for (let n = 1; n < last; n++) if (!numbers.has(n)) missing.push(n)
     if (missing.length) {
+      const where = testNo ? `Test ${testNo}: ` : ''
       notes.push(
-        `Sıradakı boşluqlar: ${missing.slice(0, 10).join(', ')}${missing.length > 10 ? '…' : ''}`,
+        `${where}sıradakı boşluqlar: ${missing.slice(0, 10).join(', ')}${missing.length > 10 ? '…' : ''}`,
       )
     }
   }

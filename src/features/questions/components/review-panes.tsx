@@ -14,6 +14,16 @@ export function ReviewPanes({
   isSigning: boolean
   resolveImageUrl: (src: string) => string
 }) {
+  // A diagram question has no stem — its wording is printed above the group
+  // and never enters the crop. Gating the preview on `stem` hid a row that was
+  // fully extracted: five options, a generated figure, both reads agreeing.
+  const options = parseOptions(item.options)
+  const figures = parseFigures(item.figures)
+  const recreated =
+    item.stem || options.length || figures?.items.length
+      ? { stem: item.stem ?? '', options, figures }
+      : null
+
   return (
     <div className="grid min-h-0 flex-1 gap-3 overflow-auto md:grid-cols-2">
       <div className="flex flex-col gap-1.5">
@@ -35,14 +45,10 @@ export function ReviewPanes({
           Yenidən yaradılmış
         </p>
         <div className="rounded-md border bg-white p-3">
-          {item.stem ? (
+          {recreated ? (
             <QuestionPreview
               answer={item.answer}
-              question={{
-                stem: item.stem,
-                options: parseOptions(item.options),
-                figures: parseFigures(item.figures),
-              }}
+              question={recreated}
               resolveImageUrl={resolveImageUrl}
             />
           ) : (

@@ -30,10 +30,12 @@ export function stemDiffTokens(textLayer: string, extracted: string, max = 8): T
 
   const m = a.length
   const n = b.length
+  // dp is (m + 1) x (n + 1) and both walks below stay under m and n, so every
+  // i + 1 / j + 1 lookup here and in the traceback still lands on a real cell.
   const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0))
   for (let i = m - 1; i >= 0; i--)
     for (let j = n - 1; j >= 0; j--)
-      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1])
+      dp[i]![j] = a[i] === b[j] ? dp[i + 1]![j + 1]! + 1 : Math.max(dp[i + 1]![j]!, dp[i]![j + 1]!)
 
   const diffs: TokenDiff[] = []
   let i = 0
@@ -42,15 +44,15 @@ export function stemDiffTokens(textLayer: string, extracted: string, max = 8): T
     if (a[i] === b[j]) {
       i++
       j++
-    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
-      diffs.push({ layer: a[i], extracted: '∅' })
+    } else if (dp[i + 1]![j]! >= dp[i]![j + 1]!) {
+      diffs.push({ layer: a[i]!, extracted: '∅' })
       i++
     } else {
-      diffs.push({ layer: '∅', extracted: b[j] })
+      diffs.push({ layer: '∅', extracted: b[j]! })
       j++
     }
   }
-  while (i < m && diffs.length < max) diffs.push({ layer: a[i++], extracted: '∅' })
-  while (j < n && diffs.length < max) diffs.push({ layer: '∅', extracted: b[j++] })
+  while (i < m && diffs.length < max) diffs.push({ layer: a[i++]!, extracted: '∅' })
+  while (j < n && diffs.length < max) diffs.push({ layer: '∅', extracted: b[j++]! })
   return diffs
 }

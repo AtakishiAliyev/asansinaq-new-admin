@@ -88,7 +88,10 @@ export function RecreationCheckDialog({
               Yenidən yaradılmış
             </p>
             <div className="rounded-md border bg-white p-3">
-              {item.question ? (
+              {item.question &&
+              (item.question.stem ||
+                item.question.options.length ||
+                item.question.figures?.items.length) ? (
                 <QuestionPreview
                   question={{
                     stem: item.question.stem,

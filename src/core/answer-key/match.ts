@@ -118,7 +118,7 @@ export function matchAnswerKeys(
 
     // 3. A book with a single run of numbering needs no section at all.
     if (!pool.length && !block.testNo && sections.length === 1) {
-      pool = sections[0].ids
+      pool = sections[0]!.ids
       inferredSection = 1
     }
 

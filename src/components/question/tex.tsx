@@ -58,7 +58,8 @@ function splitMath(text: string): Part[] {
   while ((m = re.exec(text)) !== null) {
     if (m.index > last) parts.push({ kind: 'text', value: text.slice(last, m.index) })
     if (m[1] !== undefined) parts.push({ kind: 'math', value: m[1], display: true })
-    else parts.push({ kind: 'math', value: m[2], display: false })
+    // Two alternatives, one group each: m[1] absent means m[2] matched.
+    else parts.push({ kind: 'math', value: m[2]!, display: false })
     last = re.lastIndex
   }
   if (last < text.length) parts.push({ kind: 'text', value: text.slice(last) })

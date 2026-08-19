@@ -37,7 +37,7 @@ function tokenize(input: string): Tok[] {
   const toks: Tok[] = []
   let i = 0
   while (i < s.length) {
-    const ch = s[i]
+    const ch = s[i]!
     if (ch === ' ' || ch === '\t' || ch === '\n') {
       i++
       continue
@@ -45,7 +45,7 @@ function tokenize(input: string): Tok[] {
     // Set ids may be multi-letter (Roman-numeral sets: I, II, III, IV; or K, L, M).
     if (/[A-Za-z]/.test(ch)) {
       let j = i
-      while (j < s.length && /[A-Za-z]/.test(s[j])) j++
+      while (j < s.length && /[A-Za-z]/.test(s[j]!)) j++
       toks.push({ k: 'set', id: s.slice(i, j) })
       i = j
       continue
@@ -75,7 +75,7 @@ export function parseSetExpr(input: string): SetAst {
 
   function parseExpr(): SetAst {
     let left = parseTerm()
-    while (peek() && peek().k === 'op' && (peek() as { op: string }).op !== '∩') {
+    while (peek()?.k === 'op' && (peek() as { op: string }).op !== '∩') {
       const op = (next() as { op: '∪' | '−' }).op
       const right = parseTerm()
       left = op === '∪' ? { t: 'union', a: left, b: right } : { t: 'diff', a: left, b: right }
@@ -85,7 +85,7 @@ export function parseSetExpr(input: string): SetAst {
 
   function parseTerm(): SetAst {
     let left = parseFactor()
-    while (peek() && peek().k === 'op' && (peek() as { op: string }).op === '∩') {
+    while (peek()?.k === 'op' && (peek() as { op: string }).op === '∩') {
       next()
       const right = parseFactor()
       left = { t: 'inter', a: left, b: right }
@@ -95,7 +95,7 @@ export function parseSetExpr(input: string): SetAst {
 
   function parseFactor(): SetAst {
     let node = parseAtom()
-    while (peek() && peek().k === 'compl') {
+    while (peek()?.k === 'compl') {
       next()
       node = { t: 'compl', a: node }
     }
@@ -112,7 +112,7 @@ export function parseSetExpr(input: string): SetAst {
     if (tok.k === 'lp') {
       next()
       const inner = parseExpr()
-      if (!peek() || peek().k !== 'rp') throw new Error('Bağlanmayan mötərizə')
+      if (peek()?.k !== 'rp') throw new Error('Bağlanmayan mötərizə')
       next()
       return inner
     }

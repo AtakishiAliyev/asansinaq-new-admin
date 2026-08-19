@@ -8,6 +8,7 @@ import {
   DialogDescription,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { Spinner } from '@/components/ui/spinner'
 import { useCategories } from '@/features/taxonomy'
 import {
   useApproveQuestion,
@@ -36,6 +37,9 @@ export function ReviewScreen({
   items,
   index,
   subjectId,
+  hasNextPage,
+  isAdvancing,
+  onNextPage,
   onNavigate,
   onClose,
   onRestructure,
@@ -43,6 +47,11 @@ export function ReviewScreen({
   items: QuestionListItem[]
   index: number
   subjectId: number | null
+  /** more rows match the filter beyond this page */
+  hasNextPage: boolean
+  /** the next page is loading and this cursor is deliberately empty */
+  isAdvancing: boolean
+  onNextPage: () => void
   onNavigate: (id: number) => void
   onClose: () => void
   onRestructure: (item: QuestionListItem) => void
@@ -56,6 +65,10 @@ export function ReviewScreen({
   const [editing, setEditing] = useState(false)
   const [categoryId, setCategoryId] = useState<number | null>(null)
   const [difficulty, setDifficulty] = useState<number | null>(null)
+  const [answer, setAnswer] = useState<string | null>(null)
+  // Only a reviewer's own pick is written back. A printed-key answer that was
+  // merely displayed must not be rewritten as `answer_source = 'reviewer'`.
+  const [answerChanged, setAnswerChanged] = useState(false)
 
   // Sign a sliding window, not just this row: navigation then resolves from
   // the previous query's map instead of waiting on a fresh signing round-trip.
@@ -78,15 +91,19 @@ export function ReviewScreen({
     if (!current) return
     setCategoryId(current.category_id ?? current.ai_category_id ?? null)
     setDifficulty(current.reviewer_difficulty ?? current.ai_difficulty ?? null)
+    setAnswer(current.answer ?? null)
+    setAnswerChanged(false)
     setEditing(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new question re-prefills
   }, [itemId])
 
   // The queue can empty under the reviewer (the last flagged row gets approved);
   // without this the overlay stays mounted, invisible, holding a stale cursor.
+  // While a page turn is in flight the cursor is empty ON PURPOSE, so closing
+  // then would end the session at every fiftieth question.
   useEffect(() => {
-    if (!item) onClose()
-  }, [item, onClose])
+    if (!item && !isAdvancing) onClose()
+  }, [item, isAdvancing, onClose])
 
   const busy = approve.isPending || reject.isPending || edit.isPending
   const canApprove = Boolean(item && categoryId && item.status === 'structured')
@@ -98,8 +115,11 @@ export function ReviewScreen({
   }
 
   function goTo(target: number | null) {
-    if (target === null) onClose()
-    else onNavigate(target)
+    if (target !== null) onNavigate(target)
+    // Reviewing a big book is one long session, not a hundred sessions of
+    // fifty: at the end of a page, pull the next one instead of closing.
+    else if (hasNextPage) onNextPage()
+    else onClose()
   }
 
   function handleApprove() {
@@ -110,11 +130,16 @@ export function ReviewScreen({
         id: item.id,
         categoryId,
         reviewerDifficulty: difficulty,
-        answer: null,
-        answerChanged: false,
+        answer,
+        answerChanged,
       },
       { onSuccess: () => goTo(after) },
     )
+  }
+
+  function chooseAnswer(next: string) {
+    setAnswer(next)
+    setAnswerChanged(true)
   }
 
   function handleReject() {
@@ -131,12 +156,18 @@ export function ReviewScreen({
       // A focused control owns its own Enter/Space; approving from under it
       // would fire two different actions from one keypress.
       if (target?.closest('button,[role="option"],[role="combobox"]')) return
-      if (e.key === 'ArrowLeft' && index > 0) onNavigate(items[index - 1].id)
+      // Case-folded so Caps Lock does not silently disable the shortcuts.
+      const key = e.key.length === 1 ? e.key.toLowerCase() : e.key
+      // Shift+A…E picks the ANSWER; the same letters unshifted stay the
+      // actions the reviewer already has in muscle memory.
+      if (e.shiftKey && /^[a-e]$/.test(key)) chooseAnswer(key.toUpperCase())
+      else if (/^[1-5]$/.test(key)) setDifficulty(Number(key))
+      else if (e.key === 'ArrowLeft' && index > 0) onNavigate(items[index - 1]!.id)
       else if (e.key === 'ArrowRight' && index < items.length - 1)
-        onNavigate(items[index + 1].id)
-      else if (e.key === 'a' || e.key === 'Enter') handleApprove()
-      else if (e.key === 'd') handleReject()
-      else if (e.key === 'e') setEditing(true)
+        onNavigate(items[index + 1]!.id)
+      else if (key === 'a' || key === 'Enter') handleApprove()
+      else if (key === 'd') handleReject()
+      else if (key === 'e') setEditing(true)
       else return
       e.preventDefault()
     }
@@ -144,7 +175,23 @@ export function ReviewScreen({
     return () => document.removeEventListener('keydown', onKeyDown)
   })
 
-  if (!item) return null
+  if (!item) {
+    if (!isAdvancing) return null
+    return (
+      <Dialog open onOpenChange={(next) => !next && onClose()}>
+        <DialogContent
+          showCloseButton={false}
+          className="flex h-[94vh] max-w-[96vw] items-center justify-center sm:max-w-[96vw]"
+        >
+          <DialogTitle className="sr-only">Növbəti səhifə yüklənir</DialogTitle>
+          <DialogDescription className="sr-only">
+            Növbəti sual dəsti gətirilir.
+          </DialogDescription>
+          <Spinner />
+        </DialogContent>
+      </Dialog>
+    )
+  }
 
   return (
     <Dialog open onOpenChange={(next) => !next && onClose()}>
@@ -166,8 +213,9 @@ export function ReviewScreen({
             {item.q_no}
           </DialogTitle>
           <DialogDescription className="sr-only">
-            Klaviatura ilə yoxlama: A təsdiq, D rədd, E redaktə, sol/sağ ox
-            düymələri ilə keçid. Escape pəncərəni bağlayır.
+            Klaviatura ilə yoxlama: A təsdiq, D rədd, E redaktə, Shift və A–E
+            ilə cavab seçimi, 1–5 çətinlik, sol/sağ ox düymələri ilə keçid.
+            Escape pəncərəni bağlayır.
           </DialogDescription>
           <VerifiedBadge verified={item.verified} />
           {item.status === 'failed' ? (
@@ -203,9 +251,16 @@ export function ReviewScreen({
           aiDifficulty={item.ai_difficulty}
           difficulty={difficulty}
           onDifficultyChange={setDifficulty}
+          answer={answer}
+          answerSource={answerChanged ? 'reviewer' : item.answer_source}
+          onAnswerChange={chooseAnswer}
           busy={busy}
           canApprove={canApprove}
-          canEdit={Boolean(item.stem)}
+          // Anything past the crop stage is editable. Gating on `stem` locked
+          // the editor on exactly the rows that needed it: a figure question
+          // with no printed stem, and a failed read the operator wanted to type
+          // in by hand.
+          canEdit={item.status !== 'cropped'}
           isApproving={approve.isPending}
           onRestructure={() => onRestructure(item)}
           onEdit={() => setEditing(true)}
@@ -217,7 +272,18 @@ export function ReviewScreen({
             Təsdiq üçün kateqoriya seçilməlidir.
           </p>
         ) : null}
+        {answer === null && item.status === 'structured' ? (
+          <p className="text-xs text-amber-700">
+            Cavab yoxdur — cavab açarını idxal edin və ya Shift+A…E ilə seçin.
+            Cavabsız sual bankda istifadə oluna bilməz.
+          </p>
+        ) : null}
 
+        {/* `aria-disabled` rather than `disabled` keeps both arrows in the tab
+            order, which also means the keyboard can still activate them at the
+            edges — `pointer-events-none` only stops the mouse. So the handlers
+            check the bound themselves; without that, Enter on the focused
+            arrow at either end reads past the list and throws. */}
         <div className="flex items-center justify-between">
           <Button
             variant="outline"
@@ -225,12 +291,16 @@ export function ReviewScreen({
             aria-label="Əvvəlki"
             aria-disabled={index <= 0}
             className={index <= 0 ? 'pointer-events-none opacity-50' : undefined}
-            onClick={() => onNavigate(items[index - 1].id)}
+            onClick={() => {
+              const previous = items[index - 1]
+              if (previous) onNavigate(previous.id)
+            }}
           >
             <ChevronLeft />
           </Button>
           <span className="text-muted-foreground text-xs">
-            A = təsdiq · D = rədd · E = redaktə · ← → keçid
+            A = təsdiq · D = rədd · E = redaktə · Shift+A…E = cavab · 1–5 =
+            çətinlik · ← → keçid
           </span>
           <Button
             variant="outline"
@@ -240,7 +310,10 @@ export function ReviewScreen({
             className={
               index >= items.length - 1 ? 'pointer-events-none opacity-50' : undefined
             }
-            onClick={() => onNavigate(items[index + 1].id)}
+            onClick={() => {
+              const next = items[index + 1]
+              if (next) onNavigate(next.id)
+            }}
           >
             <ChevronRight />
           </Button>

@@ -115,10 +115,14 @@ export function QuestionPreview({
       ) : null}
 
       {/* Premise lines and the question line, exactly as printed: the stem
-          carries its own newlines, so leading does the separating. */}
-      <div className={compact ? 'leading-relaxed' : 'leading-[1.75]'}>
-        <StemText text={question.stem} />
-      </div>
+          carries its own newlines, so leading does the separating. A diagram
+          question has none — the wording was printed above its group — and an
+          empty block would put a gap where nothing was. */}
+      {question.stem.trim() ? (
+        <div className={compact ? 'leading-relaxed' : 'leading-[1.75]'}>
+          <StemText text={question.stem} />
+        </div>
+      ) : null}
 
       <ul className={cn(LAYOUT_CLASS[layout], 'list-none')}>
         {question.options.map((o, i) => {

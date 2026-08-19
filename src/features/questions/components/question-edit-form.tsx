@@ -21,7 +21,9 @@ import { parseOptions } from '@/features/questions/lib/row'
 const LABELS = ['A', 'B', 'C', 'D', 'E'] as const
 
 const editFormSchema = z.object({
-  stem: z.string().trim().min(1, 'Sual mətni boş ola bilməz'),
+  // May be empty: a diagram question carries its instruction outside the
+  // crop, and forcing a wording here would invent one.
+  stem: z.string().trim(),
   // Length is whatever the row actually has — the form must not invent a fifth
   // option, nor drop one whose label is outside A–E.
   options: z.array(z.string()),
@@ -41,7 +43,7 @@ export function QuestionEditForm({
   isPending: boolean
   onCancel: () => void
   onSubmit: (values: {
-    stem: string
+    stem: string | null
     options: { label: string; tex?: string; image?: string }[]
   }) => void
 }) {
@@ -76,7 +78,7 @@ export function QuestionEditForm({
           className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto"
           onSubmit={form.handleSubmit((v) =>
             onSubmit({
-              stem: v.stem,
+              stem: v.stem.trim() || null,
               options: labels.map((label, i) => {
                 const existing = current.find((o) => o.label === label)
                 const tex = (v.options[i] ?? '').trim()
@@ -90,7 +92,9 @@ export function QuestionEditForm({
           )}
         >
           <Field data-invalid={form.formState.errors.stem ? true : undefined}>
-            <FieldLabel htmlFor="stem">Sual mətni</FieldLabel>
+            <FieldLabel htmlFor="stem">
+              Sual mətni <span className="text-muted-foreground">(şəkilli suallarda boş qala bilər)</span>
+            </FieldLabel>
             <Textarea id="stem" rows={5} {...form.register('stem')} />
             {form.formState.errors.stem ? (
               <p className="text-destructive text-sm">

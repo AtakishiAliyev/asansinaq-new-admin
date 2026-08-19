@@ -79,7 +79,8 @@ function regionAnchor(
   cx /= pts.length
   cy /= pts.length
   if (pointInRegion(ast, cx, cy, shapeById)) return [cx, cy]
-  let best: [number, number] = pts[0]
+  // pts is non-empty — the emptiness check above already returned.
+  let best: [number, number] = pts[0]!
   let bestD = Infinity
   for (const p of pts) {
     const d = (p[0] - cx) ** 2 + (p[1] - cy) ** 2
