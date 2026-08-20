@@ -21,11 +21,6 @@ import { TOOL_DEFS, runTool, type ToolContext } from './tools.ts'
  *  instructions stay English either way — the variable under test is the
  *  standard, not the whole prompt. */
 export type Standard = 'az' | 'en'
-const STANDARDS: Record<Standard, string> = {
-  az: EXTRACT_SYSTEM,
-  en: EXTRACT_SYSTEM_EN,
-}
-
 export type AgentModel = 'claude-sonnet-5' | 'claude-opus-5'
 /** Not thrift — a loop that has not converged in twenty steps is not going to,
  *  and the count of cases that hit this is the honest health number. */
