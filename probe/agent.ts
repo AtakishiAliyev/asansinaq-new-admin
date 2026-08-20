@@ -21,7 +21,7 @@ const STANDARDS: Record<Standard, string> = {
   en: EXTRACT_SYSTEM_EN,
 }
 
-const MODEL = 'claude-opus-4-6'
+const MODEL = 'claude-opus-5'
 /** Not thrift — a loop that has not converged in twenty steps is not going to,
  *  and the count of cases that hit this is the honest health number. */
 const MAX_STEPS = 20
@@ -93,7 +93,10 @@ export async function runAgent(
     try {
       response = await client.messages.create({
         model: MODEL,
-        max_tokens: 8000,
+        max_tokens: 16000,
+        // Thinking is on by default on this model; `high` effort is the right
+        // setting for work where a wrong answer costs more than a slow one.
+        output_config: { effort: 'high' },
         system: buildSystem(standard),
         tools: TOOL_DEFS,
         messages,

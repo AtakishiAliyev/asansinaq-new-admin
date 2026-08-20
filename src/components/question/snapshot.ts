@@ -6,6 +6,7 @@ import { createElement } from 'react'
 import { createRoot } from 'react-dom/client'
 import { toPng } from 'html-to-image'
 import type { FigureDoc } from '@/core/figures/figspec'
+import type { SvgNode } from '@/core/figures/svg-safe'
 import { FigureRenderer } from './figure-renderer'
 
 export async function snapshotFigure(
@@ -27,4 +28,13 @@ export async function snapshotFigure(
     root.unmount()
     host.remove()
   }
+}
+
+/**
+ * The same, for a single sanitized SVG tree. The agent draws one figure at a
+ * time and has to see it immediately; wrapping it in a FigureDoc first would
+ * only be ceremony.
+ */
+export async function snapshotSvgNode(node: SvgNode): Promise<string> {
+  return snapshotFigure({ v: 1, items: [{ kind: 'raw_svg', node }] })
 }

@@ -30,7 +30,8 @@ const CASES = [
   },
 ]
 
-const RATE = { in: 15 / 1_000_000, out: 75 / 1_000_000 }
+/** claude-opus-5: $5 / $25 per million tokens */
+const RATE = { in: 5 / 1_000_000, out: 25 / 1_000_000 }
 
 // Both arms run every case: the loop is being measured, and so is the claim
 // that the rules work better in English. One variable each.

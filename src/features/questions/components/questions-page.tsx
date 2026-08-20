@@ -360,6 +360,7 @@ export function QuestionsPage() {
             setReviewId(null)
           }}
           onRestructure={(item) => runRestructure([item])}
+          onRefresh={() => void questions.refetch()}
         />
       ) : null}
     </div>

@@ -67,6 +67,25 @@ const RATE = {
   proOut: 15,
   imageFlat: 0.08,
   imageMedium: 0.04,
+  // Anthropic, per million tokens. Sonnet 5 carries an introductory rate
+  // through 2026-08-31; after that it is 3/15 and this table needs a look.
+  sonnetIn: 2,
+  sonnetOut: 10,
+  opusIn: 5,
+  opusOut: 25,
+}
+
+const AGENT_MODELS = new Set(['claude-sonnet-5', 'claude-opus-5'])
+
+function estAnthropicCost(
+  model: string,
+  inputTokens: number | null,
+  outputTokens: number | null,
+): number {
+  const opus = model.includes('opus')
+  const inRate = opus ? RATE.opusIn : RATE.sonnetIn
+  const outRate = opus ? RATE.opusOut : RATE.sonnetOut
+  return (((inputTokens ?? 0) * inRate + (outputTokens ?? 0) * outRate) / 1_000_000)
 }
 
 const CORS_HEADERS = {
@@ -667,6 +686,80 @@ Deno.serve(async (req) => {
         spent,
         budget: DAILY_BUDGET_USD,
         remaining: Math.max(0, DAILY_BUDGET_USD - spent),
+      })
+    }
+
+    // One turn of an agent loop. The loop itself lives in the browser — it
+    // runs for minutes and this function has 150 seconds — but the key stays
+    // here, and so do the ledger and the budget cap, which is the whole reason
+    // every model call goes through one door.
+    if (op === 'agent_step') {
+      const key = Deno.env.get('ANTHROPIC_API_KEY')
+      if (!key) return json(500, { error: 'ANTHROPIC_API_KEY secret is not set' })
+      const model = String(body.model ?? 'claude-sonnet-5')
+      if (!AGENT_MODELS.has(model)) {
+        return json(400, { error: `model icazəli deyil: ${model}` })
+      }
+      if (!Array.isArray(body.messages) || !Array.isArray(body.tools)) {
+        return json(400, { error: 'messages və tools massiv olmalıdır' })
+      }
+      // Deliberately NOT cached: every turn carries the whole conversation, so
+      // no two turns are ever the same request, and a cache would only store
+      // megabytes that can never be read back.
+      const refusal = await budgetRefusal(db)
+      if (refusal) return refusal
+
+      const budget = remainingMs(deadline, TIMEOUT_MS)
+      if (budget <= 0) throw deadlineExceeded()
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), budget)
+      let out: Record<string, unknown>
+      try {
+        const res = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-api-key': key,
+            'anthropic-version': '2023-06-01',
+          },
+          body: JSON.stringify({
+            model,
+            max_tokens: 16000,
+            output_config: { effort: 'high' },
+            system: body.system,
+            tools: body.tools,
+            messages: body.messages,
+          }),
+          signal: controller.signal,
+        })
+        if (!res.ok) {
+          const detail = (await res.text()).slice(0, 300)
+          if (res.status === 429) {
+            return json(429, { error: 'model həddi', detail, kind: 'rate_limit' })
+          }
+          return json(502, { error: `Anthropic ${res.status}`, detail })
+        }
+        out = await res.json()
+      } finally {
+        clearTimeout(timer)
+      }
+
+      const usage = (out.usage ?? {}) as { input_tokens?: number; output_tokens?: number }
+      const ms = Date.now() - started
+      await logOp(db, userId, {
+        op,
+        model,
+        promptTokens: usage.input_tokens ?? null,
+        outputTokens: usage.output_tokens ?? null,
+        ms,
+        cost: estAnthropicCost(model, usage.input_tokens ?? null, usage.output_tokens ?? null),
+        cached: false,
+      })
+      return json(200, {
+        content: out.content,
+        stop_reason: out.stop_reason,
+        usage: out.usage,
+        ms,
       })
     }
 

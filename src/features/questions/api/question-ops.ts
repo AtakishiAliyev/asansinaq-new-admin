@@ -12,6 +12,7 @@ import {
 import {
   compareResponseSchema,
   extractResponseSchema,
+  agentStepResponseSchema,
   optionBoxesResponseSchema,
   parseAnswerKeyResponseSchema,
   redrawResponseSchema,
@@ -115,6 +116,22 @@ export function opRedrawFigure(
 
 /** Where the picture options sit. Asked separately because asked in passing
  *  during extraction it comes back empty every time. */
+/**
+ * One turn of the agent loop. The whole conversation travels each time — that
+ * is how the Messages API works — so this is the one op that is deliberately
+ * not cached: no two turns are ever the same request.
+ */
+export function opAgentStep(input: {
+  model: string
+  system: string
+  tools: unknown[]
+  messages: unknown[]
+}) {
+  return invokeOp({ op: 'agent_step', ...input }, (d) =>
+    agentStepResponseSchema.parse(d),
+  )
+}
+
 export function opOptionBoxes(input: OpImage) {
   return invokeOp({ op: 'option_boxes', ...input }, (d) =>
     optionBoxesResponseSchema.parse(d),

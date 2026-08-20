@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Check, Pencil, RefreshCw, X } from 'lucide-react'
+import { Check, Pencil, Bot,
+  RefreshCw, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -137,6 +138,9 @@ export function ReviewActions({
   canEdit,
   isApproving,
   onRestructure,
+  onAgent,
+  agentBusy,
+  agentActivity,
   onEdit,
   onReject,
   onApprove,
@@ -156,6 +160,9 @@ export function ReviewActions({
   canEdit: boolean
   isApproving: boolean
   onRestructure: () => void
+  onAgent: () => void
+  agentBusy: boolean
+  agentActivity: string
   onEdit: () => void
   onReject: () => void
   onApprove: () => void
@@ -191,6 +198,16 @@ export function ReviewActions({
         <Button variant="outline" size="sm" onClick={onRestructure} disabled={busy}>
           <RefreshCw data-icon="inline-start" />
           Yenidən çıxar
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onAgent}
+          disabled={busy || agentBusy}
+          title="Agent baxır, kəsir, çəkir və öz nəticəsini yoxlayır — 1-3 dəqiqə"
+        >
+          {agentBusy ? <Spinner data-icon="inline-start" /> : <Bot data-icon="inline-start" />}
+          {agentActivity || 'Agent'}
         </Button>
         <Button variant="outline" size="sm" onClick={onEdit} disabled={busy || !canEdit}>
           <Pencil data-icon="inline-start" />

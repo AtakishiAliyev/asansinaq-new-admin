@@ -56,6 +56,15 @@ export const suggestCategoryResponseSchema = z.object({
   confidence: z.number().min(0).max(1).catch(0),
 })
 
+// Loose on purpose: the content blocks are Anthropic's shape and travel
+// straight back in the next request. Narrowing them here would mean keeping a
+// copy of someone else's schema in step with them forever.
+export const agentStepResponseSchema = z.object({
+  content: z.array(z.object({ type: z.string() }).loose()),
+  stop_reason: z.string().nullish(),
+  usage: z.unknown().nullish(),
+})
+
 export const optionBoxesResponseSchema = z.object({
   options: z.array(
     z.object({

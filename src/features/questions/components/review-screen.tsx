@@ -1,3 +1,9 @@
+import { toast } from 'sonner'
+import { errorDetail } from '@/lib/errors'
+import {
+  saveAgentResult,
+  useAgentRun,
+} from '@/features/questions/hooks/use-agent-run'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
@@ -43,6 +49,7 @@ export function ReviewScreen({
   onNavigate,
   onClose,
   onRestructure,
+  onRefresh,
 }: {
   items: QuestionListItem[]
   index: number
@@ -55,10 +62,12 @@ export function ReviewScreen({
   onNavigate: (id: number) => void
   onClose: () => void
   onRestructure: (item: QuestionListItem) => void
+  onRefresh?: () => void
 }) {
   const item = index >= 0 ? items[index] : undefined
   const contentRef = useRef<HTMLDivElement>(null)
   const categories = useCategories(subjectId)
+  const agent = useAgentRun()
   const approve = useApproveQuestion()
   const reject = useRejectQuestion()
   const edit = useEditQuestion()
@@ -263,6 +272,28 @@ export function ReviewScreen({
           canEdit={item.status !== 'cropped'}
           isApproving={approve.isPending}
           onRestructure={() => onRestructure(item)}
+          onAgent={() => {
+            void agent
+              .run(item)
+              .then(async (outcome) => {
+                if (outcome.outcome !== 'done') {
+                  toast.warning(
+                    outcome.outcome === 'gave_up'
+                      ? `Agent təslim oldu: ${String(outcome.result?.reason ?? '')}`
+                      : `Agent bitirmədi (${outcome.outcome}) — ${outcome.error ?? `${outcome.steps} addım`}`,
+                  )
+                  return
+                }
+                await saveAgentResult(item, outcome)
+                toast.success(
+                  `Agent çıxardı: ${outcome.steps} addım${outcome.redraws ? `, ${outcome.redraws} düzəliş` : ''}`,
+                )
+                onRefresh?.()
+              })
+              .catch((error) => toast.error(errorDetail(error)))
+          }}
+          agentBusy={agent.status === 'running'}
+          agentActivity={agent.status === 'running' ? `${agent.step}. ${agent.activity}` : ''}
           onEdit={() => setEditing(true)}
           onReject={handleReject}
           onApprove={handleApprove}
