@@ -36,6 +36,7 @@ const OP_LABEL: Record<string, string> = {
   parse_answer_key: 'Cavab açarı',
   detect_questions: 'Səhifə aşkarlanması',
   option_boxes: 'Şəkilli variantların yeri',
+  agent_step: 'Agent addımı',
 }
 
 function StatCard({

@@ -31,6 +31,12 @@ export interface PipelineSettings {
    * extra extract before the image runs anyway.
    */
   dslFirst: boolean
+  /**
+   * Which model drives the agent loop. Sonnet is the working default; Opus
+   * reads a crowded page more reliably and judges its own drawing better, at
+   * roughly two and a half times the price.
+   */
+  agentModel: 'claude-sonnet-5' | 'claude-opus-5'
 }
 
 const DEFAULTS: PipelineSettings = {
@@ -39,6 +45,7 @@ const DEFAULTS: PipelineSettings = {
   autoApproveNeedsAnswer: true,
   mediumImages: false,
   dslFirst: false,
+  agentModel: 'claude-sonnet-5',
 }
 
 interface PipelineStore extends PipelineSettings {
@@ -58,7 +65,7 @@ export const usePipelineStore = create<PipelineStore>()(
 )
 
 export function pipelineSettings(): PipelineSettings {
-  const { batchSize, autoApprove, autoApproveNeedsAnswer, mediumImages, dslFirst } =
+  const { batchSize, autoApprove, autoApproveNeedsAnswer, mediumImages, dslFirst, agentModel } =
     usePipelineStore.getState()
-  return { batchSize, autoApprove, autoApproveNeedsAnswer, mediumImages, dslFirst }
+  return { batchSize, autoApprove, autoApproveNeedsAnswer, mediumImages, dslFirst, agentModel }
 }

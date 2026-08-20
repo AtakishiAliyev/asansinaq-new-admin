@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { CheckCheck, ListPlus, Trash2, X } from 'lucide-react'
+import { Bot, CheckCheck, ListPlus, Square, Trash2, X } from 'lucide-react'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,6 +18,8 @@ import {
   type QuestionListItem,
 } from '@/features/questions/api/questions'
 import { useEnqueue } from '@/features/questions/api/queue'
+import { useAgentBatch } from '@/features/questions/hooks/use-agent-batch'
+import { usePipelineStore } from '@/stores/pipeline-store'
 
 // Floats over the list instead of sitting above it: the operator selects rows
 // while scrolled anywhere in a 50-row page, and an action bar pinned to the
@@ -30,6 +32,9 @@ export function QuestionsSelectionBar({
   onClear: () => void
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [confirmAgent, setConfirmAgent] = useState(false)
+  const batch = useAgentBatch()
+  const agentModel = usePipelineStore((s) => s.agentModel)
   const [confirmApprove, setConfirmApprove] = useState(false)
   const bulkApprove = useBulkApprove()
   const remove = useDeleteQuestions()
@@ -44,7 +49,13 @@ export function QuestionsSelectionBar({
   const reviewed = selected.filter(
     (q) => q.status === 'approved' || q.status === 'rejected',
   )
-  const busy = bulkApprove.isPending || remove.isPending || enqueue.isPending
+  const agentRunning = batch.status === 'running'
+  const busy = bulkApprove.isPending || remove.isPending || enqueue.isPending || agentRunning
+  // Measured on the probe: Opus averaged $0.72 a question. Sonnet is priced at
+  // two fifths of Opus, so its figure is derived, not observed — shown as a
+  // range so it does not read as a promise.
+  const perQuestion = agentModel === 'claude-opus-5' ? 0.72 : 0.29
+  const minutes = Math.max(1, Math.round((selected.length * 110) / 60))
 
   return (
     <>
@@ -90,6 +101,24 @@ export function QuestionsSelectionBar({
             Növbəyə at
           </Button>
 
+          {agentRunning ? (
+            <Button size="sm" variant="ghost" onClick={batch.stop}>
+              <Square data-icon="inline-start" />
+              Dayandır ({batch.current}/{batch.total})
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={busy}
+              title="Agent hər crop-a baxır, kəsir və ya çəkir, öz nəticəsini yoxlayır"
+              onClick={() => setConfirmAgent(true)}
+            >
+              <Bot data-icon="inline-start" />
+              Agentə göndər
+            </Button>
+          )}
+
           <Button
             size="sm"
             variant="ghost"
@@ -106,6 +135,52 @@ export function QuestionsSelectionBar({
           </Button>
         </div>
       </div>
+
+      {agentRunning ? (
+        <div className="pointer-events-none sticky bottom-20 z-20 flex justify-center">
+          <span className="bg-background text-muted-foreground pointer-events-auto rounded-full border px-3 py-1 text-xs tabular-nums shadow">
+            {batch.activity} · {batch.agentStep}. {batch.agentActivity} · {batch.done} hazır
+            {batch.gaveUp ? ` · ${batch.gaveUp} təslim` : ''}
+            {batch.failed ? ` · ${batch.failed} xəta` : ''}
+          </span>
+        </div>
+      ) : null}
+
+      <AlertDialog open={confirmAgent} onOpenChange={setConfirmAgent}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {selected.length} sual agentə göndərilsin?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Agent hər crop-a baxır, lazım olanda böyüdüb yenidən baxır,
+              fiquru ya orijinaldan kəsir, ya vektor çəkir, sonra öz nəticəsini
+              orijinalla tutuşdurur. Sual başına 1–3 dəqiqə, təxminən $
+              {perQuestion.toFixed(2)} — cəmi <b>≈${(selected.length * perQuestion).toFixed(2)}</b> və{' '}
+              <b>≈{minutes} dəqiqə</b>. Bu müddətdə səhifə açıq qalmalıdır;
+              istənilən sualın arasında dayandıra bilərsiniz.
+              <br />
+              <br />
+              Model: <b>{agentModel === 'claude-opus-5' ? 'Opus 5' : 'Sonnet 5'}</b> —
+              emal parametrlərindən dəyişdirilir. Nəticə <b>təsdiqlənmiş sayılmır</b>:
+              agentin öz yoxlaması müstəqil ikinci oxunuş deyil, ona görə hər
+              sual review-ə düşür.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>İmtina</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                setConfirmAgent(false)
+                void batch.run(selected)
+              }}
+            >
+              Göndər
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={confirmApprove} onOpenChange={setConfirmApprove}>
         <AlertDialogContent>

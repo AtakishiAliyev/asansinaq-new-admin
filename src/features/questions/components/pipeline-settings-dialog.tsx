@@ -104,6 +104,33 @@ export function PipelineSettingsDialog({ onClose }: { onClose: () => void }) {
             </Select>
           </div>
 
+          <div className="flex items-center justify-between gap-3 rounded-lg border p-3">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-sm font-medium">Agent modeli</span>
+              <span className="text-muted-foreground text-xs">
+                Agent dövrəsini hansı model aparır. Sonnet iş üçün kifayətdir;
+                Opus sıx səhifəni daha etibarlı oxuyur və öz çəkdiyini daha
+                yaxşı qiymətləndirir, təxminən 2.5 qat baha.
+              </span>
+            </div>
+            <Select
+              value={s.agentModel}
+              onValueChange={(v) =>
+                s.set({ agentModel: v as 'claude-sonnet-5' | 'claude-opus-5' })
+              }
+            >
+              <SelectTrigger className="w-36" aria-label="Agent modeli">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="claude-sonnet-5">Sonnet 5</SelectItem>
+                  <SelectItem value="claude-opus-5">Opus 5</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </div>
+
           <Toggle
             checked={s.autoApprove}
             onChange={(autoApprove) => s.set({ autoApprove })}
