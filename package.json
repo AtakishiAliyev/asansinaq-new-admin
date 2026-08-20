@@ -12,6 +12,7 @@
     "preview": "vite preview",
     "typecheck": "tsc -b",
     "eval": "node --import ./eval/loader.mjs --disable-warning=ExperimentalWarning eval/run.ts",
+    "probe": "node --import ./eval/loader.mjs --disable-warning=ExperimentalWarning probe/run.ts",
     "types:gen": "node scripts/gen-types.mjs",
     "config:push": "node scripts/config-push.mjs",
     "postinstall": "node scripts/copy-pdfjs-wasm.mjs"
@@ -44,6 +45,8 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@anthropic-ai/sdk": "^0.120.0",
+    "@resvg/resvg-js": "^2.6.2",
     "@tailwindcss/vite": "^4.3.3",
     "@types/katex": "^0.16.8",
     "@types/node": "^24.13.3",
@@ -52,6 +55,7 @@
     "@vitejs/plugin-react": "^6.0.4",
     "oxlint": "^1.75.0",
     "prettier": "^3.9.6",
+    "sharp": "^0.35.3",
     "tailwindcss": "^4.3.3",
     "typescript": "~6.0.2",
     "vite": "^8.2.0"

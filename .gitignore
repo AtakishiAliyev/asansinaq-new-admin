@@ -33,3 +33,7 @@ local/
 
 # Copied from pdfjs-dist on install (scripts/copy-pdfjs-wasm.mjs)
 public/pdfjs/
+
+# Probe artefacts — the crops and renders are regenerated per run
+probe/out/
+probe/cases/
