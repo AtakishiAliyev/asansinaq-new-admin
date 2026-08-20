@@ -32,33 +32,53 @@ const CASES = [
 
 const RATE = { in: 15 / 1_000_000, out: 75 / 1_000_000 }
 
+// Both arms run every case: the loop is being measured, and so is the claim
+// that the rules work better in English. One variable each.
+const STANDARDS = ['az', 'en'] as const
+
 const results = []
-for (const c of CASES) {
-  process.stdout.write(`\n▶ ${c.id} … `)
-  const ctx: ToolContext = {
-    cropPath: c.crop,
-    outDir: `probe/out/${c.id}`,
-    artefacts: [],
+for (const standard of STANDARDS) {
+  console.log(`\n═══ standart: ${standard.toUpperCase()} ═══`)
+  for (const c of CASES) {
+    process.stdout.write(`▶ ${c.id} … `)
+    const ctx: ToolContext = {
+      cropPath: c.crop,
+      outDir: `probe/out/${standard}/${c.id}`,
+      artefacts: [],
+    }
+    await mkdir(ctx.outDir, { recursive: true })
+    const r = await runAgent(ctx, standard)
+    const usd = r.inputTokens * RATE.in + r.outputTokens * RATE.out
+    results.push({ ...c, ...r, standard, usd, artefacts: ctx.artefacts })
+    console.log(
+      `${r.outcome} · ${r.steps} addım · ${r.redraws} düzəliş · $${usd.toFixed(3)} · ${(r.ms / 1000).toFixed(0)} san`,
+    )
+    if (r.error) console.log(`   xəta: ${r.error}`)
   }
-  await mkdir(ctx.outDir, { recursive: true })
-  const r = await runAgent(ctx)
-  const usd = r.inputTokens * RATE.in + r.outputTokens * RATE.out
-  results.push({ ...c, ...r, usd, artefacts: ctx.artefacts })
-  console.log(
-    `${r.outcome} · ${r.steps} addım · ${r.redraws} düzəliş · $${usd.toFixed(3)} · ${(r.ms / 1000).toFixed(0)} san`,
-  )
-  if (r.error) console.log(`   xəta: ${r.error}`)
 }
 
 await writeFile('probe/out/results.json', JSON.stringify(results, null, 2))
 await buildReport(results)
 
-console.log('\n' + '─'.repeat(72))
-console.log('hal              nəticə     addım  düzəliş   xərc    vaxt')
-console.log('─'.repeat(72))
+console.log('\n' + '─'.repeat(78))
+console.log('dil  hal              nəticə     addım  düzəliş   xərc    vaxt')
+console.log('─'.repeat(78))
 for (const r of results) {
   console.log(
-    `${r.id.padEnd(17)}${r.outcome.padEnd(11)}${String(r.steps).padEnd(7)}${String(r.redraws).padEnd(9)}$${r.usd.toFixed(3).padEnd(7)}${(r.ms / 1000).toFixed(0)} san`,
+    `${r.standard.padEnd(5)}${r.id.padEnd(17)}${r.outcome.padEnd(11)}${String(r.steps).padEnd(7)}${String(r.redraws).padEnd(9)}$${r.usd.toFixed(3).padEnd(7)}${(r.ms / 1000).toFixed(0)} san`,
+  )
+}
+// The one thing English instructions put at risk: Turkish content coming back
+// anglicised. Counted rather than eyeballed.
+const TURKISH = /[çğışöüÇĞİŞÖÜ]/
+console.log('─'.repeat(78))
+for (const standard of STANDARDS) {
+  const arm = results.filter((r) => r.standard === standard)
+  const withText = arm.filter((r) => typeof r.final?.stem === 'string' && r.final.stem.length > 3)
+  const turkish = withText.filter((r) => TURKISH.test(String(r.final!.stem))).length
+  const solved = arm.filter((r) => r.outcome === 'done').length
+  console.log(
+    `${standard.toUpperCase()}: ${solved}/${arm.length} həll · türk hərfləri qorunub ${turkish}/${withText.length} · $${arm.reduce((a, r) => a + r.usd, 0).toFixed(2)}`,
   )
 }
 const total = results.reduce((a, r) => a + r.usd, 0)

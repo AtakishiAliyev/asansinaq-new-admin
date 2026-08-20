@@ -24,6 +24,7 @@ export async function buildReport(results: any[]): Promise<void> {
       <section>
         <header>
           <h2>${r.id}</h2>
+          <span class="lang">${r.standard.toUpperCase()}</span>
           <span class="badge ${r.outcome}">${r.outcome}</span>
           <span class="meta">${r.steps} addım · ${r.redraws} düzəliş dövrəsi · $${r.usd.toFixed(3)} · ${(r.ms / 1000).toFixed(0)} san</span>
         </header>
@@ -57,6 +58,7 @@ export async function buildReport(results: any[]): Promise<void> {
   section{border:1px solid var(--line);border-radius:12px;padding:20px;margin:22px 0}
   header{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
   h2{font-size:16px;margin:0;font-family:ui-monospace,monospace}
+  .lang{font-size:11px;font-weight:600;letter-spacing:.08em;padding:3px 8px;border-radius:6px;background:#f4f4f5;color:#3f3f46}
   .badge{font-size:11px;text-transform:uppercase;letter-spacing:.08em;padding:3px 9px;border-radius:99px;border:1px solid}
   .badge.done{background:#ecfdf5;border-color:#a7f3d0;color:#047857}
   .badge.gave_up{background:#fffbeb;border-color:#fde68a;color:#b45309}
@@ -82,6 +84,6 @@ export async function buildReport(results: any[]): Promise<void> {
   code{background:#f4f4f5;padding:1px 5px;border-radius:4px}
 </style>
 <h1>Agent sınağı</h1>
-<p class="lede">Bugünkü boru kəmərinin uğursuz olduğu suallar, bu dəfə alətləri olan və öz nəticəsini görən bir agentə verilib. Ölçülən: həll etdimi, neçə addımda, fiquru neçə düzəliş dövrəsində uyğunlaşdırdı, nə qədər.</p>
+<p class="lede">Bugünkü boru kəmərinin uğursuz olduğu suallar, bu dəfə alətləri olan və öz nəticəsini görən bir agentə verilib. Ölçülən: həll etdimi, neçə addımda, fiquru neçə düzəliş dövrəsində uyğunlaşdırdı, nə qədər.<br><br>Hər sual <b>iki dəfə</b> işlənib: transkripsiya qaydaları bir dəfə <b>azərbaycanca</b> (istehsaldakı prompt), bir dəfə <b>ingiliscə</b> (eyni qaydalar, eyni sıra). Alət təlimatları hər iki qolda ingiliscədir — müqayisə olunan yalnız standartın dilidir. Diqqət yetiriləsi: türk mətninin (ç, ş, ğ, ı, ö, ü, onluq vergüllər) qorunub-qorunmadığı.</p>
 ${cards.join('')}`)
 }

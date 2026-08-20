@@ -9,18 +9,28 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { readFile } from 'node:fs/promises'
 import { EXTRACT_SYSTEM } from '../src/core/extract/prompts.ts'
+import { EXTRACT_SYSTEM_EN } from './standard-en.ts'
 import { TOOL_DEFS, runTool, type ToolContext } from './tools.ts'
+
+/** Which language the transcription rules are written in. The operating
+ *  instructions stay English either way — the variable under test is the
+ *  standard, not the whole prompt. */
+export type Standard = 'az' | 'en'
+const STANDARDS: Record<Standard, string> = {
+  az: EXTRACT_SYSTEM,
+  en: EXTRACT_SYSTEM_EN,
+}
 
 const MODEL = 'claude-opus-4-6'
 /** Not thrift — a loop that has not converged in twenty steps is not going to,
  *  and the count of cases that hit this is the honest health number. */
 const MAX_STEPS = 20
 
-// Operating instructions in English, because that is what this model follows
-// most reliably; the transcription STANDARD is the production Azerbaijani
-// prompt verbatim, so the experiment tests the loop and not a second, kinder
-// set of rules.
-const SYSTEM = `You are transcribing one question from a scanned exam book into a question bank, working the way a careful person would: look, produce, then check your own work against the original before saying you are finished.
+// The operating instructions are English in both arms — how to use the tools
+// is not the thing being compared. Only the transcription standard swaps, and
+// each version says the same things in the same order, so a difference in the
+// results is a difference in the language rather than in what was asked.
+const buildSystem = (standard: Standard) => `You are transcribing one question from a scanned exam book into a question bank, working the way a careful person would: look, produce, then check your own work against the original before saying you are finished.
 
 The transcription standard is fixed and is quoted below. Follow it exactly.
 
@@ -36,7 +46,7 @@ How to work:
 Never invent content that is not printed on the page. An empty stem is legitimate — some questions are only a diagram and five options, with the instruction printed above the group and outside this crop.
 
 --- TRANSCRIPTION STANDARD ---
-${EXTRACT_SYSTEM}`
+${STANDARDS[standard]}`
 
 export interface AgentResult {
   outcome: 'done' | 'gave_up' | 'exhausted' | 'error'
@@ -51,7 +61,10 @@ export interface AgentResult {
   error?: string
 }
 
-export async function runAgent(ctx: ToolContext): Promise<AgentResult> {
+export async function runAgent(
+  ctx: ToolContext,
+  standard: Standard = 'az',
+): Promise<AgentResult> {
   const client = new Anthropic()
   const started = Date.now()
   const toolCalls: AgentResult['toolCalls'] = []
@@ -81,7 +94,7 @@ export async function runAgent(ctx: ToolContext): Promise<AgentResult> {
       response = await client.messages.create({
         model: MODEL,
         max_tokens: 8000,
-        system: SYSTEM,
+        system: buildSystem(standard),
         tools: TOOL_DEFS,
         messages,
       })
