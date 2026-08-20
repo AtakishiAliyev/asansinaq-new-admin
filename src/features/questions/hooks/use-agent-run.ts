@@ -1,7 +1,11 @@
 import { useCallback, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { errorDetail } from '@/lib/errors'
-import { EXTRACT_SYSTEM } from '@/core/extract/prompts'
+import {
+  AGENT_MAX_STEPS,
+  AGENT_SYSTEM,
+  stepReminder,
+} from '@/core/extract/agent-prompt'
 import { opAgentStep } from '@/features/questions/api/question-ops'
 import {
   AGENT_TOOLS,
@@ -24,28 +28,10 @@ import type { QuestionRow } from '@/features/questions/schemas'
  * linting are already browser code.
  */
 
-/** A loop that has not converged in twenty turns is not going to. */
-const MAX_STEPS = 20
+const MAX_STEPS = AGENT_MAX_STEPS
 
 export type AgentModel = 'claude-sonnet-5' | 'claude-opus-5'
 
-const SYSTEM = `You are transcribing one question from a scanned exam book into a question bank, working the way a careful person would: look, produce, then check your own work against the original before saying you are finished.
-
-The transcription standard is fixed and is quoted below. Follow it exactly.
-
-How to work:
-- Start by looking at the whole crop.
-- When something is too small to read or place — a row of option drawings, a label inside a diagram, a subscript — look at that region enlarged. Do not guess at what you could look at.
-- For a figure, decide between cutting it from the original and drawing it as SVG. Cutting is exact and free; prefer it unless the region carries a watermark or content that does not belong to the figure. Drawing is right when the region is dirty or when the figure must be reproduced cleanly.
-- After you draw, you will be shown your drawing beside the region it must match. Judge it yourself. If a point, label, angle or shape is wrong, send a corrected SVG. Repeat until it matches or you are certain it will not.
-- Run \`check\` before finishing. It runs the same deterministic rules the production system runs.
-- Only call \`done\` when you have verified the result against the crop with your own eyes.
-- If you cannot do it faithfully, call \`give_up\` and say exactly what defeated you.
-
-Never invent content that is not printed on the page. An empty stem is legitimate — some questions are only a diagram and five options, with the instruction printed above the group and outside this crop.
-
---- TRANSCRIPTION STANDARD ---
-${EXTRACT_SYSTEM}`
 
 export interface AgentOutcome {
   outcome: 'done' | 'gave_up' | 'exhausted' | 'error'
@@ -149,7 +135,7 @@ export function useAgentRun() {
 
         let reply: { content: ContentBlock[] }
         try {
-          reply = await opAgentStep({ model, system: SYSTEM, tools: AGENT_TOOLS, messages })
+          reply = await opAgentStep({ model, system: AGENT_SYSTEM, tools: AGENT_TOOLS, messages })
         } catch (error) {
           return finish({
             outcome: 'error',
@@ -208,6 +194,7 @@ export function useAgentRun() {
             })
           }
         }
+        results.push({ type: 'text', text: stepReminder(step + 1) })
         messages.push({ role: 'user', content: results })
       }
 

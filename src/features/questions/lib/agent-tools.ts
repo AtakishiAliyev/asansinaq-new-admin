@@ -10,7 +10,7 @@
 import { lintQuestion, type Flag } from '@/core/questions/lint'
 import { sanitizeSvg, svgNodeCount, type SvgNode } from '@/core/figures/svg-safe'
 import { snapshotSvgNode } from '@/components/question/snapshot'
-import { cropRegion, splitDataUrl } from '@/features/questions/lib/image'
+import { cropRegion, fitForModel, splitDataUrl } from '@/features/questions/lib/image'
 import type { ExtractedQuestion } from '@/core/questions/extraction'
 
 /** [ymin, xmin, ymax, xmax], 0–1000, the convention every box in this app uses. */
@@ -44,8 +44,8 @@ type ImageBlock = {
   source: { type: 'base64'; media_type: string; data: string }
 }
 
-function imageBlock(dataUrl: string): ImageBlock {
-  const { image, mime } = splitDataUrl(dataUrl)
+async function imageBlock(dataUrl: string): Promise<ImageBlock> {
+  const { image, mime } = splitDataUrl(await fitForModel(dataUrl))
   return { type: 'image', source: { type: 'base64', media_type: mime, data: image } }
 }
 
@@ -174,7 +174,7 @@ export async function runAgentTool(
     const box = asBox(input.box)
     const dataUrl = box ? await cropRegion(ctx.cropDataUrl, box) : ctx.cropDataUrl
     ctx.trace.push({ tool: 'look', summary: String(input.why ?? '') })
-    return [imageBlock(dataUrl)]
+    return [await imageBlock(dataUrl)]
   }
 
   if (name === 'cut') {
@@ -186,7 +186,7 @@ export async function runAgentTool(
     ctx.trace.push({ tool: 'cut', summary: key })
     return [
       { type: 'text', text: `"${key}" kəsildi. Doğru bölgədirmi?` },
-      imageBlock(dataUrl),
+      await imageBlock(dataUrl),
     ]
   }
 
@@ -208,11 +208,11 @@ export async function runAgentTool(
     const against = asBox(input.against)
     const blocks: ToolReturn = [
       { type: 'text', text: 'Sənin çəkdiyin:' },
-      imageBlock(dataUrl),
+      await imageBlock(dataUrl),
     ]
     if (against) {
       blocks.push({ type: 'text', text: 'Uyğun gəlməli olan orijinal bölgə:' })
-      blocks.push(imageBlock(await cropRegion(ctx.cropDataUrl, against)))
+      blocks.push(await imageBlock(await cropRegion(ctx.cropDataUrl, against)))
     }
     blocks.push({
       type: 'text',

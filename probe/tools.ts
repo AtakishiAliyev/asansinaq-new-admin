@@ -190,7 +190,10 @@ export async function runTool(
     const scale = Math.min(4, Math.max(1, Math.round(900 / region.width)))
     const buf = await sharp(await readFile(ctx.cropPath))
       .extract(region)
-      .resize({ width: region.width * scale, kernel: 'lanczos3' })
+      // A conversation carrying several images is held to 2000 pixels a side,
+      // and an agent run carries a dozen. Enlarging past the cap also buys
+      // nothing: an image costs the same tokens at any resolution.
+      .resize({ width: Math.min(1500, region.width * scale), kernel: 'lanczos3' })
       .png()
       .toBuffer()
     return [

@@ -9,6 +9,11 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { readFile } from 'node:fs/promises'
 import { EXTRACT_SYSTEM } from '../src/core/extract/prompts.ts'
+import {
+  AGENT_MAX_STEPS,
+  AGENT_SYSTEM,
+  stepReminder,
+} from '../src/core/extract/agent-prompt.ts'
 import { EXTRACT_SYSTEM_EN } from './standard-en.ts'
 import { TOOL_DEFS, runTool, type ToolContext } from './tools.ts'
 
@@ -21,32 +26,19 @@ const STANDARDS: Record<Standard, string> = {
   en: EXTRACT_SYSTEM_EN,
 }
 
-const MODEL = 'claude-opus-5'
+export type AgentModel = 'claude-sonnet-5' | 'claude-opus-5'
 /** Not thrift — a loop that has not converged in twenty steps is not going to,
  *  and the count of cases that hit this is the honest health number. */
-const MAX_STEPS = 20
+const MAX_STEPS = AGENT_MAX_STEPS
 
 // The operating instructions are English in both arms — how to use the tools
 // is not the thing being compared. Only the transcription standard swaps, and
 // each version says the same things in the same order, so a difference in the
 // results is a difference in the language rather than in what was asked.
-const buildSystem = (standard: Standard) => `You are transcribing one question from a scanned exam book into a question bank, working the way a careful person would: look, produce, then check your own work against the original before saying you are finished.
-
-The transcription standard is fixed and is quoted below. Follow it exactly.
-
-How to work:
-- Start by looking at the whole crop.
-- When something is too small to read or place — a row of option drawings, a label inside a diagram, a subscript — look at that region enlarged. Do not guess at what you could look at.
-- For a figure, decide between cutting it from the original and drawing it as SVG. Cutting is exact and free; prefer it unless the region carries a watermark or content that does not belong to the figure. Drawing is right when the region is dirty or when the figure must be reproduced cleanly.
-- After you draw, you will be shown your drawing beside the region it must match. Judge it yourself. If a point, label, angle or shape is wrong, send a corrected SVG. Repeat until it matches or you are certain it will not.
-- Run \`check\` before finishing. It runs the same deterministic rules the production system runs.
-- Only call \`done\` when you have verified the result against the crop with your own eyes.
-- If you cannot do it faithfully, call \`give_up\` and say exactly what defeated you.
-
-Never invent content that is not printed on the page. An empty stem is legitimate — some questions are only a diagram and five options, with the instruction printed above the group and outside this crop.
-
---- TRANSCRIPTION STANDARD ---
-${STANDARDS[standard]}`
+const buildSystem = (standard: Standard) =>
+  standard === 'az'
+    ? AGENT_SYSTEM
+    : AGENT_SYSTEM.replace(EXTRACT_SYSTEM, EXTRACT_SYSTEM_EN)
 
 export interface AgentResult {
   outcome: 'done' | 'gave_up' | 'exhausted' | 'error'
@@ -64,6 +56,7 @@ export interface AgentResult {
 export async function runAgent(
   ctx: ToolContext,
   standard: Standard = 'az',
+  model: AgentModel = 'claude-opus-5',
 ): Promise<AgentResult> {
   const client = new Anthropic()
   const started = Date.now()
@@ -92,7 +85,7 @@ export async function runAgent(
     let response: Anthropic.Message
     try {
       response = await client.messages.create({
-        model: MODEL,
+        model,
         max_tokens: 16000,
         // Thinking is on by default on this model; `high` effort is the right
         // setting for work where a wrong answer costs more than a slow one.
@@ -171,6 +164,7 @@ export async function runAgent(
         })
       }
     }
+    results.push({ type: 'text', text: stepReminder(step + 1) } as never)
     messages.push({ role: 'user', content: results })
   }
 

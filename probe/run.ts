@@ -8,6 +8,7 @@ import { buildReport } from './report.ts'
 import type { ToolContext } from './tools.ts'
 
 const CASES = [
+  { id: 'net-3d', crop: 'probe/cases/p62_q35.jpg' },
   {
     id: 'iq-wheel',
     crop: 'probe/cases/16_p26_c0_q31.jpg',
@@ -31,16 +32,24 @@ const CASES = [
 ]
 
 /** claude-opus-5: $5 / $25 per million tokens */
-const RATE = { in: 5 / 1_000_000, out: 25 / 1_000_000 }
+const STANDARDS = (process.env.PROBE_STANDARDS ?? 'az,en').split(',') as ('az' | 'en')[]
+const MODEL = (process.env.PROBE_MODEL ?? 'claude-opus-5') as
+  | 'claude-sonnet-5'
+  | 'claude-opus-5'
+const ONLY = process.env.PROBE_ONLY
+
+const RATE =
+  MODEL === 'claude-opus-5'
+    ? { in: 5 / 1_000_000, out: 25 / 1_000_000 }
+    : { in: 2 / 1_000_000, out: 10 / 1_000_000 }
 
 // Both arms run every case: the loop is being measured, and so is the claim
 // that the rules work better in English. One variable each.
-const STANDARDS = ['az', 'en'] as const
 
 const results = []
 for (const standard of STANDARDS) {
   console.log(`\n═══ standart: ${standard.toUpperCase()} ═══`)
-  for (const c of CASES) {
+  for (const c of CASES.filter((c) => !ONLY || c.id === ONLY)) {
     process.stdout.write(`▶ ${c.id} … `)
     const ctx: ToolContext = {
       cropPath: c.crop,
@@ -48,7 +57,7 @@ for (const standard of STANDARDS) {
       artefacts: [],
     }
     await mkdir(ctx.outDir, { recursive: true })
-    const r = await runAgent(ctx, standard)
+    const r = await runAgent(ctx, standard, MODEL)
     const usd = r.inputTokens * RATE.in + r.outputTokens * RATE.out
     results.push({ ...c, ...r, standard, usd, artefacts: ctx.artefacts })
     console.log(
