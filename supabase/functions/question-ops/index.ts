@@ -39,6 +39,8 @@ const GEMINI_MODELS: Record<ModelKey, string> = {
   detect: Deno.env.get('GEMINI_DETECT_MODEL') ?? 'gemini-3.5-flash',
 }
 const OPENAI_IMAGE_MODEL = Deno.env.get('OPENAI_IMAGE_MODEL') ?? 'gpt-image-2'
+const GEMINI_IMAGE_MODEL =
+  Deno.env.get('GEMINI_IMAGE_MODEL') ?? 'gemini-3.1-flash-image'
 const DAILY_BUDGET_USD = Number(Deno.env.get('DAILY_BUDGET_USD') ?? '20')
 
 // A strong model reading a dense figure page routinely passes 90s; the
@@ -66,6 +68,11 @@ const RATE = {
   proIn: 2.5,
   proOut: 15,
   imageFlat: 0.08,
+  // Gemini bills a generated image as output tokens: 1,120 for 1K and 747 for
+  // 512px, at $60/MTok. Written as the resulting per-image price so the two
+  // providers can be compared in one column of the ledger.
+  geminiImage: 0.067,
+  geminiImageSmall: 0.045,
   imageMedium: 0.04,
   // Anthropic, per million tokens. Sonnet 5 carries an introductory rate
   // through 2026-08-31; after that it is 3/15 and this table needs a look.
@@ -330,6 +337,153 @@ function base64ToBlob(base64: string, mime: string): Blob {
   const bytes = new Uint8Array(bin.length)
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
   return new Blob([bytes], { type: mime })
+}
+
+/**
+ * Reads the pixel dimensions out of a PNG or JPEG without decoding it.
+ *
+ * Gemini will not take "keep the reference image's shape" for an answer — it
+ * only accepts an aspect ratio from a fixed list, and whatever it is given is
+ * what comes back. Guessing 1:1 would squash every wide figure in the bank,
+ * so the shape is read from the bytes we are already holding.
+ */
+function imageSize(b64: string): { w: number; h: number } | null {
+  let bin: string
+  try {
+    bin = atob(b64.slice(0, 8000))
+  } catch {
+    return null
+  }
+  const at = (i: number) => bin.charCodeAt(i)
+  const be16 = (i: number) => (at(i) << 8) | at(i + 1)
+  const be32 = (i: number) => (be16(i) << 16) | be16(i + 2)
+  if (bin.startsWith('\x89PNG')) {
+    return { w: be32(16), h: be32(20) }
+  }
+  if (at(0) === 0xff && at(1) === 0xd8) {
+    // Walk the JPEG marker chain to the frame header, which carries the size.
+    let i = 2
+    while (i + 9 < bin.length) {
+      if (at(i) !== 0xff) return null
+      const marker = at(i + 1)
+      const len = be16(i + 2)
+      // SOF0..SOF15, skipping the four markers in that range that are not frames
+      if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) {
+        return { h: be16(i + 5), w: be16(i + 7) }
+      }
+      i += 2 + len
+    }
+  }
+  return null
+}
+
+/** The ratios Gemini accepts. Anything else is rejected or silently reshaped. */
+const ASPECTS: [string, number][] = [
+  ['21:9', 21 / 9],
+  ['16:9', 16 / 9],
+  ['3:2', 3 / 2],
+  ['4:3', 4 / 3],
+  ['5:4', 5 / 4],
+  ['1:1', 1],
+  ['4:5', 4 / 5],
+  ['3:4', 3 / 4],
+  ['2:3', 2 / 3],
+  ['9:16', 9 / 16],
+]
+
+/** Nearest allowed ratio, measured on a log scale so wide and tall are treated alike. */
+function nearestAspect(b64: string): string {
+  const size = imageSize(b64)
+  if (!size || !size.w || !size.h) return '1:1'
+  const target = Math.log(size.w / size.h)
+  let best = ASPECTS[0]
+  for (const a of ASPECTS) {
+    if (Math.abs(Math.log(a[1]) - target) < Math.abs(Math.log(best[1]) - target)) best = a
+  }
+  return best[0]
+}
+
+/**
+ * The same redraw, through Gemini instead of OpenAI.
+ *
+ * Kept side by side rather than replacing it: gpt-image is the measured path
+ * and this one is not, and the choice is the operator's to make per run. The
+ * ledger records whichever model actually ran, so the two can be compared on
+ * time and price after the fact instead of by argument.
+ */
+async function callGeminiRedraw(
+  image: string,
+  mime: string,
+  deadline: number,
+  quality: 'medium' | 'high',
+  attempt = 0,
+): Promise<{ image: string; mime: string; model: string }> {
+  const key = Deno.env.get('GEMINI_API_KEY')
+  if (!key) throw new Error('GEMINI_API_KEY secret is not set')
+  const budget = remainingMs(deadline, IMAGE_TIMEOUT_MS)
+  if (budget <= 0) throw deadlineExceeded()
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), budget)
+  try {
+    const res = await fetch(
+      'https://generativelanguage.googleapis.com/v1beta/interactions',
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-goog-api-key': key,
+          'Api-Revision': '2026-05-20',
+        },
+        body: JSON.stringify({
+          model: GEMINI_IMAGE_MODEL,
+          input: [
+            { type: 'text', text: REDRAW_PROMPT },
+            { type: 'image', mime_type: mime, data: image },
+          ],
+          response_format: {
+            type: 'image',
+            mime_type: 'image/png',
+            aspect_ratio: nearestAspect(image),
+            image_size: quality === 'medium' ? '512px' : '1K',
+          },
+        }),
+        signal: controller.signal,
+      },
+    )
+    if ((res.status === 429 || res.status >= 500) && attempt < 1) {
+      void res.body?.cancel().catch(() => {})
+      await new Promise((r) => setTimeout(r, 2000))
+      return callGeminiRedraw(image, mime, deadline, quality, attempt + 1)
+    }
+    if (!res.ok) {
+      const detail = (await res.text()).slice(0, 300)
+      throw new Error(`Gemini image ${res.status}: ${detail}`)
+    }
+    const out = (await res.json()) as {
+      steps?: { content?: { type?: string; data?: string; mime_type?: string }[] }[]
+    }
+    const block = (out.steps ?? [])
+      .flatMap((s) => s.content ?? [])
+      .find((c) => c.type === 'image' && c.data)
+    if (!block?.data) {
+      // A refusal comes back as prose in the same envelope. Saying so beats
+      // "image modeli şəkil qaytarmadı" when the model explained itself.
+      const said = (out.steps ?? [])
+        .flatMap((s) => s.content ?? [])
+        .map((c) => (c as { text?: string }).text)
+        .filter(Boolean)
+        .join(' ')
+        .slice(0, 200)
+      throw new Error(`image modeli şəkil qaytarmadı${said ? `: ${said}` : ''}`)
+    }
+    return {
+      image: block.data,
+      mime: block.mime_type ?? 'image/png',
+      model: GEMINI_IMAGE_MODEL,
+    }
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 // images/edits: reference image + instruction → clean redrawn figure.
@@ -643,10 +797,15 @@ Deno.serve(async (req) => {
       // Quality is priced differently, so it is part of the cache key: a
       // medium image must never be served for a high-quality request.
       const quality = body.quality === 'medium' ? 'medium' : 'high'
+      // Which provider draws it. In the cache key because the two do not
+      // produce the same picture — serving one for the other would make the
+      // comparison this switch exists for impossible to run.
+      const useGemini = body.imageModel === 'gemini'
+      const imageModel = useGemini ? GEMINI_IMAGE_MODEL : OPENAI_IMAGE_MODEL
       const key = await sha256Hex(
         JSON.stringify({
           v: PROMPT_VERSION,
-          m: OPENAI_IMAGE_MODEL,
+          m: imageModel,
           op,
           image: body.image,
           mime: body.mime,
@@ -685,7 +844,8 @@ Deno.serve(async (req) => {
       }
       const refusal = await budgetRefusal(db)
       if (refusal) return refusal
-      const out = await callOpenAIRedraw(
+      const redraw = useGemini ? callGeminiRedraw : callOpenAIRedraw
+      const out = await redraw(
         body.image as string,
         body.mime as string,
         deadline,
@@ -708,7 +868,13 @@ Deno.serve(async (req) => {
         promptTokens: null,
         outputTokens: null,
         ms,
-        cost: quality === 'medium' ? RATE.imageMedium : RATE.imageFlat,
+        cost: useGemini
+          ? quality === 'medium'
+            ? RATE.geminiImageSmall
+            : RATE.geminiImage
+          : quality === 'medium'
+            ? RATE.imageMedium
+            : RATE.imageFlat,
         cached: false,
       })
       return json(200, { ...out, ms })

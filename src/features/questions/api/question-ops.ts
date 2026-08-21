@@ -107,7 +107,11 @@ export function opExtract(input: {
  * render-compare must not be served the same image that just mismatched.
  */
 export function opRedrawFigure(
-  input: OpImage & { attempt?: number; quality?: 'medium' | 'high' },
+  input: OpImage & {
+    attempt?: number
+    quality?: 'medium' | 'high'
+    imageModel?: 'openai' | 'gemini'
+  },
 ) {
   return invokeOp({ op: 'redraw_figure', ...input }, (d) =>
     redrawResponseSchema.parse(d),

@@ -114,6 +114,7 @@ export function useStructuringRun() {
     // cost one thing and half another, with no record of which was which.
     const settings = pipelineSettings()
     const imageQuality = settings.mediumImages ? ('medium' as const) : ('high' as const)
+    const imageModel = settings.imageModel
     // One lookup per BOOK, not per run: a batch spans books whenever the queue
     // falls back to claiming from anywhere, or the bank is restructured with
     // the book filter on "all". Keyed by the run's own book, question 12 of
@@ -273,11 +274,11 @@ export function useStructuringRun() {
       ) => {
         checkCancelled()
         try {
-          return await opRedrawFigure({ ...img, attempt, quality: imageQuality })
+          return await opRedrawFigure({ ...img, attempt, quality: imageQuality, imageModel })
         } catch (error) {
           checkCancelled()
           if (error instanceof OpError && error.kind === 'budget') throw error
-          return await opRedrawFigure({ ...img, attempt, quality: imageQuality })
+          return await opRedrawFigure({ ...img, attempt, quality: imageQuality, imageModel })
         }
       }
 

@@ -133,6 +133,32 @@ export function PipelineSettingsDialog({ onClose }: { onClose: () => void }) {
             </Select>
           </div>
 
+          <div className="flex items-center justify-between gap-3 rounded-lg border p-3">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-sm font-medium">Şəkil modeli</span>
+              <span className="text-muted-foreground text-xs">
+                Fiqurları və şəkilli variantları kim yenidən çəkir. gpt-image
+                ölçülmüş yoldur — şəkil başına ~$0.08 və 40–90 saniyə. Gemini
+                ucuzdur ($0.067) və layihənin mövcud kreditindən işləyir, amma
+                skan fiqurlarda nə sürəti, nə dəqiqliyi hələ ölçülməyib.
+              </span>
+            </div>
+            <Select
+              value={s.imageModel}
+              onValueChange={(v) => s.set({ imageModel: v as 'openai' | 'gemini' })}
+            >
+              <SelectTrigger className="w-36" aria-label="Şəkil modeli">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="openai">gpt-image</SelectItem>
+                  <SelectItem value="gemini">Gemini Flash Image</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </div>
+
           <Toggle
             checked={s.autoApprove}
             onChange={(autoApprove) => s.set({ autoApprove })}

@@ -41,6 +41,13 @@ export interface PipelineSettings {
     | 'gemini-3.5-flash'
     | 'claude-sonnet-5'
     | 'claude-opus-5'
+  /**
+   * Who redraws figures and picture options. gpt-image is the measured path;
+   * Gemini is cheaper per image and runs on the project's existing credit,
+   * but nothing about its speed or fidelity on scanned figures has been
+   * measured yet. Kept as a switch so both can be run on the same questions.
+   */
+  imageModel: 'openai' | 'gemini'
 }
 
 const DEFAULTS: PipelineSettings = {
@@ -50,6 +57,7 @@ const DEFAULTS: PipelineSettings = {
   mediumImages: false,
   dslFirst: false,
   agentModel: 'gemini-3.1-pro-preview',
+  imageModel: 'openai',
 }
 
 interface PipelineStore extends PipelineSettings {
@@ -69,7 +77,22 @@ export const usePipelineStore = create<PipelineStore>()(
 )
 
 export function pipelineSettings(): PipelineSettings {
-  const { batchSize, autoApprove, autoApproveNeedsAnswer, mediumImages, dslFirst, agentModel } =
-    usePipelineStore.getState()
-  return { batchSize, autoApprove, autoApproveNeedsAnswer, mediumImages, dslFirst, agentModel }
+  const {
+    batchSize,
+    autoApprove,
+    autoApproveNeedsAnswer,
+    mediumImages,
+    dslFirst,
+    agentModel,
+    imageModel,
+  } = usePipelineStore.getState()
+  return {
+    batchSize,
+    autoApprove,
+    autoApproveNeedsAnswer,
+    mediumImages,
+    dslFirst,
+    agentModel,
+    imageModel,
+  }
 }

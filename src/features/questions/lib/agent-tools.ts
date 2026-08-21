@@ -9,6 +9,7 @@
 
 import { lintQuestion, type Flag } from '@/core/questions/lint'
 import { opRedrawFigure } from '@/features/questions/api/question-ops'
+import { pipelineSettings } from '@/stores/pipeline-store'
 import { sanitizeSvg, svgNodeCount, type SvgNode } from '@/core/figures/svg-safe'
 import { snapshotSvgNode } from '@/components/question/snapshot'
 import {
@@ -320,6 +321,7 @@ export async function runAgentTool(
       drawn = await opRedrawFigure({
         image: reference.image,
         mime: reference.mime as 'image/png' | 'image/jpeg',
+        imageModel: pipelineSettings().imageModel,
       })
     } catch (error) {
       // A failed generation is what earns the right to cut this region.
