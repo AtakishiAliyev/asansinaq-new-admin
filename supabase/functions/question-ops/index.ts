@@ -442,7 +442,10 @@ async function callGeminiRedraw(
           ],
           response_format: {
             type: 'image',
-            mime_type: 'image/png',
+            // No mime_type. The documented example passes 'image/png' and the
+            // live API rejects it ("The value image/png is not supported for
+            // response_format.mime_type"), so the field is left out and
+            // whatever the model returns is read off the response instead.
             aspect_ratio: nearestAspect(image),
             image_size: quality === 'medium' ? '512px' : '1K',
           },

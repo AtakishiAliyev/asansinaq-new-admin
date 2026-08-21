@@ -12,9 +12,22 @@ import { FigureRenderer } from './figure-renderer'
 export async function snapshotFigure(
   doc: FigureDoc,
   resolveImageUrl?: (src: string) => string,
+  /**
+   * A definite width for the offscreen host.
+   *
+   * Required for anything whose renderer sizes itself in percentages. The host
+   * shrink-wraps its content, and a child asking for `width: 100%` of a
+   * shrink-wrapped parent resolves to zero — the figure renders into a box with
+   * no width and the snapshot comes back blank. That is not a hypothetical:
+   * every SVG the agent drew was rejected as an empty render, simple ones
+   * included, because the drawing never had a width to be painted into.
+   */
+  widthPx?: number,
 ): Promise<string> {
   const host = document.createElement('div')
-  host.style.cssText = 'position:fixed;left:-99999px;top:0;background:#fff;padding:12px;display:inline-block'
+  host.style.cssText = widthPx
+    ? `position:fixed;left:-99999px;top:0;background:#fff;padding:12px;display:block;width:${widthPx}px`
+    : 'position:fixed;left:-99999px;top:0;background:#fff;padding:12px;display:inline-block'
   document.body.appendChild(host)
   const root = createRoot(host)
   try {
@@ -56,5 +69,19 @@ function withConcreteInk(node: SvgNode): SvgNode {
  * only be ceremony.
  */
 export async function snapshotSvgNode(node: SvgNode): Promise<string> {
-  return snapshotFigure({ v: 1, items: [{ kind: 'raw_svg', node: withConcreteInk(node) }] })
+  return snapshotFigure(
+    { v: 1, items: [{ kind: 'raw_svg', node: withConcreteInk(node) }] },
+    undefined,
+    SVG_SNAPSHOT_WIDTH,
+  )
 }
+
+/**
+ * `max-w-md` (448px) in RawSvgFig plus this host's 12px padding either side.
+ *
+ * Matched so the figure fills the snapshot instead of sitting centred in white
+ * margin. If that cap ever changes the cost is wasted white space, not a blank
+ * image — the only thing that must stay true is that the width is definite.
+ * At pixelRatio 2 this lands at ~900px of real pixels, enough for small labels.
+ */
+const SVG_SNAPSHOT_WIDTH = 448 + 24
