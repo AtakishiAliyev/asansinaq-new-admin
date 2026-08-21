@@ -8,6 +8,7 @@
 // work before it says it is finished.
 
 import { lintQuestion, type Flag } from '@/core/questions/lint'
+import { opRedrawFigure } from '@/features/questions/api/question-ops'
 import { sanitizeSvg, svgNodeCount, type SvgNode } from '@/core/figures/svg-safe'
 import { snapshotSvgNode } from '@/components/question/snapshot'
 import {
@@ -25,7 +26,9 @@ export interface Artefact {
   name: string
   /** data URL — uploaded to storage only if the question is saved */
   dataUrl: string
-  source: 'cut' | 'drawn'
+  source: 'cut' | 'drawn' | 'generated'
+  /** where it came from in the crop, for review */
+  box?: Box
   svg?: SvgNode
 }
 
@@ -102,6 +105,29 @@ export const AGENT_TOOLS = [
       },
       required: ['svg', 'name', 'against'],
     },
+  },
+  {
+    name: 'generate',
+    description:
+      'Redraw a region with the image model. Use this for content a vector drawing cannot express — a shaded illustration, a rendered object, a photograph-like picture — especially when a watermark crosses it so cutting is not acceptable. Costs money and takes about a minute, so use it where `cut` and `draw` genuinely cannot. Returns the generated image beside the original region so you can judge it. Beware: it produces something SIMILAR, not identical. If the answer depends on an exact orientation, count or arrangement, a similar picture is a wrong picture — cut instead when the region is clean.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        box: {
+          type: 'array',
+          items: { type: 'number' },
+          description: '[ymin,xmin,ymax,xmax] 0-1000 — the drawing only, no text or option letters',
+        },
+        name: { type: 'string' },
+      },
+      required: ['box', 'name'],
+    },
+  },
+  {
+    name: 'review',
+    description:
+      'Lay out everything you are about to save, together, beside the original crop. Call this before `done`. Look at it as a whole: is each option its own drawing, is the figure the figure, has anything been cut from the wrong place? This is the last moment a mistake is cheap.',
+    input_schema: { type: 'object' as const, properties: {}, required: [] },
   },
   {
     name: 'check',
@@ -187,11 +213,18 @@ export async function runAgentTool(
     if (!box) throw new Error('box [ymin,xmin,ymax,xmax] formatında olmalıdır')
     const key = String(input.name ?? 'cut')
     const dataUrl = await cropRegion(ctx.cropDataUrl, box)
-    ctx.artefacts.set(key, { name: key, dataUrl, source: 'cut' })
+    ctx.artefacts.set(key, { name: key, dataUrl, source: 'cut', box })
     ctx.trace.push({ tool: 'cut', summary: key })
+    // Judging a cut means judging WHAT was cut, and the answer is in the
+    // picture, not in the coordinates. Five options that turned out to be
+    // strips of the question text were all cut without anyone looking.
     return [
-      { type: 'text', text: `"${key}" kəsildi. Doğru bölgədirmi?` },
+      { type: 'text', text: `"${key}" kəsildi:` },
       await imageBlock(dataUrl),
+      {
+        type: 'text',
+        text: 'Bu, saxlamaq istədiyin məzmundurmu? Watermark üstündən keçirsə, kəsmə — çək və ya generate et.',
+      },
     ]
   }
 
@@ -233,6 +266,55 @@ export async function runAgentTool(
       text: dropped.length
         ? `Təmizlənən: ${dropped.join(', ')}. Fərq görürsənsə, düzəldilmiş SVG göndər.`
         : 'Fərq görürsənsə, düzəldilmiş SVG göndər.',
+    })
+    return blocks
+  }
+
+  if (name === 'generate') {
+    const box = asBox(input.box)
+    if (!box) throw new Error('box [ymin,xmin,ymax,xmax] formatında olmalıdır')
+    const key = String(input.name ?? 'figure')
+    const referenceUrl = await cropRegion(ctx.cropDataUrl, box)
+    const reference = splitDataUrl(referenceUrl)
+    const drawn = await opRedrawFigure({
+      image: reference.image,
+      mime: reference.mime as 'image/png' | 'image/jpeg',
+    })
+    const dataUrl = `data:${drawn.mime};base64,${drawn.image}`
+    ctx.artefacts.set(key, { name: key, dataUrl, source: 'generated', box })
+    ctx.trace.push({ tool: 'generate', summary: key })
+    return [
+      { type: 'text', text: 'Yaradılan:' },
+      await imageBlock(dataUrl),
+      { type: 'text', text: 'Orijinal bölgə:' },
+      await imageBlock(referenceUrl),
+      {
+        type: 'text',
+        text: 'Bu model OXŞAR çəkir, eyni yox. Forma, say, istiqamət və etiketlər üst-üstə düşürmü? Düşmürsə və bölgə təmizdirsə, kəsmək daha doğrudur.',
+      },
+    ]
+  }
+
+  if (name === 'review') {
+    if (!ctx.artefacts.size) {
+      return [{ type: 'text', text: 'Hələ heç bir şəkil saxlanmayıb.' }]
+    }
+    ctx.trace.push({ tool: 'review', summary: `${ctx.artefacts.size} şəkil` })
+    const blocks: ToolReturn = [
+      { type: 'text', text: 'Orijinal crop:' },
+      await imageBlock(ctx.cropDataUrl),
+      {
+        type: 'text',
+        text: `Saxlayacağın ${ctx.artefacts.size} şəkil, ardıcıllıqla:`,
+      },
+    ]
+    for (const [key, art] of ctx.artefacts) {
+      blocks.push({ type: 'text', text: `${key} (${art.source}):` })
+      blocks.push(await imageBlock(art.dataUrl))
+    }
+    blocks.push({
+      type: 'text',
+      text: 'Hər biri olmalı olduğu şeydirmi? Biri sual mətnidirsə, ya səhv bölgədirsə, indi düzəlt — sonra düzəltmək olmayacaq.',
     })
     return blocks
   }
