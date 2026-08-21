@@ -30,11 +30,31 @@ export async function snapshotFigure(
   }
 }
 
+// `currentColor` is right in the app — it lets a figure read in either theme —
+// and wrong the moment the figure is rendered off-screen to be saved. There
+// the colour resolves against a cloned context with no theme variables, and
+// the first agent figure came back 648x348 of pure white: navy strokes turned
+// white, on white. A stored image has no theme to be aware of, so the ink is
+// made concrete before it is painted.
+const SNAPSHOT_INK = '#1e3a5f'
+
+function withConcreteInk(node: SvgNode): SvgNode {
+  const attrs: Record<string, string> = {}
+  for (const [k, v] of Object.entries(node.attrs)) {
+    attrs[k] = v === 'currentColor' ? SNAPSHOT_INK : v
+  }
+  return {
+    ...node,
+    attrs,
+    children: node.children.map(withConcreteInk),
+  }
+}
+
 /**
  * The same, for a single sanitized SVG tree. The agent draws one figure at a
  * time and has to see it immediately; wrapping it in a FigureDoc first would
  * only be ceremony.
  */
 export async function snapshotSvgNode(node: SvgNode): Promise<string> {
-  return snapshotFigure({ v: 1, items: [{ kind: 'raw_svg', node }] })
+  return snapshotFigure({ v: 1, items: [{ kind: 'raw_svg', node: withConcreteInk(node) }] })
 }

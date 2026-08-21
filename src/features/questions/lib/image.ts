@@ -61,3 +61,38 @@ export async function fitForModel(dataUrl: string): Promise<string> {
   ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
   return canvas.toDataURL('image/png')
 }
+
+/**
+ * What fraction of an image is actually ink.
+ *
+ * The agent's first drawn figure was saved as 648x348 of pure white — the SVG
+ * was fine, the colour resolved to white on white — and nothing in the chain
+ * noticed, because a blank PNG is a perfectly valid PNG. A drawing that paints
+ * nothing is a defect the moment it is produced, so it is measured there
+ * rather than discovered in review.
+ */
+export async function inkFraction(dataUrl: string): Promise<number> {
+  const img = new Image()
+  img.src = dataUrl
+  await img.decode()
+  // Sampling a reduced copy: the answer needs one significant figure, and a
+  // full-size read of every pixel is wasted work in a loop that runs per turn.
+  const w = Math.max(1, Math.min(200, img.naturalWidth))
+  const h = Math.max(1, Math.min(200, img.naturalHeight))
+  const canvas = document.createElement('canvas')
+  canvas.width = w
+  canvas.height = h
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })
+  if (!ctx) return 1
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, w, h)
+  ctx.drawImage(img, 0, 0, w, h)
+  const { data } = ctx.getImageData(0, 0, w, h)
+  let ink = 0
+  for (let i = 0; i < data.length; i += 4) {
+    // Anything meaningfully darker than paper counts; anti-aliased edges of a
+    // real stroke land here too, which is the point.
+    if ((data[i]! + data[i + 1]! + data[i + 2]!) / 3 < 232) ink++
+  }
+  return ink / (w * h)
+}

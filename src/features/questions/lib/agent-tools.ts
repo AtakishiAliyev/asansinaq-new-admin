@@ -10,7 +10,12 @@
 import { lintQuestion, type Flag } from '@/core/questions/lint'
 import { sanitizeSvg, svgNodeCount, type SvgNode } from '@/core/figures/svg-safe'
 import { snapshotSvgNode } from '@/components/question/snapshot'
-import { cropRegion, fitForModel, splitDataUrl } from '@/features/questions/lib/image'
+import {
+  cropRegion,
+  fitForModel,
+  inkFraction,
+  splitDataUrl,
+} from '@/features/questions/lib/image'
 import type { ExtractedQuestion } from '@/core/questions/extraction'
 
 /** [ymin, xmin, ymax, xmax], 0–1000, the convention every box in this app uses. */
@@ -199,6 +204,15 @@ export async function runAgentTool(
     }
     const key = String(input.name ?? 'figure')
     const dataUrl = await snapshotSvgNode(node)
+    // A drawing that paints nothing is a defect now, not a discovery in review.
+    const ink = await inkFraction(dataUrl)
+    if (ink < 0.002) {
+      throw new Error(
+        'çəkilən fiqur boş render olundu — koordinatlar viewBox-dan kənarda ola bilər, ' +
+          'ya da forma dolğusu/konturu görünmür. viewBox-a uyğun koordinatlarla və ' +
+          'açıq stroke ilə yenidən göndər.',
+      )
+    }
     ctx.artefacts.set(key, { name: key, dataUrl, source: 'drawn', svg: node })
     ctx.trace.push({ tool: 'draw', summary: `${key} · ${svgNodeCount(node)} element` })
 
