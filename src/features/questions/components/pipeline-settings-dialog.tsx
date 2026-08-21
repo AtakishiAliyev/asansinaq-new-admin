@@ -108,9 +108,9 @@ export function PipelineSettingsDialog({ onClose }: { onClose: () => void }) {
             <div className="flex flex-col gap-0.5">
               <span className="text-sm font-medium">Agent modeli</span>
               <span className="text-muted-foreground text-xs">
-                Agent dövrəsini hansı model aparır. Sonnet iş üçün kifayətdir;
-                Opus sıx səhifəni daha etibarlı oxuyur və öz çəkdiyini daha
-                yaxşı qiymətləndirir, təxminən 2.5 qat baha.
+                Agent dövrəsini hansı model aparır. Gemini 3.1 Pro layihənin
+                mövcud kreditindən işləyir; Claude modelləri ayrıca ödənişlidir
+                (Opus sıx səhifəni daha etibarlı oxuyur, təxminən 2.5 qat baha).
               </span>
             </div>
             <Select
@@ -124,6 +124,8 @@ export function PipelineSettingsDialog({ onClose }: { onClose: () => void }) {
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
+                  <SelectItem value="gemini-3.1-pro-preview">Gemini 3.1 Pro</SelectItem>
+                  <SelectItem value="gemini-3.5-flash">Gemini 3.5 Flash</SelectItem>
                   <SelectItem value="claude-sonnet-5">Sonnet 5</SelectItem>
                   <SelectItem value="claude-opus-5">Opus 5</SelectItem>
                 </SelectGroup>

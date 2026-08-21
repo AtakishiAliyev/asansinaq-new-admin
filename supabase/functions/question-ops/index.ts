@@ -75,7 +75,129 @@ const RATE = {
   opusOut: 25,
 }
 
-const AGENT_MODELS = new Set(['claude-sonnet-5', 'claude-opus-5'])
+const AGENT_MODELS = new Set([
+  'claude-sonnet-5',
+  'claude-opus-5',
+  'gemini-3.1-pro-preview',
+  'gemini-3.5-flash',
+])
+
+// ── The agent loop speaks one shape; two providers speak two others ──────────
+//
+// The browser keeps the conversation in Anthropic's shape and resends it whole
+// each turn. Rather than teach the loop a second dialect — and then keep two
+// loops honest against each other forever — the translation lives here, at the
+// door, and the loop never learns that Gemini exists.
+//
+// The awkward part is tool results. Anthropic lets a tool hand back images
+// inside the result block; Gemini's functionResponse carries JSON only. So a
+// result splits: the text goes in the functionResponse, and the images follow
+// it as inlineData parts of the same user turn, which is how a Gemini
+// conversation carries pictures at all.
+
+interface AnthropicBlock {
+  type: string
+  text?: string
+  id?: string
+  name?: string
+  input?: unknown
+  tool_use_id?: string
+  content?: unknown
+  source?: { media_type?: string; data?: string }
+}
+
+function toGeminiContents(messages: Record<string, unknown>[]) {
+  // functionResponse needs the name of the call it answers, and Anthropic
+  // identifies that by id — so the ids seen so far are kept.
+  const nameById = new Map<string, string>()
+  const contents: Record<string, unknown>[] = []
+
+  for (const message of messages) {
+    const role = message.role === 'assistant' ? 'model' : 'user'
+    const raw = message.content
+    const blocks: AnthropicBlock[] = Array.isArray(raw)
+      ? (raw as AnthropicBlock[])
+      : [{ type: 'text', text: String(raw ?? '') }]
+    const parts: Record<string, unknown>[] = []
+
+    for (const b of blocks) {
+      if (b.type === 'text' && b.text) {
+        parts.push({ text: b.text })
+      } else if (b.type === 'image' && b.source?.data) {
+        parts.push({
+          inlineData: {
+            mimeType: b.source.media_type ?? 'image/png',
+            data: b.source.data,
+          },
+        })
+      } else if (b.type === 'tool_use' && b.name) {
+        if (b.id) nameById.set(b.id, b.name)
+        parts.push({ functionCall: { name: b.name, args: b.input ?? {} } })
+      } else if (b.type === 'tool_result') {
+        const name = nameById.get(String(b.tool_use_id ?? '')) ?? 'tool'
+        const inner: AnthropicBlock[] = Array.isArray(b.content)
+          ? (b.content as AnthropicBlock[])
+          : [{ type: 'text', text: String(b.content ?? '') }]
+        const text = inner
+          .filter((c) => c.type === 'text' && c.text)
+          .map((c) => c.text)
+          .join('\n')
+        parts.push({
+          functionResponse: {
+            name,
+            response: { result: text || 'ok' },
+          },
+        })
+        for (const c of inner) {
+          if (c.type === 'image' && c.source?.data) {
+            parts.push({
+              inlineData: {
+                mimeType: c.source.media_type ?? 'image/png',
+                data: c.source.data,
+              },
+            })
+          }
+        }
+      }
+    }
+    if (parts.length) contents.push({ role, parts })
+  }
+  return contents
+}
+
+function toGeminiTools(tools: Record<string, unknown>[]) {
+  return [
+    {
+      functionDeclarations: tools.map((t) => ({
+        name: t.name,
+        description: t.description,
+        parameters: t.input_schema,
+      })),
+    },
+  ]
+}
+
+/** Gemini's answer, in the shape the loop already understands. */
+function fromGeminiParts(parts: Record<string, unknown>[]): AnthropicBlock[] {
+  const out: AnthropicBlock[] = []
+  let n = 0
+  for (const part of parts) {
+    if (typeof part.text === 'string' && part.text) {
+      out.push({ type: 'text', text: part.text })
+    }
+    const call = part.functionCall as { name?: string; args?: unknown } | undefined
+    if (call?.name) {
+      out.push({
+        type: 'tool_use',
+        // Gemini has no call ids; the loop needs one to match results back.
+        id: `gemini_${Date.now()}_${n++}`,
+        name: call.name,
+        input: (call.args ?? {}) as Record<string, unknown>,
+      })
+    }
+  }
+  return out
+}
 
 function estAnthropicCost(
   model: string,
@@ -694,8 +816,6 @@ Deno.serve(async (req) => {
     // here, and so do the ledger and the budget cap, which is the whole reason
     // every model call goes through one door.
     if (op === 'agent_step') {
-      const key = Deno.env.get('ANTHROPIC_API_KEY')
-      if (!key) return json(500, { error: 'ANTHROPIC_API_KEY secret is not set' })
       const model = String(body.model ?? 'claude-sonnet-5')
       if (!AGENT_MODELS.has(model)) {
         return json(400, { error: `model icazəli deyil: ${model}` })
@@ -703,6 +823,8 @@ Deno.serve(async (req) => {
       if (!Array.isArray(body.messages) || !Array.isArray(body.tools)) {
         return json(400, { error: 'messages və tools massiv olmalıdır' })
       }
+      const messages = body.messages as Record<string, unknown>[]
+      const tools = body.tools as Record<string, unknown>[]
       // Deliberately NOT cached: every turn carries the whole conversation, so
       // no two turns are ever the same request, and a cache would only store
       // megabytes that can never be read back.
@@ -713,8 +835,60 @@ Deno.serve(async (req) => {
       if (budget <= 0) throw deadlineExceeded()
       const controller = new AbortController()
       const timer = setTimeout(() => controller.abort(), budget)
-      let out: Record<string, unknown>
+      const isGemini = model.startsWith('gemini')
+
       try {
+        if (isGemini) {
+          const key = Deno.env.get('GEMINI_API_KEY')
+          if (!key) return json(500, { error: 'GEMINI_API_KEY secret is not set' })
+          const res = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
+            {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                systemInstruction: { parts: [{ text: String(body.system ?? '') }] },
+                contents: toGeminiContents(messages),
+                tools: toGeminiTools(tools),
+                generationConfig: { temperature: 0, maxOutputTokens: 16000 },
+              }),
+              signal: controller.signal,
+            },
+          )
+          if (!res.ok) {
+            const detail = (await res.text()).slice(0, 400)
+            if (res.status === 429) {
+              return json(429, { error: 'model həddi', detail, kind: 'rate_limit' })
+            }
+            return json(502, { error: `Gemini ${res.status}`, detail })
+          }
+          const out = (await res.json()) as Record<string, unknown>
+          const candidate = (out.candidates as Record<string, unknown>[] | undefined)?.[0]
+          const parts =
+            ((candidate?.content as Record<string, unknown> | undefined)?.parts as
+              | Record<string, unknown>[]
+              | undefined) ?? []
+          const u = usage(out)
+          const ms = Date.now() - started
+          await logOp(db, userId, {
+            op,
+            model,
+            promptTokens: u.promptTokens,
+            outputTokens: u.outputTokens,
+            ms,
+            cost: estGeminiCost(model, u.promptTokens, u.outputTokens),
+            cached: false,
+          })
+          return json(200, {
+            content: fromGeminiParts(parts),
+            stop_reason: candidate?.finishReason ?? null,
+            usage: out.usageMetadata ?? null,
+            ms,
+          })
+        }
+
+        const key = Deno.env.get('ANTHROPIC_API_KEY')
+        if (!key) return json(500, { error: 'ANTHROPIC_API_KEY secret is not set' })
         const res = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST',
           headers: {
@@ -727,40 +901,39 @@ Deno.serve(async (req) => {
             max_tokens: 16000,
             output_config: { effort: 'high' },
             system: body.system,
-            tools: body.tools,
-            messages: body.messages,
+            tools,
+            messages,
           }),
           signal: controller.signal,
         })
         if (!res.ok) {
-          const detail = (await res.text()).slice(0, 300)
+          const detail = (await res.text()).slice(0, 400)
           if (res.status === 429) {
             return json(429, { error: 'model həddi', detail, kind: 'rate_limit' })
           }
           return json(502, { error: `Anthropic ${res.status}`, detail })
         }
-        out = await res.json()
+        const out = (await res.json()) as Record<string, unknown>
+        const u = (out.usage ?? {}) as { input_tokens?: number; output_tokens?: number }
+        const ms = Date.now() - started
+        await logOp(db, userId, {
+          op,
+          model,
+          promptTokens: u.input_tokens ?? null,
+          outputTokens: u.output_tokens ?? null,
+          ms,
+          cost: estAnthropicCost(model, u.input_tokens ?? null, u.output_tokens ?? null),
+          cached: false,
+        })
+        return json(200, {
+          content: out.content,
+          stop_reason: out.stop_reason,
+          usage: out.usage,
+          ms,
+        })
       } finally {
         clearTimeout(timer)
       }
-
-      const usage = (out.usage ?? {}) as { input_tokens?: number; output_tokens?: number }
-      const ms = Date.now() - started
-      await logOp(db, userId, {
-        op,
-        model,
-        promptTokens: usage.input_tokens ?? null,
-        outputTokens: usage.output_tokens ?? null,
-        ms,
-        cost: estAnthropicCost(model, usage.input_tokens ?? null, usage.output_tokens ?? null),
-        cached: false,
-      })
-      return json(200, {
-        content: out.content,
-        stop_reason: out.stop_reason,
-        usage: out.usage,
-        ms,
-      })
     }
 
     if (op === 'option_boxes') {

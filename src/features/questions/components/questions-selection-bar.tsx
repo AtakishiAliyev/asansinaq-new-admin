@@ -54,7 +54,11 @@ export function QuestionsSelectionBar({
   // Measured on the probe: Opus averaged $0.72 a question. Sonnet is priced at
   // two fifths of Opus, so its figure is derived, not observed — shown as a
   // range so it does not read as a promise.
-  const perQuestion = agentModel === 'claude-opus-5' ? 0.72 : 0.29
+  const perQuestion = agentModel.startsWith('gemini')
+    ? 0.05
+    : agentModel === 'claude-opus-5'
+      ? 0.72
+      : 0.38
   const minutes = Math.max(1, Math.round((selected.length * 110) / 60))
 
   return (
@@ -161,7 +165,7 @@ export function QuestionsSelectionBar({
               istənilən sualın arasında dayandıra bilərsiniz.
               <br />
               <br />
-              Model: <b>{agentModel === 'claude-opus-5' ? 'Opus 5' : 'Sonnet 5'}</b> —
+              Model: <b>{agentModel}</b> —
               emal parametrlərindən dəyişdirilir. Nəticə <b>təsdiqlənmiş sayılmır</b>:
               agentin öz yoxlaması müstəqil ikinci oxunuş deyil, ona görə hər
               sual review-ə düşür.

@@ -30,7 +30,11 @@ import type { QuestionRow } from '@/features/questions/schemas'
 
 const MAX_STEPS = AGENT_MAX_STEPS
 
-export type AgentModel = 'claude-sonnet-5' | 'claude-opus-5'
+export type AgentModel =
+  | 'gemini-3.1-pro-preview'
+  | 'gemini-3.5-flash'
+  | 'claude-sonnet-5'
+  | 'claude-opus-5'
 
 
 export interface AgentOutcome {
@@ -73,7 +77,7 @@ export function useAgentRun() {
   const run = useCallback(
     async (
       row: QuestionRow,
-      model: AgentModel = 'claude-sonnet-5',
+      model: AgentModel = 'gemini-3.1-pro-preview',
     ): Promise<AgentOutcome> => {
       const id = ++runId.current
       setState({ status: 'running', step: 0, activity: 'crop yüklənir' })

@@ -36,7 +36,11 @@ export interface PipelineSettings {
    * reads a crowded page more reliably and judges its own drawing better, at
    * roughly two and a half times the price.
    */
-  agentModel: 'claude-sonnet-5' | 'claude-opus-5'
+  agentModel:
+    | 'gemini-3.1-pro-preview'
+    | 'gemini-3.5-flash'
+    | 'claude-sonnet-5'
+    | 'claude-opus-5'
 }
 
 const DEFAULTS: PipelineSettings = {
@@ -45,7 +49,7 @@ const DEFAULTS: PipelineSettings = {
   autoApproveNeedsAnswer: true,
   mediumImages: false,
   dslFirst: false,
-  agentModel: 'claude-sonnet-5',
+  agentModel: 'gemini-3.1-pro-preview',
 }
 
 interface PipelineStore extends PipelineSettings {
