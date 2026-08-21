@@ -378,13 +378,46 @@ async function callOpenAIRedraw(
   }
 }
 
+/**
+ * Marks a system prompt as cacheable for Anthropic.
+ *
+ * A string system prompt cannot carry cache_control, so it becomes a
+ * one-element block array. Below Anthropic's minimum cacheable length the
+ * breakpoint is simply ignored, which costs nothing.
+ */
+function cacheable(system: unknown): unknown {
+  if (typeof system !== 'string' || !system) return system
+  return [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }]
+}
+
+/** Puts a cache breakpoint at the very end of the conversation so far. */
+function withTailBreakpoint(messages: unknown): unknown {
+  if (!Array.isArray(messages) || !messages.length) return messages
+  const out = messages.slice()
+  const last = { ...(out[out.length - 1] as Record<string, unknown>) }
+  if (!Array.isArray(last.content)) return messages
+  const blocks = (last.content as Record<string, unknown>[]).slice()
+  blocks[blocks.length - 1] = {
+    ...blocks[blocks.length - 1],
+    cache_control: { type: 'ephemeral' },
+  }
+  last.content = blocks
+  out[out.length - 1] = last
+  return out
+}
+
 function usage(raw: Record<string, unknown>) {
   const u = raw.usageMetadata as
-    | { promptTokenCount?: number; candidatesTokenCount?: number }
+    | {
+        promptTokenCount?: number
+        candidatesTokenCount?: number
+        cachedContentTokenCount?: number
+      }
     | undefined
   return {
     promptTokens: u?.promptTokenCount ?? null,
     outputTokens: u?.candidatesTokenCount ?? null,
+    cachedTokens: u?.cachedContentTokenCount ?? null,
   }
 }
 
@@ -393,6 +426,8 @@ interface OpLogEntry {
   model: string
   promptTokens: number | null
   outputTokens: number | null
+  /** of promptTokens, how many the provider served from its own cache */
+  cachedTokens?: number | null
   ms: number
   cost: number
   cached: boolean
@@ -409,6 +444,7 @@ async function logOp(
     model: entry.model,
     prompt_tokens: entry.promptTokens,
     output_tokens: entry.outputTokens,
+    cached_tokens: entry.cachedTokens ?? null,
     ms: entry.ms,
     est_cost_usd: entry.cost,
     cached: entry.cached,
@@ -897,6 +933,10 @@ Deno.serve(async (req) => {
             model,
             promptTokens: u.promptTokens,
             outputTokens: u.outputTokens,
+            // Gemini caches repeated prefixes on its own, without being asked.
+            // Whether it actually does so for an agent loop is a question the
+            // ledger can answer and guesswork cannot.
+            cachedTokens: u.cachedTokens,
             ms,
             cost: estGeminiCost(model, u.promptTokens, u.outputTokens),
             cached: false,
@@ -922,9 +962,14 @@ Deno.serve(async (req) => {
             model,
             max_tokens: 16000,
             output_config: { effort: 'high' },
-            system: body.system,
+            // Two breakpoints. The first freezes the standard and the tool
+            // definitions — identical on every turn of every question. The
+            // second sits at the end of the conversation so far, so the next
+            // turn re-reads all of it at a tenth of the price instead of
+            // paying full rate for a transcript that only grew at one end.
+            system: cacheable(body.system),
             tools,
-            messages,
+            messages: withTailBreakpoint(messages),
           }),
           signal: controller.signal,
         })
@@ -936,15 +981,30 @@ Deno.serve(async (req) => {
           return json(502, { error: `Anthropic ${res.status}`, detail })
         }
         const out = (await res.json()) as Record<string, unknown>
-        const u = (out.usage ?? {}) as { input_tokens?: number; output_tokens?: number }
+        const u = (out.usage ?? {}) as {
+          input_tokens?: number
+          output_tokens?: number
+          cache_creation_input_tokens?: number
+          cache_read_input_tokens?: number
+        }
         const ms = Date.now() - started
+        // Anthropic reports cached tokens OUTSIDE input_tokens, and prices
+        // them differently: a write costs 1.25x the input rate, a read 0.1x.
+        // Charging them all at the input rate would make caching look like it
+        // changed nothing, which is the one thing this ledger exists to tell us.
+        const wrote = u.cache_creation_input_tokens ?? 0
+        const read = u.cache_read_input_tokens ?? 0
+        const fresh = u.input_tokens ?? null
         await logOp(db, userId, {
           op,
           model,
-          promptTokens: u.input_tokens ?? null,
+          promptTokens: (fresh ?? 0) + wrote + read,
           outputTokens: u.output_tokens ?? null,
+          cachedTokens: read,
           ms,
-          cost: estAnthropicCost(model, u.input_tokens ?? null, u.output_tokens ?? null),
+          cost:
+            estAnthropicCost(model, fresh, u.output_tokens ?? null) +
+            estAnthropicCost(model, Math.round(wrote * 1.25 + read * 0.1), 0),
           cached: false,
         })
         return json(200, {

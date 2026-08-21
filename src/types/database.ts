@@ -231,6 +231,7 @@ export type Database = {
       ops_log: {
         Row: {
           cached: boolean
+          cached_tokens: number | null
           created_at: string
           created_by: string | null
           est_cost_usd: number
@@ -243,6 +244,7 @@ export type Database = {
         }
         Insert: {
           cached?: boolean
+          cached_tokens?: number | null
           created_at?: string
           created_by?: string | null
           est_cost_usd?: number
@@ -255,6 +257,7 @@ export type Database = {
         }
         Update: {
           cached?: boolean
+          cached_tokens?: number | null
           created_at?: string
           created_by?: string | null
           est_cost_usd?: number

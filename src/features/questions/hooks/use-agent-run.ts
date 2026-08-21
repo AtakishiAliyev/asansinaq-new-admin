@@ -105,6 +105,33 @@ function whatIsMissing(
   return null
 }
 
+/**
+ * Drops images the agent has already looked at.
+ *
+ * Every turn resends the entire conversation, so a picture shown on turn two
+ * is paid for again on turns three through twenty. Measured on one run: 40,000
+ * input tokens by step thirteen, most of it pictures nobody was still looking
+ * at. The recent ones stay — that is what the agent judges its own work
+ * against — and so does the original crop, which is the question itself.
+ */
+const KEEP_IMAGES_FOR_TURNS = 3
+
+function trimOldImages(messages: Record<string, unknown>[]): void {
+  const cutoff = messages.length - KEEP_IMAGES_FOR_TURNS * 2
+  for (let i = 1; i < cutoff; i++) {
+    const message = messages[i]
+    if (!Array.isArray(message?.content)) continue
+    for (const block of message.content as Record<string, unknown>[]) {
+      if (block.type !== 'tool_result' || !Array.isArray(block.content)) continue
+      block.content = (block.content as Record<string, unknown>[]).map((c) =>
+        c.type === 'image'
+          ? { type: 'text', text: '[şəkil — əvvəlki addımda göstərilmişdi]' }
+          : c,
+      )
+    }
+  }
+}
+
 export function useAgentRun() {
   const [state, setState] = useState<RunState>(IDLE)
   const runId = useRef(0)
@@ -178,6 +205,7 @@ export function useAgentRun() {
         }
         setState({ status: 'running', step: step + 1, activity: 'model düşünür' })
 
+        trimOldImages(messages)
         let reply: { content: ContentBlock[] }
         try {
           reply = await opAgentStep({ model, system: AGENT_SYSTEM, tools: AGENT_TOOLS, messages })

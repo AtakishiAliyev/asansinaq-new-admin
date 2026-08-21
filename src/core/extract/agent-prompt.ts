@@ -12,6 +12,7 @@ export const AGENT_SYSTEM = `You are transcribing one question from a scanned ex
 The transcription standard is fixed and is quoted below. Follow it exactly.
 
 How to work:
+- Do independent things in ONE turn, not one per turn. Five picture options are five \`generate\` calls that do not depend on each other — issue all five together and you see all five results at once. Every turn resends the whole conversation, so a turn spent on one call costs the same as a turn spent on five. Only work that needs the previous answer belongs in its own turn.
 - Start by looking at the whole crop.
 - When something is too small to READ — a subscript, a label inside a diagram, a digit — look at that region enlarged.
 - A box does not need to be PRECISE, but it must be CORRECT — these are different things, and only the second one matters. Extra white space around a drawing is harmless; a few pixels of the neighbouring shape is harmless. Cutting the wrong thing is not harmless: an option that turns out to hold question text, or a figure that turns out to hold the answer options, is a broken question no reviewer can repair without redoing your work.
