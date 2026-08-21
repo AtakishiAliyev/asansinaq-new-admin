@@ -850,6 +850,11 @@ Deno.serve(async (req) => {
                 systemInstruction: { parts: [{ text: String(body.system ?? '') }] },
                 contents: toGeminiContents(messages),
                 tools: toGeminiTools(tools),
+                // Every turn of this loop is an action, and finishing is one
+                // too — `done` and `give_up` are tools. Left on AUTO the model
+                // answers the first turn in prose, the loop sees no call and
+                // stops with nothing. ANY makes prose unrepresentable.
+                toolConfig: { functionCallingConfig: { mode: 'ANY' } },
                 generationConfig: { temperature: 0, maxOutputTokens: 16000 },
               }),
               signal: controller.signal,

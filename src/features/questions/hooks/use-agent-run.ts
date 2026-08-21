@@ -155,8 +155,14 @@ export function useAgentRun() {
 
         const uses = reply.content.filter((c) => c.type === 'tool_use')
         if (!uses.length) {
-          // It stopped talking without finishing. Treated as exhaustion rather
-          // than success: there is no transcription to save.
+          // It answered in prose instead of acting. That is a real outcome and
+          // the prose is the only evidence of why — discarding it leaves an
+          // "exhausted" with nothing to debug, which cost an hour once already.
+          const said = reply.content
+            .filter((c) => c.type === 'text')
+            .map((c) => (c as { text?: string }).text ?? '')
+            .join(' ')
+            .trim()
           return finish({
             outcome: 'exhausted',
             steps: step + 1,
@@ -164,6 +170,9 @@ export function useAgentRun() {
             result: null,
             artefacts: ctx.artefacts,
             trace: ctx.trace,
+            error: said
+              ? `model alət çağırmadı, dedi: ${said.slice(0, 300)}`
+              : 'model nə alət çağırdı, nə də mətn qaytardı',
           })
         }
 
