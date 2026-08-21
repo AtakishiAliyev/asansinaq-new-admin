@@ -82,19 +82,6 @@ export const TOOL_DEFS = [
     },
   },
   {
-    name: 'cut',
-    description:
-      'Cut a region out of the original crop and keep it as an image for the question. This is free and pixel-exact — prefer it over drawing when the region is clean. Returns the cut image so you can check it.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        box: { type: 'array', items: { type: 'number' }, description: '[ymin,xmin,ymax,xmax] 0-1000' },
-        name: { type: 'string', description: 'what this is, e.g. "option_A" or "figure"' },
-      },
-      required: ['box', 'name'],
-    },
-  },
-  {
     name: 'draw',
     description:
       'Draw a figure as SVG. Returns your drawing rendered as an image, next to the region it should match, so you can judge it yourself and correct the SVG if it is wrong.',
@@ -198,16 +185,6 @@ export async function runTool(
       .toBuffer()
     return [
       { type: 'text', text: `Region ${JSON.stringify(box)} at ${scale}x:` },
-      png(buf),
-    ]
-  }
-
-  if (name === 'cut') {
-    const region = toPixels(input.box as number[], W, H)
-    const buf = await sharp(await readFile(ctx.cropPath)).extract(region).png().toBuffer()
-    await record(ctx, String(input.name), buf, 'cut from the original')
-    return [
-      { type: 'text', text: `Cut "${input.name}". This is what it looks like — check it is the right region and nothing is clipped:` },
       png(buf),
     ]
   }

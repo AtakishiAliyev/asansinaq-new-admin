@@ -27,7 +27,7 @@ export interface Artefact {
   name: string
   /** data URL — uploaded to storage only if the question is saved */
   dataUrl: string
-  source: 'cut' | 'drawn' | 'generated'
+  source: 'drawn' | 'generated'
   /** where it came from in the crop, for review */
   box?: Box
   /** why a cut was unavoidable — required, because it rarely is */
@@ -42,29 +42,9 @@ export interface AgentContext {
   artefacts: Map<string, Artefact>
   /** appended as the run goes, for the operator to read afterwards */
   trace: { tool: string; summary: string }[]
-  /**
-   * Regions where regenerating was actually tried and actually failed.
-   *
-   * A written reason is not a reason. Asked to justify cutting, the agent
-   * wrote "they are clean and exact" — twenty-four characters, past the check,
-   * and five watermarked crops in the bank. So the justification has to be
-   * demonstrated instead of asserted: a region may only be cut once a draw or
-   * a generate on that same region has been seen to fail.
-   */
-  failedRegions: { box: Box; how: string }[]
 }
 
-/** Two regions are "the same region" when they mostly cover each other. */
-function overlaps(a: Box, b: Box): boolean {
-  const top = Math.max(a[0], b[0])
-  const left = Math.max(a[1], b[1])
-  const bottom = Math.min(a[2], b[2])
-  const right = Math.min(a[3], b[3])
-  if (bottom <= top || right <= left) return false
-  const inter = (bottom - top) * (right - left)
-  const areaB = Math.max(1, (b[2] - b[0]) * (b[3] - b[1]))
-  return inter / areaB > 0.5
-}
+
 
 const asBox = (v: unknown): Box | null => {
   if (!Array.isArray(v) || v.length < 4) return null
@@ -98,23 +78,6 @@ export const AGENT_TOOLS = [
         why: { type: 'string', description: 'what you are trying to see' },
       },
       required: ['why'],
-    },
-  },
-  {
-    name: 'cut',
-    description:
-      'LAST RESORT. Keeps a region of the original page as the picture, watermark and all, which is why it is nearly always the wrong answer — the bank outlives these books and a saved crop carries their mark forever. Use it only after `draw` and `generate` have both failed on this region, and say which failed and how. Prefer losing a picture to saving a watermarked one.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        box: { type: 'array', items: { type: 'number' }, description: '[ymin,xmin,ymax,xmax] 0-1000' },
-        name: { type: 'string', description: 'what this is, e.g. "option_A" or "figure"' },
-        reason: {
-          type: 'string',
-          description: 'what you tried with draw and generate, and how each failed',
-        },
-      },
-      required: ['box', 'name', 'reason'],
     },
   },
   {
@@ -237,35 +200,6 @@ export async function runAgentTool(
     return [await imageBlock(dataUrl)]
   }
 
-  if (name === 'cut') {
-    const box = asBox(input.box)
-    if (!box) throw new Error('box [ymin,xmin,ymax,xmax] formatında olmalıdır')
-    const key = String(input.name ?? 'cut')
-    const dataUrl = await cropRegion(ctx.cropDataUrl, box)
-    const failure = ctx.failedRegions.find((f) => overlaps(f.box, box))
-    if (!failure) {
-      throw new Error(
-        'Bu bölgə üçün hələ nə draw, nə generate sınanmayıb — kəsmək olmaz. ' +
-          'Xətt qrafikasıdırsa draw ilə çək, deyilsə generate et. Yalnız ikisi də ' +
-          'alınmasa, cut açılır.',
-      )
-    }
-    const reason = `${failure.how} — ${String(input.reason ?? '').trim()}`
-    ctx.artefacts.set(key, { name: key, dataUrl, source: 'cut', box, reason })
-    ctx.trace.push({ tool: 'cut', summary: `${key} — ${reason.slice(0, 60)}` })
-    // Judging a cut means judging WHAT was cut, and the answer is in the
-    // picture, not in the coordinates. Five options that turned out to be
-    // strips of the question text were all cut without anyone looking.
-    return [
-      { type: 'text', text: `"${key}" kəsildi:` },
-      await imageBlock(dataUrl),
-      {
-        type: 'text',
-        text: 'Bu, saxlamaq istədiyin məzmundurmu? Watermark üstündən keçirsə, kəsmə — çək və ya generate et.',
-      },
-    ]
-  }
-
   if (name === 'draw') {
     const { node, dropped } = sanitizeSvg(String(input.svg ?? ''))
     if (!node || svgNodeCount(node) < 2) {
@@ -278,8 +212,6 @@ export async function runAgentTool(
     // A drawing that paints nothing is a defect now, not a discovery in review.
     const ink = await inkFraction(dataUrl)
     if (ink < 0.002) {
-      const against = asBox(input.against)
-      if (against) ctx.failedRegions.push({ box: against, how: 'draw boş render verdi' })
       throw new Error(
         'çəkilən fiqur boş render olundu — koordinatlar viewBox-dan kənarda ola bilər, ' +
           'ya da forma dolğusu/konturu görünmür. viewBox-a uyğun koordinatlarla və ' +
@@ -324,12 +256,13 @@ export async function runAgentTool(
         imageModel: pipelineSettings().imageModel,
       })
     } catch (error) {
-      // A failed generation is what earns the right to cut this region.
-      ctx.failedRegions.push({
-        box,
-        how: `generate alınmadı: ${error instanceof Error ? error.message : 'naməlum'}`,
-      })
-      throw error
+      // Rethrown as-is. There is no longer a fallback that quietly keeps the
+      // page's own pixels, so whatever the image model said is what the
+      // operator reads — and a broken image provider fails loudly instead of
+      // filling the bank with watermarked crops.
+      throw new Error(
+        `generate alınmadı: ${error instanceof Error ? error.message : 'naməlum xəta'}`,
+      )
     }
     const dataUrl = `data:${drawn.mime};base64,${drawn.image}`
     ctx.artefacts.set(key, { name: key, dataUrl, source: 'generated', box })
@@ -341,7 +274,7 @@ export async function runAgentTool(
       await imageBlock(referenceUrl),
       {
         type: 'text',
-        text: 'Bu model OXŞAR çəkir, eyni yox. Forma, say, istiqamət və etiketlər üst-üstə düşürmü? Düşmürsə və bölgə təmizdirsə, kəsmək daha doğrudur.',
+        text: 'Bu model OXŞAR çəkir, eyni yox. Forma, say, istiqamət və etiketlər üst-üstə düşürmü? Düşmürsə, düzəldilmiş təsvirlə yenidən generate et və ya draw ilə çək.',
       },
     ]
   }
