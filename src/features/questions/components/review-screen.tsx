@@ -1,6 +1,7 @@
 import { toast } from 'sonner'
 import { errorDetail } from '@/lib/errors'
 import {
+  saveAgentFailure,
   saveAgentResult,
   useAgentRun,
 } from '@/features/questions/hooks/use-agent-run'
@@ -277,6 +278,8 @@ export function ReviewScreen({
               .run(item)
               .then(async (outcome) => {
                 if (outcome.outcome !== 'done') {
+                  await saveAgentFailure(item, outcome).catch(() => {})
+                  onRefresh?.()
                   toast.warning(
                     outcome.outcome === 'gave_up'
                       ? `Agent təslim oldu: ${String(outcome.result?.reason ?? '')}`

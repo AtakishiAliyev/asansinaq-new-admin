@@ -231,6 +231,40 @@ export function useAgentRun() {
  * row that names an image which was never uploaded is the failure this whole
  * day was spent removing.
  */
+/**
+ * Records why the agent stopped without a transcription.
+ *
+ * The reason is the single most useful thing a failed run produces — it is the
+ * agent saying, in words, which part of the page defeated it — and until now
+ * it lived in a toast that counted outcomes and then vanished. The row keeps
+ * its status; only the explanation is attached.
+ */
+export async function saveAgentFailure(
+  row: QuestionRow,
+  outcome: AgentOutcome,
+): Promise<void> {
+  const reason =
+    outcome.outcome === 'gave_up'
+      ? String(outcome.result?.reason ?? 'səbəb yazılmadı')
+      : (outcome.error ?? `${outcome.outcome} — ${outcome.steps} addım`)
+  const tried = outcome.outcome === 'gave_up' ? String(outcome.result?.tried ?? '') : ''
+  const tools = outcome.trace.map((t) => t.tool).join(' → ')
+
+  await supabase
+    .from('questions')
+    .update({
+      extraction_error: `Agent ${outcome.outcome === 'gave_up' ? 'təslim oldu' : 'bitirmədi'}: ${reason}${tried ? ` · sınadı: ${tried}` : ''}`,
+      flags: [
+        {
+          level: 'warning',
+          code: 'agent_gave_up',
+          message: `${outcome.steps} addım · ${tools || 'alət çağırmadı'}`,
+        },
+      ] as never,
+    })
+    .eq('id', row.id)
+}
+
 export async function saveAgentResult(
   row: QuestionRow,
   outcome: AgentOutcome,

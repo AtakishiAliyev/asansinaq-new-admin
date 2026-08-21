@@ -4,6 +4,8 @@ import { cn } from '@/lib/utils'
 import type { Flag } from '@/core/questions/lint'
 
 const FLAG_HINTS: Record<string, string> = {
+  agent_gave_up: 'agent bacarmadı — səbəb sətrin xətasındadır',
+  agent_transcribed: 'agent çıxarıb — gözlə yoxlayın',
   raw_svg_mismatch: 'çəkilən fiqur orijinaldan fərqli görünür — gözlə yoxlayın',
   raw_svg: 'sərbəst SVG fiquru — gözlə yoxlayın',
   raster_figure: 'fiqur şəkil kimi yaradılıb — gözlə təsdiqlə',

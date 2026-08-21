@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { errorDetail } from '@/lib/errors'
 import {
+  saveAgentFailure,
   saveAgentResult,
   useAgentRun,
   type AgentOutcome,
@@ -96,18 +97,23 @@ export function useAgentBatch() {
           failed++
           notes.push({ qNo: row.q_no, reason: `yazıla bilmədi: ${errorDetail(error)}` })
         }
-      } else if (outcome.outcome === 'gave_up') {
-        gaveUp++
-        notes.push({
-          qNo: row.q_no,
-          reason: String(outcome.result?.reason ?? 'səbəb yazılmadı'),
-        })
       } else {
-        failed++
-        notes.push({
-          qNo: row.q_no,
-          reason: outcome.error ?? `${outcome.outcome} — ${outcome.steps} addım`,
-        })
+        // Written to the row, not just counted: the agent's own account of
+        // what defeated it is the most useful thing a failed run produces.
+        await saveAgentFailure(row, outcome).catch(() => {})
+        if (outcome.outcome === 'gave_up') {
+          gaveUp++
+          notes.push({
+            qNo: row.q_no,
+            reason: String(outcome.result?.reason ?? 'səbəb yazılmadı'),
+          })
+        } else {
+          failed++
+          notes.push({
+            qNo: row.q_no,
+            reason: outcome.error ?? `${outcome.outcome} — ${outcome.steps} addım`,
+          })
+        }
       }
       setProgress((p) => ({ ...p, done, gaveUp, failed, notes: [...notes] }))
     }
@@ -119,6 +125,17 @@ export function useAgentBatch() {
       `Agent: ${done} çıxarıldı` +
         (gaveUp ? `, ${gaveUp} təslim` : '') +
         (failed ? `, ${failed} alınmadı` : ''),
+      notes.length
+        ? {
+            // A count tells the operator that something went wrong; the reason
+            // tells them what to do about it.
+            description: notes
+              .slice(0, 3)
+              .map((n) => `№${n.qNo}: ${n.reason}`)
+              .join('\n'),
+            duration: 15000,
+          }
+        : undefined,
     )
   }, [])
 
