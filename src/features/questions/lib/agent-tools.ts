@@ -29,6 +29,8 @@ export interface Artefact {
   source: 'cut' | 'drawn' | 'generated'
   /** where it came from in the crop, for review */
   box?: Box
+  /** why a cut was unavoidable — required, because it rarely is */
+  reason?: string
   svg?: SvgNode
 }
 
@@ -78,14 +80,18 @@ export const AGENT_TOOLS = [
   {
     name: 'cut',
     description:
-      'Cut a region out of the original crop and keep it as an image for the question. This is free and pixel-exact — prefer it over drawing when the region is clean. Returns the cut image so you can check it.',
+      'LAST RESORT. Keeps a region of the original page as the picture, watermark and all, which is why it is nearly always the wrong answer — the bank outlives these books and a saved crop carries their mark forever. Use it only after `draw` and `generate` have both failed on this region, and say which failed and how. Prefer losing a picture to saving a watermarked one.',
     input_schema: {
       type: 'object' as const,
       properties: {
         box: { type: 'array', items: { type: 'number' }, description: '[ymin,xmin,ymax,xmax] 0-1000' },
         name: { type: 'string', description: 'what this is, e.g. "option_A" or "figure"' },
+        reason: {
+          type: 'string',
+          description: 'what you tried with draw and generate, and how each failed',
+        },
       },
-      required: ['box', 'name'],
+      required: ['box', 'name', 'reason'],
     },
   },
   {
@@ -213,8 +219,15 @@ export async function runAgentTool(
     if (!box) throw new Error('box [ymin,xmin,ymax,xmax] formatında olmalıdır')
     const key = String(input.name ?? 'cut')
     const dataUrl = await cropRegion(ctx.cropDataUrl, box)
-    ctx.artefacts.set(key, { name: key, dataUrl, source: 'cut', box })
-    ctx.trace.push({ tool: 'cut', summary: key })
+    const reason = String(input.reason ?? '').trim()
+    if (reason.length < 15) {
+      throw new Error(
+        'cut yalnız draw və generate uğursuz olandan sonra işlənir. reason sahəsində ' +
+          'hansının nə cür alınmadığını yaz — yoxsa fiquru generate et.',
+      )
+    }
+    ctx.artefacts.set(key, { name: key, dataUrl, source: 'cut', box, reason })
+    ctx.trace.push({ tool: 'cut', summary: `${key} — ${reason.slice(0, 60)}` })
     // Judging a cut means judging WHAT was cut, and the answer is in the
     // picture, not in the coordinates. Five options that turned out to be
     // strips of the question text were all cut without anyone looking.

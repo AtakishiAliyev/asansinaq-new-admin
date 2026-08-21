@@ -289,6 +289,7 @@ export async function saveAgentResult(
     paths.set(name, path)
   }
 
+  const cuts = [...outcome.artefacts.values()].filter((a) => a.source === 'cut')
   const r = outcome.result
   const rawOptions = (r.options as Record<string, unknown>[] | undefined) ?? []
   const options = rawOptions.map((o) => {
@@ -322,6 +323,14 @@ export async function saveAgentResult(
           code: 'agent_transcribed',
           message: `Agent çıxarıb (${outcome.steps} addım${outcome.redraws ? `, ${outcome.redraws} düzəliş` : ''})${r.notes ? ` — ${String(r.notes)}` : ''}`,
         },
+        // A cut kept the page's watermark. That is a property of the saved
+        // question, not a detail of how it was made, so it belongs on the row
+        // where review will see it rather than in a trace nobody opens.
+        ...cuts.map((c) => ({
+          level: 'warning' as const,
+          code: 'agent_cut_kept',
+          message: `${c.name} orijinaldan kəsilib (watermark qala bilər) — ${c.reason ?? 'səbəb yazılmayıb'}`,
+        })),
       ] as never,
       extraction_error: null,
     })
