@@ -118,13 +118,19 @@ function toGeminiContents(messages: Record<string, unknown>[]) {
     const blocks: AnthropicBlock[] = Array.isArray(raw)
       ? (raw as AnthropicBlock[])
       : [{ type: 'text', text: String(raw ?? '') }]
-    const parts: Record<string, unknown>[] = []
+
+    // A turn answering tools becomes two: the function responses on their own,
+    // then anything they carried. Gemini rejects a content that mixes a
+    // functionResponse with other part types, and our tools answer with
+    // pictures — a cut to look at, a drawing beside the region it copies.
+    const responses: Record<string, unknown>[] = []
+    const rest: Record<string, unknown>[] = []
 
     for (const b of blocks) {
       if (b.type === 'text' && b.text) {
-        parts.push({ text: b.text })
+        rest.push({ text: b.text })
       } else if (b.type === 'image' && b.source?.data) {
-        parts.push({
+        rest.push({
           inlineData: {
             mimeType: b.source.media_type ?? 'image/png',
             data: b.source.data,
@@ -132,7 +138,7 @@ function toGeminiContents(messages: Record<string, unknown>[]) {
         })
       } else if (b.type === 'tool_use' && b.name) {
         if (b.id) nameById.set(b.id, b.name)
-        parts.push({ functionCall: { name: b.name, args: b.input ?? {} } })
+        rest.push({ functionCall: { name: b.name, args: b.input ?? {} } })
       } else if (b.type === 'tool_result') {
         const name = nameById.get(String(b.tool_use_id ?? '')) ?? 'tool'
         const inner: AnthropicBlock[] = Array.isArray(b.content)
@@ -142,15 +148,12 @@ function toGeminiContents(messages: Record<string, unknown>[]) {
           .filter((c) => c.type === 'text' && c.text)
           .map((c) => c.text)
           .join('\n')
-        parts.push({
-          functionResponse: {
-            name,
-            response: { result: text || 'ok' },
-          },
+        responses.push({
+          functionResponse: { name, response: { result: text || 'ok' } },
         })
         for (const c of inner) {
           if (c.type === 'image' && c.source?.data) {
-            parts.push({
+            rest.push({
               inlineData: {
                 mimeType: c.source.media_type ?? 'image/png',
                 data: c.source.data,
@@ -160,7 +163,9 @@ function toGeminiContents(messages: Record<string, unknown>[]) {
         }
       }
     }
-    if (parts.length) contents.push({ role, parts })
+
+    if (responses.length) contents.push({ role: 'user', parts: responses })
+    if (rest.length) contents.push({ role, parts: rest })
   }
   return contents
 }
@@ -862,6 +867,18 @@ Deno.serve(async (req) => {
           )
           if (!res.ok) {
             const detail = (await res.text()).slice(0, 400)
+            // A refused turn left no trace at all, so a loop that died on its
+            // second call looked identical to one that made a single call and
+            // stopped. It costs nothing to record that it happened.
+            await logOp(db, userId, {
+              op,
+              model: `${model}:${res.status}`,
+              promptTokens: null,
+              outputTokens: null,
+              ms: Date.now() - started,
+              cost: 0,
+              cached: false,
+            })
             if (res.status === 429) {
               return json(429, { error: 'model həddi', detail, kind: 'rate_limit' })
             }
