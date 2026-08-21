@@ -41,6 +41,28 @@ export interface AgentContext {
   artefacts: Map<string, Artefact>
   /** appended as the run goes, for the operator to read afterwards */
   trace: { tool: string; summary: string }[]
+  /**
+   * Regions where regenerating was actually tried and actually failed.
+   *
+   * A written reason is not a reason. Asked to justify cutting, the agent
+   * wrote "they are clean and exact" — twenty-four characters, past the check,
+   * and five watermarked crops in the bank. So the justification has to be
+   * demonstrated instead of asserted: a region may only be cut once a draw or
+   * a generate on that same region has been seen to fail.
+   */
+  failedRegions: { box: Box; how: string }[]
+}
+
+/** Two regions are "the same region" when they mostly cover each other. */
+function overlaps(a: Box, b: Box): boolean {
+  const top = Math.max(a[0], b[0])
+  const left = Math.max(a[1], b[1])
+  const bottom = Math.min(a[2], b[2])
+  const right = Math.min(a[3], b[3])
+  if (bottom <= top || right <= left) return false
+  const inter = (bottom - top) * (right - left)
+  const areaB = Math.max(1, (b[2] - b[0]) * (b[3] - b[1]))
+  return inter / areaB > 0.5
 }
 
 const asBox = (v: unknown): Box | null => {
@@ -219,13 +241,15 @@ export async function runAgentTool(
     if (!box) throw new Error('box [ymin,xmin,ymax,xmax] formatında olmalıdır')
     const key = String(input.name ?? 'cut')
     const dataUrl = await cropRegion(ctx.cropDataUrl, box)
-    const reason = String(input.reason ?? '').trim()
-    if (reason.length < 15) {
+    const failure = ctx.failedRegions.find((f) => overlaps(f.box, box))
+    if (!failure) {
       throw new Error(
-        'cut yalnız draw və generate uğursuz olandan sonra işlənir. reason sahəsində ' +
-          'hansının nə cür alınmadığını yaz — yoxsa fiquru generate et.',
+        'Bu bölgə üçün hələ nə draw, nə generate sınanmayıb — kəsmək olmaz. ' +
+          'Xətt qrafikasıdırsa draw ilə çək, deyilsə generate et. Yalnız ikisi də ' +
+          'alınmasa, cut açılır.',
       )
     }
+    const reason = `${failure.how} — ${String(input.reason ?? '').trim()}`
     ctx.artefacts.set(key, { name: key, dataUrl, source: 'cut', box, reason })
     ctx.trace.push({ tool: 'cut', summary: `${key} — ${reason.slice(0, 60)}` })
     // Judging a cut means judging WHAT was cut, and the answer is in the
@@ -253,6 +277,8 @@ export async function runAgentTool(
     // A drawing that paints nothing is a defect now, not a discovery in review.
     const ink = await inkFraction(dataUrl)
     if (ink < 0.002) {
+      const against = asBox(input.against)
+      if (against) ctx.failedRegions.push({ box: against, how: 'draw boş render verdi' })
       throw new Error(
         'çəkilən fiqur boş render olundu — koordinatlar viewBox-dan kənarda ola bilər, ' +
           'ya da forma dolğusu/konturu görünmür. viewBox-a uyğun koordinatlarla və ' +
@@ -289,10 +315,20 @@ export async function runAgentTool(
     const key = String(input.name ?? 'figure')
     const referenceUrl = await cropRegion(ctx.cropDataUrl, box)
     const reference = splitDataUrl(referenceUrl)
-    const drawn = await opRedrawFigure({
-      image: reference.image,
-      mime: reference.mime as 'image/png' | 'image/jpeg',
-    })
+    let drawn: { image: string; mime: string }
+    try {
+      drawn = await opRedrawFigure({
+        image: reference.image,
+        mime: reference.mime as 'image/png' | 'image/jpeg',
+      })
+    } catch (error) {
+      // A failed generation is what earns the right to cut this region.
+      ctx.failedRegions.push({
+        box,
+        how: `generate alınmadı: ${error instanceof Error ? error.message : 'naməlum'}`,
+      })
+      throw error
+    }
     const dataUrl = `data:${drawn.mime};base64,${drawn.image}`
     ctx.artefacts.set(key, { name: key, dataUrl, source: 'generated', box })
     ctx.trace.push({ tool: 'generate', summary: key })

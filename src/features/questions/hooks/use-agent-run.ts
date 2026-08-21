@@ -102,6 +102,7 @@ export function useAgentRun() {
         expectedNumber: row.q_no,
         artefacts: new Map(),
         trace: [],
+        failedRegions: [],
       }
       const { image, mime } = splitDataUrl(entry.crop.dataUrl)
       const messages: Record<string, unknown>[] = [
