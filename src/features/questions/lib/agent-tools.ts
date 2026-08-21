@@ -401,6 +401,17 @@ export async function runAgentTool(
         })
       }
     }
+    // The storable-question rule belongs here too. `check` is where the agent
+    // is told to look for what is missing, and a rule it only meets at `done`
+    // is a rule it learns about too late to act on cheaply.
+    if (!String(input.stem ?? '').trim() && !input.has_figure) {
+      flags.push({
+        level: 'error',
+        code: 'nothing_to_read',
+        message:
+          'Nə mətn var, nə fiqur — bu sual saxlanıla bilməz. Mətnsiz sualda fiqur məcburidir.',
+      })
+    }
     ctx.trace.push({ tool: 'check', summary: `${flags.length} qeyd` })
     return [
       {

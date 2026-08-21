@@ -65,6 +65,46 @@ type ContentBlock = {
   input?: Record<string, unknown>
 }
 
+/**
+ * The storable-question rule, in the one place the agent can still act on it.
+ *
+ * `questions_structured_complete` says a question needs options plus something
+ * to read: a stem or a figure. Left to the database, that arrives as a 23514
+ * after the run has ended and the work is gone. Checked here, it is a tool
+ * error the agent can answer by drawing the figure it skipped.
+ */
+function whatIsMissing(
+  result: Record<string, unknown>,
+  ctx: AgentContext,
+): string | null {
+  const options = (result.options as Record<string, unknown>[] | undefined) ?? []
+  const stem = String(result.stem ?? '').trim()
+  const figureName = result.figure ? String(result.figure) : null
+  const hasFigure = Boolean(figureName && ctx.artefacts.has(figureName))
+
+  if (!options.length) {
+    return 'Variantlar boşdur — sualın A–E variantlarını ver, sonra done de.'
+  }
+  const named = options
+    .map((o) => (o.image ? String(o.image) : null))
+    .filter((n): n is string => Boolean(n))
+  const orphan = named.find((n) => !ctx.artefacts.has(n))
+  if (orphan) {
+    return `"${orphan}" adlı şəkil yaradılmayıb — həmin variantı generate və ya draw et, sonra done de.`
+  }
+  if (!stem && !hasFigure) {
+    return (
+      'Bu sual saxlanıla bilməz: nə mətn var, nə fiqur. Mətnsiz sualda fiqur ' +
+      'MÜTLƏQDİR — sualın şəklini generate və ya draw et və figure sahəsində adını ver. ' +
+      'Fiquru yarada bilmirsənsə, done yox, give_up de.'
+    )
+  }
+  if (figureName && !hasFigure) {
+    return `"${figureName}" adlı fiqur yaradılmayıb — əvvəlcə generate və ya draw et.`
+  }
+  return null
+}
+
 export function useAgentRun() {
   const [state, setState] = useState<RunState>(IDLE)
   const runId = useRef(0)
@@ -180,9 +220,33 @@ export function useAgentRun() {
         const results: Record<string, unknown>[] = []
         for (const use of uses) {
           const input = (use.input ?? {}) as Record<string, unknown>
-          if (use.name === 'done' || use.name === 'give_up') {
+          if (use.name === 'done') {
+            // The database will refuse a question with nothing to answer from,
+            // and it refuses it after the run is over, when the only thing
+            // left is a toast. The same rule is applied here, where the agent
+            // can still do something about it.
+            const missing = whatIsMissing(input, ctx)
+            if (missing) {
+              results.push({
+                type: 'tool_result',
+                tool_use_id: use.id,
+                is_error: true,
+                content: [{ type: 'text', text: missing }],
+              })
+              continue
+            }
             return finish({
-              outcome: use.name === 'done' ? 'done' : 'gave_up',
+              outcome: 'done',
+              steps: step + 1,
+              redraws: Math.max(0, draws() - 1),
+              result: input,
+              artefacts: ctx.artefacts,
+              trace: ctx.trace,
+            })
+          }
+          if (use.name === 'give_up') {
+            return finish({
+              outcome: 'gave_up',
               steps: step + 1,
               redraws: Math.max(0, draws() - 1),
               result: input,
