@@ -102,6 +102,12 @@ describe that state say so. Delete this note when the last milestone lands.
 
 - `npm run dev` — dev server
 - `npm run eval` — pipeline-core regression suite (free, offline; see `eval/README.md`)
+- `npm run smoke:request` — validates the extraction request against the real
+  Anthropic API with `countTokens`, which is free and bills nothing. Manual, and
+  outside the gate because it needs the network. Run it after any change to the
+  tool schema, the prompts, or the block order: it catches a schema the API
+  would reject on submit, and a cacheable prefix that has stopped being most of
+  the request.
 - `npm run smoke:queue` — round-trips the worker queue RPCs against the LIVE
   project. Manual and operator-run: it needs the network and the service key,
   so it is deliberately outside `eval` and outside the gate. Run it after any
@@ -148,6 +154,14 @@ questions, so cost is a first-class concern, not an afterthought.
 - Cost per question is the call count, not the prompt size. One extract plus one
   verify is the budget; anything that adds a third paid call to the batch lane
   needs a reason written down.
+- **Prompt cache hits inside a batch are best-effort.** Batch requests may be
+  processed spread out or concurrently, so `cache_read_input_tokens` well below
+  100% of the prefix is normal and not a defect. The `ops_log` numbers are a
+  measurement, not a pass/fail gate — do not add a threshold on them and do not
+  "fix" a partial hit rate. Only a flat zero across a whole batch means
+  something is actually broken, and what it means is that the prefix stopped
+  being byte-identical. `npm run smoke:request` is where prefix problems are
+  caught; the eval pins the prefix itself.
 
 ## Hallucination defences
 
