@@ -12,8 +12,6 @@ import {
 import {
   extractResponseSchema,
   parseAnswerKeyResponseSchema,
-  redrawResponseSchema,
-  suggestCategoryResponseSchema,
 } from '@/features/questions/schemas'
 
 // Thin wrappers over the question-ops Edge Function. Model keys live in
@@ -29,18 +27,11 @@ export class OpError extends Error {
   }
 }
 
-// Image generation is paced separately from the text models: it does not
-// refuse work under pressure, it just takes longer, until calls cross their
-// abort and the retries make it worse.
-function laneFor(op: unknown): Lane {
-  return op === 'redraw_figure' ? 'image' : 'text'
-}
-
 async function invokeOp<T>(
   body: Record<string, unknown>,
   parse: (data: unknown) => T,
 ): Promise<T> {
-  const lane = laneFor(body.op)
+  const lane: Lane = 'text'
   await acquireSlot(lane)
   try {
     const { data, error } = await supabase.functions.invoke('question-ops', {
@@ -106,31 +97,6 @@ export function opExtract(input: {
 }) {
   return invokeOp({ op: 'extract', ...input }, (d) =>
     extractResponseSchema.parse(d),
-  )
-}
-
-/**
- * The manual image fallback, for a figure the vector DSL cannot express.
- *
- * NOT part of any automated path: nothing calls it today. It exists so the
- * review screen can offer it when that button is built. `attempt` is part of
- * the server's cache key so a retry is never served the image that just failed.
- */
-export function opRedrawFigure(
-  input: OpImage & { attempt?: number; quality?: 'medium' | 'high' },
-) {
-  return invokeOp({ op: 'redraw_figure', ...input }, (d) =>
-    redrawResponseSchema.parse(d),
-  )
-}
-
-export function opSuggestCategory(input: {
-  stem: string
-  options: string[]
-  categories: { id: number; name: string; parentId: number | null }[]
-}) {
-  return invokeOp({ op: 'suggest_category', ...input }, (d) =>
-    suggestCategoryResponseSchema.parse(d),
   )
 }
 

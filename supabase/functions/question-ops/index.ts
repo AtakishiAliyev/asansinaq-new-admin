@@ -8,15 +8,21 @@
 //   extract           re-run ONE question from the review screen
 //   parse_answer_key  read a printed key page during import
 //   detect_questions  find the questions on a scanned page during import
-//   suggest_category  re-file one question without re-reading it
 //   budget_status     free; the only way the browser learns the cap
-//   redraw_figure     the manual image fallback (see its own note below)
 //
-// Deliberately gone: `option_boxes` and `compare_figures`. The first existed
-// only because Gemini ignored the per-option `box` field in the extraction
-// schema (schemas.ts records the diagnosis); Anthropic fills it in, so asking
-// twice buys nothing. The second belonged to the browser's render-and-compare
-// loop, which becomes the worker's verification wave.
+// Four ops are gone, and none of them for tidiness. `option_boxes` existed only
+// because Gemini ignored the per-option `box` field in the extraction schema
+// (schemas.ts records that diagnosis); Anthropic fills it in, so asking twice
+// buys nothing. `compare_figures` belonged to the browser's render-and-compare
+// loop, which becomes the worker's verification wave. `suggest_category` was
+// folded into extraction — the model has read the question by the time it could
+// answer, so a second call re-sends the crop to learn nothing. And
+// `redraw_figure` was the last image-generation call and the last non-Anthropic
+// one: with no caller and its provider key removed, keeping it would have kept
+// a path that could only fail. Git history has all four if a need returns.
+//
+// So this is Anthropic only, end to end, and there is no lane anywhere that
+// generates an image.
 //
 // A question's answer is never produced here. It comes from the printed key or
 // from the reviewer, so there is deliberately no solve op.
@@ -39,11 +45,10 @@ import { EMIT_QUESTION_TOOL_NAME } from '@/core/extract/tool-schema'
 import {
   buildDetectQuestions,
   buildParseAnswerKey,
-  buildSuggestCategory,
   type GeminiRequest,
 } from '@/core/extract/request-gemini'
 import { estimateCost, promptTokens, samplingFor, usageFrom } from '@/core/models'
-import { PROMPT_VERSION, REDRAW_PROMPT } from '@/core/extract/prompts'
+import { PROMPT_VERSION } from '@/core/extract/prompts'
 
 // Ids are configuration, exactly as in the worker: which model serves a lane is
 // a question an eval settles, not a constant.
@@ -54,21 +59,14 @@ const MODELS: Record<ModelLane | 'utility', string> = {
   // figure to recreate, so the cheap tier is the right one.
   utility: Deno.env.get('ANTHROPIC_UTILITY_MODEL') ?? 'claude-haiku-4-5',
 }
-const OPENAI_IMAGE_MODEL = Deno.env.get('OPENAI_IMAGE_MODEL') ?? 'gpt-image-2'
 const DAILY_BUDGET_USD = Number(Deno.env.get('DAILY_BUDGET_USD') ?? '20')
 
 const TIMEOUT_MS = 120_000
-// Complex references push gpt-image past 90s; stay just under the function's
-// own wall-clock budget so WE report the timeout, not the platform.
-const IMAGE_TIMEOUT_MS = 140_000
 // The whole request's wall clock. Per-call timeouts alone were not enough: a
 // retry used to arm a full fresh timeout, so a slow call plus its retry could
 // outlive the function and be killed by the platform.
 const REQUEST_BUDGET_MS = 145_000
 const MAX_BASE64_LENGTH = 8_000_000
-
-/** Flat per-image price for the manual redraw — the one non-token call left. */
-const IMAGE_RATE = { high: 0.08, medium: 0.04 }
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -200,8 +198,8 @@ async function callAnthropic(
 /**
  * The ops that still speak in JSON rather than through a tool.
  *
- * `parse_answer_key`, `detect_questions` and `suggest_category` were built
- * against Gemini's responseSchema, which constrained the output. Anthropic has
+ * `parse_answer_key` and `detect_questions` were built against Gemini's
+ * responseSchema, which constrained the output. Anthropic has
  * no equivalent for a plain message, so the schema is described in the prompt
  * and the answer is parsed here — with the first `{`..`}` extracted, because a
  * model asked for JSON will occasionally wrap it in prose.
@@ -261,63 +259,6 @@ function geminiToAnthropic(request: GeminiRequest): Record<string, unknown> {
     })
   }
   return { max_tokens: 8192, messages: [{ role: 'user', content }] }
-}
-
-function base64ToBlob(base64: string, mime: string): Blob {
-  const bin = atob(base64)
-  const bytes = new Uint8Array(bin.length)
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
-  return new Blob([bytes], { type: mime })
-}
-
-/**
- * The one image-generation call left, and the one non-Anthropic one.
- *
- * It is NOT in any automated path: the worker never calls it, and no lane falls
- * back to it. It survives so an operator reviewing a figure the vector DSL
- * cannot express has something to reach for. Nothing in the UI triggers it yet.
- */
-async function callOpenAIRedraw(
-  image: string,
-  mime: string,
-  deadline: number,
-  quality: 'medium' | 'high',
-  attempt = 0,
-): Promise<{ image: string; mime: string; model: string }> {
-  const key = Deno.env.get('OPENAI_API_KEY')
-  if (!key) throw new Error('OPENAI_API_KEY secret is not set')
-  const budget = remainingMs(deadline, IMAGE_TIMEOUT_MS)
-  if (budget <= 0) throw deadlineExceeded()
-  const form = new FormData()
-  form.append('model', OPENAI_IMAGE_MODEL)
-  form.append('image', base64ToBlob(image, mime), 'figure.png')
-  form.append('prompt', REDRAW_PROMPT)
-  form.append('size', 'auto')
-  form.append('quality', quality)
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), budget)
-  try {
-    const res = await fetch('https://api.openai.com/v1/images/edits', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${key}` },
-      body: form,
-      signal: controller.signal,
-    })
-    if ((res.status === 429 || res.status >= 500) && attempt < 1) {
-      void res.body?.cancel().catch(() => {})
-      await new Promise((r) => setTimeout(r, 2000))
-      return callOpenAIRedraw(image, mime, deadline, quality, attempt + 1)
-    }
-    if (!res.ok) {
-      throw new Error(`OpenAI ${res.status}: ${(await res.text()).slice(0, 300)}`)
-    }
-    const out = (await res.json()) as { data?: { b64_json?: string }[] }
-    const b64 = out.data?.[0]?.b64_json
-    if (!b64) throw new Error('image modeli şəkil qaytarmadı')
-    return { image: b64, mime: 'image/png', model: OPENAI_IMAGE_MODEL }
-  } finally {
-    clearTimeout(timer)
-  }
 }
 
 interface LogEntry {
@@ -531,44 +472,18 @@ Deno.serve(async (req) => {
       return json(200, { ...responseBody, ms })
     }
 
-    // The three reading ops. Same cache/budget/ledger contract, one shared
-    // body because they differ only in what they are handed.
-    if (
-      op === 'suggest_category' ||
-      op === 'parse_answer_key' ||
-      op === 'detect_questions'
-    ) {
-      let request: GeminiRequest
-      let cachePayload: Record<string, unknown>
-
-      if (op === 'suggest_category') {
-        if (typeof body.stem !== 'string' || !Array.isArray(body.categories)) {
-          return json(400, { error: 'stem/categories tələb olunur' })
-        }
-        request = buildSuggestCategory({
-          stem: body.stem,
-          options: Array.isArray(body.options) ? (body.options as string[]) : [],
-          categories: body.categories as {
-            id: number
-            name: string
-            parentId: number | null
-          }[],
-        })
-        cachePayload = {
-          stem: body.stem,
-          options: body.options,
-          categories: body.categories,
-        }
-      } else {
-        const bad = badImage(body)
-        if (bad) return json(400, { error: bad })
-        const input = { image: body.image as string, mime: body.mime as string }
-        request =
-          op === 'parse_answer_key'
-            ? buildParseAnswerKey(input)
-            : buildDetectQuestions(input)
-        cachePayload = input
-      }
+    // The two reading ops: a printed answer-key page, and where the questions
+    // sit on a scan. Same cache/budget/ledger contract, one shared body because
+    // they differ only in which prompt they are handed.
+    if (op === 'parse_answer_key' || op === 'detect_questions') {
+      const bad = badImage(body)
+      if (bad) return json(400, { error: bad })
+      const input = { image: body.image as string, mime: body.mime as string }
+      const request: GeminiRequest =
+        op === 'parse_answer_key'
+          ? buildParseAnswerKey(input)
+          : buildDetectQuestions(input)
+      const cachePayload: Record<string, unknown> = input
 
       const model = MODELS.utility
       const key = await sha256Hex(
@@ -614,85 +529,6 @@ Deno.serve(async (req) => {
       })
       addToSpendCache(cost)
       return json(200, { ...responseBody, ms })
-    }
-
-    // Operator-triggered only. See callOpenAIRedraw.
-    if (op === 'redraw_figure') {
-      const bad = badImage(body)
-      if (bad) return json(400, { error: bad })
-      const quality = body.quality === 'medium' ? 'medium' : 'high'
-      const attempt = Number(body.attempt ?? 0)
-      // `attempt` and `quality` are in the key so a retry cannot be served the
-      // image that just failed, and a medium request cannot be served a high one.
-      const key = await sha256Hex(
-        JSON.stringify({
-          v: PROMPT_VERSION,
-          m: OPENAI_IMAGE_MODEL,
-          op,
-          image: body.image,
-          mime: body.mime,
-          attempt,
-          quality,
-        }),
-      )
-      const hit = await cacheGet(db, key)
-      if (hit?.image_path) {
-        const { data: blob } = await db.storage
-          .from('question-crops')
-          .download(hit.image_path)
-        if (blob) {
-          const bytes = new Uint8Array(await blob.arrayBuffer())
-          let binary = ''
-          for (const b of bytes) binary += String.fromCharCode(b)
-          const ms = Date.now() - started
-          await logOp(db, userId, {
-            op,
-            model: hit.model ?? 'cache',
-            promptTokens: null,
-            outputTokens: null,
-            ms,
-            cost: 0,
-            cached: true,
-          })
-          return json(200, {
-            image: btoa(binary),
-            mime: 'image/png',
-            model: hit.model ?? 'cache',
-            ms,
-            cached: true,
-          })
-        }
-        // Row without its object: fall through and pay rather than serve nothing.
-      }
-      const refusal = await budgetRefusal(db)
-      if (refusal) return refusal
-      const out = await callOpenAIRedraw(
-        body.image as string,
-        body.mime as string,
-        deadline,
-        quality,
-      )
-      const path = `cache/${key}.png`
-      await db.storage
-        .from('question-crops')
-        .upload(path, base64ToBlob(out.image, out.mime), {
-          upsert: true,
-          contentType: out.mime,
-        })
-      await cachePut(db, key, op, { image_path: path, model: out.model })
-      const ms = Date.now() - started
-      const cost = quality === 'medium' ? IMAGE_RATE.medium : IMAGE_RATE.high
-      await logOp(db, userId, {
-        op,
-        model: out.model,
-        promptTokens: null,
-        outputTokens: null,
-        ms,
-        cost,
-        cached: false,
-      })
-      addToSpendCache(cost)
-      return json(200, { ...out, ms })
     }
 
     // Free, and the only way the browser can know the cap: DAILY_BUDGET_USD is

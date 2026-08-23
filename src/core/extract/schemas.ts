@@ -251,17 +251,6 @@ export const compareFiguresSchema = {
 }
 
 
-export const suggestCategorySchema = {
-  type: 'object',
-  properties: {
-    category_id: { type: 'integer', nullable: true },
-    confidence: {
-      type: 'number',
-      description: 'reading accuracy 0-1 for this page: how sure you are that every question was found and bounded correctly',
-    },
-  },
-  required: ['confidence'],
-}
 
 export const detectQuestionsSchema = {
   type: 'object',

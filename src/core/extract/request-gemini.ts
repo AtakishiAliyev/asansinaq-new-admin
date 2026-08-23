@@ -9,7 +9,6 @@ import {
   EXTRACT_SYSTEM,
   EXTRACT_SYSTEM_RASTER,
   PARSE_ANSWER_KEY_PROMPT,
-  SUGGEST_CATEGORY_PROMPT,
 } from '@/core/extract/prompts'
 import { FEWSHOT_FIGURES } from '@/core/extract/fewshot'
 import {
@@ -17,7 +16,6 @@ import {
   detectQuestionsSchema,
   extractResponseSchema,
   parseAnswerKeySchema,
-  suggestCategorySchema,
 } from '@/core/extract/schemas'
 
 /** Which secret-configured model class the op should run on. */
@@ -118,41 +116,6 @@ export function buildCompareFigures(
         temperature: 0,
         responseMimeType: 'application/json',
         responseSchema: compareFiguresSchema,
-      },
-    },
-  }
-}
-
-export interface SuggestCategoryInput {
-  stem: string
-  options: string[]
-  categories: { id: number; name: string; parentId: number | null }[]
-}
-
-export function buildSuggestCategory(input: SuggestCategoryInput): GeminiRequest {
-  const tree = input.categories
-    .map((c) => {
-      const parent = input.categories.find((p) => p.id === c.parentId)
-      return `${c.id}: ${parent ? `${parent.name} → ` : ''}${c.name}`
-    })
-    .join('\n')
-  return {
-    modelKey: 'verify',
-    body: {
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            {
-              text: `${SUGGEST_CATEGORY_PROMPT}\n\nSUAL:\n${input.stem}\n\nVARİANTLAR:\n${input.options.join('\n')}\n\nKATEQORİYALAR (id: ad):\n${tree}`,
-            },
-          ],
-        },
-      ],
-      generationConfig: {
-        temperature: 0,
-        responseMimeType: 'application/json',
-        responseSchema: suggestCategorySchema,
       },
     },
   }

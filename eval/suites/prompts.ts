@@ -4,7 +4,6 @@ import {
   COMPARE_FIGURES_PROMPT,
   DETECT_QUESTIONS_PROMPT,
   PARSE_ANSWER_KEY_PROMPT,
-  SUGGEST_CATEGORY_PROMPT,
   PROMPT_VERSION,
 } from '@/core/extract/prompts'
 import { extractResponseSchema } from '@/core/extract/schemas'
@@ -16,7 +15,6 @@ const AZ_PROMPTS = {
   COMPARE_FIGURES_PROMPT,
   DETECT_QUESTIONS_PROMPT,
   PARSE_ANSWER_KEY_PROMPT,
-  SUGGEST_CATEGORY_PROMPT,
 }
 
 const numbering = (s: string) => [...s.matchAll(/^(\d+)\./gm)].map((m) => Number(m[1]))

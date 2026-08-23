@@ -96,19 +96,6 @@ export const EXTRACT_SYSTEM = [SYSTEM_HEAD, SYSTEM_FIGURE_RULES].join('\n')
 /** System prompt for the raster lane (image model draws the figure). */
 export const EXTRACT_SYSTEM_RASTER = [SYSTEM_HEAD, SYSTEM_NO_FIGURE_RULE].join('\n')
 
-// Sent to the OpenAI images/edits endpoint with the reference image. Works
-// for whole-question figures AND for a pre-cropped single option's figure.
-export const REDRAW_PROMPT = `Redraw ONLY the diagram from the provided image as a clean vector-style illustration.
-
-Requirements:
-- Preserve the geometry exactly.
-- Preserve all shape positions, intersections, proportions and spacing.
-- Preserve every label, number and symbol exactly, in its exact region.
-- Preserve all colors and line thickness.
-- Do not add, remove or reposition any element.
-- Use a pure white background.
-- Remove the surrounding question text, answer choices, borders and any watermark.
-- Produce only the reconstructed diagram with sharp, crisp edges.`
 
 export const COMPARE_FIGURES_PROMPT = `İki şəkil verilir: (1) ORİJİNAL fiqur (watermark ola bilər), (2) YENİDƏN YARADILMIŞ fiqur.
 Bunlar EYNİ fiqurdurmu? Topoloji/semantik müqayisə et, piksel dəqiqliyi YOX:
@@ -117,10 +104,6 @@ Bunlar EYNİ fiqurdurmu? Topoloji/semantik müqayisə et, piksel dəqiqliyi YOX:
 - Ştrixlənmiş/rəngli bölgə eyni yerdədirmi?
 Fərq varsa differences-də konkret yaz (məs. "b etiketi ellipsdən kənara sürüşüb", "3 rəqəmi çatışmır"). Watermark və kiçik üslub fərqlərini SAYMA.`
 
-export const SUGGEST_CATEGORY_PROMPT = `Aşağıda bir imtahan sualı və mövcud kateqoriya siyahısı verilir.
-Sualın mövzusuna ƏN UYĞUN və ƏN SPESİFİK kateqoriyanın id-sini seç.
-YALNIZ verilmiş siyahıdan seç — yeni kateqoriya uydurma. Heç biri uyğun deyilsə category_id=null qaytar.
-confidence: seçiminə əminliyin (0–1).`
 
 export const DETECT_QUESTIONS_PROMPT = `Bu, imtahan sual bankının BİR səhifəsidir. Vəzifən: HƏR sualın yerini tapmaq.
 

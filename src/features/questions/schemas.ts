@@ -35,26 +35,6 @@ export const extractResponseSchema = z.object({
   ms: z.number(),
 })
 
-export const redrawResponseSchema = z.object({
-  image: z.string(),
-  mime: z.string(),
-  model: z.string(),
-  ms: z.number(),
-})
-
-export const compareResponseSchema = z.object({
-  match: z.boolean(),
-  differences: z.array(z.string()).nullish(),
-})
-
-
-export const suggestCategoryResponseSchema = z.object({
-  category_id: z.number().nullish(),
-  // Clamped, not trusted: a model that answers 95 instead of 0.95 would fail
-  // the ai_category_confidence CHECK (0..1) on update and throw away a
-  // question we already paid to extract.
-  confidence: z.number().min(0).max(1).catch(0),
-})
 
 export const parseAnswerKeyResponseSchema = z.object({
   entries: z.array(
