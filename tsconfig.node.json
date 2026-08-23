@@ -26,5 +26,5 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["vite.config.ts", "eval"]
+  "include": ["vite.config.ts", "eval", "scripts"]
 }

@@ -102,6 +102,13 @@ describe that state say so. Delete this note when the last milestone lands.
 
 - `npm run dev` — dev server
 - `npm run eval` — pipeline-core regression suite (free, offline; see `eval/README.md`)
+- `npm run smoke:queue` — round-trips the worker queue RPCs against the LIVE
+  project. Manual and operator-run: it needs the network and the service key,
+  so it is deliberately outside `eval` and outside the gate. Run it after any
+  migration touching the queue RPCs, the lease predicate, or the columns they
+  read — a worker that can claim but not renew looks healthy until its lease
+  expires and every row it held is paid for twice. It restores every row it
+  touches and makes no model call.
 - `npm run worker` — the batch worker. Needs `.env` loaded
   (`set -a; . ./.env; set +a`) for the service-role and Anthropic keys. Spends
   real money: it claims queued questions and submits them to the Batches API.

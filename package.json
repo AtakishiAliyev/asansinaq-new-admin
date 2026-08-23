@@ -12,6 +12,7 @@
     "preview": "vite preview",
     "typecheck": "tsc -b",
     "eval": "node --import ./eval/loader.mjs --disable-warning=ExperimentalWarning eval/run.ts",
+    "smoke:queue": "node --disable-warning=ExperimentalWarning scripts/queue-smoke.ts",
     "types:gen": "node scripts/gen-types.mjs",
     "config:push": "node scripts/config-push.mjs",
     "postinstall": "node scripts/copy-pdfjs-wasm.mjs"
