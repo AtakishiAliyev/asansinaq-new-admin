@@ -49,21 +49,26 @@ what each stage needs.
   block placed AFTER the stable prefix with its own `cache_control` breakpoint —
   a batch is per-book, so within a run the tree caches too, and a book change
   invalidates only that block instead of the whole prompt.
-- **Figures are vector only.** `core/figures` (figspec, curve, set-expr,
-  svg-safe, render) emits SVG that Node can rasterize, and the DSL carries
-  colour as data. Coloured figures are attempted, then flagged if the DSL cannot
-  express them. Image-generation models are NOT in the automated lane — a figure
-  the vector kinds cannot express routes to review, never to image-gen. They
-  survive only as a manual, operator-triggered fallback on the review screen.
+- **Figures are vector only, and there is no image lane at all.** `core/figures`
+  emits SVG as a string for every kind — no DOM, no React — so the review screen
+  and the worker draw from one implementation. Marks that carry meaning (equal
+  ticks, parallel chevrons, right-angle squares, congruent arcs) are DATA on the
+  figure, not strokes a model happened to draw: a mark that is a field can be
+  linted, compared and re-rendered, and one buried in `raw_svg` can only be
+  looked at. A figure the vector kinds cannot express routes to review. Image
+  generation is gone entirely — no automated path, no manual fallback, no
+  provider key — and re-adding one is a decision, not a configuration change.
 - **Verification is a second batch wave.** The worker renders the produced
   question and compares it against the original crop in one Sonnet call, then
   writes a diff and a confidence. Low confidence lands in the existing review
   queue. At most 2 repair iterations.
 - **The browser orchestrates exactly one thing: a single-question interactive
   re-run** from the review screen. That is what the `question-ops` Edge Function
-  is still for — that, category suggestion, answer-key parsing and page
-  detection, which stays interactive because import needs immediate feedback.
-  It is not a batch path, and no batch work may be added to it.
+  is still for — that, answer-key parsing and page detection, which stay
+  interactive because import needs immediate feedback. It is not a batch path,
+  and no batch work may be added to it. Category selection is folded into
+  extraction rather than being its own op: the model has read the question by
+  the time it could answer, so a second call re-sends the crop to learn nothing.
 - **The work list lives in the database.** `questions.queued_at` marks work to
   do and `claimed_at`/`lease_until`/`claimed_by_worker` is a lease, so a worker
   that dies loses at most the batch in flight and a second worker adds
@@ -80,12 +85,19 @@ The sibling `exam/` folder is a throwaway MVP kept as reference for its
 algorithms only. Its architecture — API keys in the browser, anon-writable
 tables — is deliberately not carried over.
 
-**Migration in progress.** The section above is the target, and parts of it are
-not built yet. Still true of the code on `main` today: every model call goes
-through `question-ops`, which calls Gemini and OpenAI `gpt-image-2`; the browser
-runs the queue worker; `core/extract/request.ts` emits Gemini bodies; figure
-redraw uses an image model; and there is no `worker/`. Sections below that still
-describe that state say so. Delete this note when the last milestone lands.
+**Migration status.** Everything above is built except the verification wave.
+The worker runs, the browser is out of the batch path, every figure kind renders
+from `core`, and there is one provider. What is left is M6: rasterising the
+rendered question and comparing it against the original crop, which is also
+where `questions.repair_round` starts being used. Until it lands every row the
+worker writes is `verified: false` and therefore in the Diqqət lane — that is
+correct, not a defect, and a full review queue after a run is expected.
+
+One shim is deliberate and temporary: `parse_answer_key` and `detect_questions`
+still express their requests in the Gemini builder dialect, translated at the
+door by `geminiToAnthropic`. It works, it keeps prompts and eval fixtures in one
+place, and it is scheduled for removal after M6 along with
+`core/extract/request-gemini.ts`.
 
 ## Stack
 
@@ -275,6 +287,7 @@ supabase/
 ├── seed.sql                # data, not schema — e.g. the admin allowlist
 ├── templates/              # auth email bodies, referenced from config.toml
 └── migrations/             # the schema and RLS — committed, never ad-hoc SQL
+samples/                    # committed visual output for review — see its README
 eval/                       # core regression suites — `npm run eval`, no deps
 worker/                     # the batch worker — `npm run worker`. Node + the
 │                           # eval's alias loader, no bundler, no build step.
@@ -376,6 +389,20 @@ Decision rules:
 - Every table has RLS enabled. If a query fails with a permission error,
   the fix is a policy change — never a client-side workaround.
 - Validate all external input (forms, URL params, API responses) with Zod.
+
+## Showing work
+
+Anything produced for a human to LOOK at — a rendered figure, a before/after
+comparison, a sample of output — is committed under `samples/` with a dated,
+self-contained name. Not left in a scratch directory: a reviewer cannot open
+what is not in the repo, and a sample nobody can open was not produced.
+
+Book content is the exception, and it goes the other way: a comparison that
+embeds crops or pages from a commercial book belongs under `local/`, which is
+gitignored for that reason. When real crops are what make a comparison worth
+looking at, produce both — the side-by-side in `local/samples/`, and a
+synthetic equivalent in `samples/` showing the same behaviour on fixtures
+nobody owns.
 
 ## Workflow
 
