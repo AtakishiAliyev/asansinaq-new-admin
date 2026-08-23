@@ -5,14 +5,18 @@ import {
   COMPARE_FIGURES_PROMPT,
   DETECT_QUESTIONS_PROMPT,
   PARSE_ANSWER_KEY_PROMPT,
+  FINGERPRINTED_PROMPTS,
   PROMPT_VERSION,
+  VERIFY_QUESTION_PROMPT,
 } from '@/core/extract/prompts'
 import { extractResponseSchema } from '@/core/extract/schemas'
+import { parseVerdict, verdictSchema } from '@/core/extract/verify-request'
 import { deepEq, eq, ok, suite } from '../harness.ts'
 
 const AZ_PROMPTS = {
   EXTRACT_SYSTEM,
   EXTRACT_SYSTEM_RASTER,
+  VERIFY_QUESTION_PROMPT,
   COMPARE_FIGURES_PROMPT,
   DETECT_QUESTIONS_PROMPT,
   PARSE_ANSWER_KEY_PROMPT,
@@ -27,6 +31,76 @@ const sequence = (n: number) => Array.from({ length: n }, (_, i) => i + 1)
 // variant that jumped from rule 11 to rule 15 because the block between them
 // belongs only to the other lane.
 export const promptsSuite = suite('prompts', {
+  // The fingerprint keys `ops_cache`. A prompt it does not cover can be edited
+  // and the run will replay the old prompt's answers under the new text —
+  // silently, reporting a cache hit. The verify prompt was outside it until the
+  // wave was being tuned against its own cached verdicts.
+  'the fingerprint covers every prompt sent to a model'() {
+    for (const [name, text] of Object.entries(AZ_PROMPTS)) {
+      // The reading ops are not fingerprinted on purpose — they do not key
+      // ops_cache. Everything the extract and verify waves send must be.
+      if (!['EXTRACT_SYSTEM', 'EXTRACT_SYSTEM_RASTER', 'VERIFY_QUESTION_PROMPT'].includes(name)) {
+        continue
+      }
+      ok(FINGERPRINTED_PROMPTS.includes(text), `${name} is folded into the fingerprint`)
+    }
+    eq(promptFingerprint(), promptFingerprint(), 'the fingerprint is stable across calls')
+  },
+
+  // Found the hard way: a NUL used as a hash separator made the whole file read
+  // as binary to grep, awk and every review tool, which hid a prompt edit from
+  // an entire pass over the file.
+  'no control characters hide in the prompt source'() {
+    for (const [name, text] of Object.entries(AZ_PROMPTS)) {
+      const bad = [...text].find((c) => c < ' ' && c !== '\n' && c !== '\t')
+      eq(bad, undefined, `${name} carries no control characters`)
+    }
+  },
+
+  // The verdict schema asks for three index-aligned arrays instead of one array
+  // of objects, because the nested shape made the model leak `<parameter …>`
+  // markup into `differences` as a string — roughly a fifth of live calls, each
+  // one a defect it had correctly found and could not report.
+  'the verdict schema stays flat'() {
+    const props = verdictSchema.properties as Record<string, { type: string }>
+    for (const key of ['difference_fields', 'difference_severities', 'difference_notes']) {
+      eq(props[key]?.type, 'array', `${key} is an array`)
+    }
+    ok(!('differences' in props), 'no nested differences array is asked for')
+  },
+
+  // A verdict that cannot be read must never read as agreement — that is the
+  // one way this wave fails silently.
+  'an unreadable verdict is never a match'() {
+    eq(parseVerdict(null).matches, false, 'nothing is not a match')
+    eq(parseVerdict({}).matches, false, 'an empty object is not a match')
+    eq(
+      parseVerdict({ matches: true, differences: '<parameter name="note">x' }).matches,
+      false,
+      'leaked markup is not a match',
+    )
+    eq(
+      parseVerdict({ matches: true, differences: '<parameter name="note">x' }).differences.length,
+      1,
+      'leaked markup is surfaced as a difference rather than dropped',
+    )
+    eq(
+      parseVerdict({
+        matches: true,
+        difference_fields: ['figure'],
+        difference_severities: ['critical'],
+        difference_notes: ['edge missing'],
+      }).matches,
+      false,
+      'a critical difference overrides a matches:true verdict',
+    )
+    eq(
+      parseVerdict({ matches: true, difference_fields: ['figure'] }).differences[0]?.severity,
+      'critical',
+      'a severity missing from a ragged array defaults to critical',
+    )
+  },
+
   'no Cyrillic look-alikes hide in the Azerbaijani text'() {
     for (const [name, text] of Object.entries(AZ_PROMPTS)) {
       const cyrillic = [...text].filter((c) => /[Ѐ-ӿ]/.test(c))

@@ -372,6 +372,9 @@ export type Database = {
           text_layer: string | null
           updated_at: string
           verified: boolean
+          verified_at: string | null
+          verify_confidence: number | null
+          verify_diff: Json | null
         }
         Insert: {
           ai_category_confidence?: number | null
@@ -421,6 +424,9 @@ export type Database = {
           text_layer?: string | null
           updated_at?: string
           verified?: boolean
+          verified_at?: string | null
+          verify_confidence?: number | null
+          verify_diff?: Json | null
         }
         Update: {
           ai_category_confidence?: number | null
@@ -470,6 +476,9 @@ export type Database = {
           text_layer?: string | null
           updated_at?: string
           verified?: boolean
+          verified_at?: string | null
+          verify_confidence?: number | null
+          verify_diff?: Json | null
         }
         Relationships: [
           {
@@ -611,6 +620,9 @@ export type Database = {
           text_layer: string | null
           updated_at: string
           verified: boolean
+          verified_at: string | null
+          verify_confidence: number | null
+          verify_diff: Json | null
         }[]
         SetofOptions: {
           from: "*"
@@ -674,6 +686,9 @@ export type Database = {
           text_layer: string | null
           updated_at: string
           verified: boolean
+          verified_at: string | null
+          verify_confidence: number | null
+          verify_diff: Json | null
         }[]
         SetofOptions: {
           from: "*"

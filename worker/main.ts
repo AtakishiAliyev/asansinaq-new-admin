@@ -13,6 +13,7 @@
 // next poll rather than claiming the same questions and buying the same answers
 // twice.
 import { EMIT_QUESTION_TOOL_NAME } from '@/core/extract/tool-schema'
+import { EMIT_VERDICT_TOOL_NAME, parseVerdict } from '@/core/extract/verify-request'
 import { config } from './config.ts'
 import { db, type QuestionRow } from './db.ts'
 import { bookContext } from './book-context.ts'
@@ -36,6 +37,12 @@ import {
   spendToday,
 } from './ops.ts'
 import { modelFor } from './models.ts'
+import {
+  applyVerdict,
+  idFromVerifyCustomId,
+  VERIFY_OP,
+  verifyItemFor,
+} from './verify.ts'
 import {
   attachBatch,
   claim,
@@ -129,6 +136,7 @@ async function pollPass(): Promise<number> {
       continue
     }
 
+    const stage = batchRows[0]?.batch_stage === 'verify' ? 'verify' : 'extract'
     const byId = new Map(batchRows.map((r) => [r.id, r]))
     // `done` means "this row is finished with, one way or the other". Counting
     // it as work written conflated a structured question with a failed one and
@@ -136,15 +144,25 @@ async function pollPass(): Promise<number> {
     const done: number[] = []
     let structured = 0
     let failed = 0
-    for await (const outcome of batchResults(batchId, EMIT_QUESTION_TOOL_NAME)) {
-      const id = idFromCustomId(outcome.customId)
+    let repaired = 0
+    for await (const outcome of batchResults(
+      batchId,
+      stage === 'verify' ? EMIT_VERDICT_TOOL_NAME : EMIT_QUESTION_TOOL_NAME,
+    )) {
+      const id =
+        stage === 'verify'
+          ? idFromVerifyCustomId(outcome.customId)
+          : idFromCustomId(outcome.customId)
       const row = id === null ? undefined : byId.get(id)
       if (!row) continue
 
       if (outcome.usage) {
         await logOp(db, {
-          op: EXTRACT_OP,
-          model: modelFor(row.figure_kind !== 'none' ? 'figure' : 'text'),
+          op: stage === 'verify' ? VERIFY_OP : EXTRACT_OP,
+          model:
+            stage === 'verify'
+              ? config.MODEL_VERIFY
+              : modelFor(row.figure_kind !== 'none' ? 'figure' : 'text'),
           usage: {
             input: outcome.usage.input_tokens ?? 0,
             cacheWrite: outcome.usage.cache_creation_input_tokens ?? 0,
@@ -164,6 +182,17 @@ async function pollPass(): Promise<number> {
         if (failed === 0) log(`  first failure: ${outcome.error ?? 'no answer'}`)
         failed++
         done.push(row.id)
+        continue
+      }
+
+      if (stage === 'verify') {
+        const verdict = parseVerdict(outcome.wire)
+        const applied = await applyVerdict(db, row, verdict)
+        if (verdict.matches) structured++
+        else failed++
+        if (applied.repairing) repaired++
+        done.push(row.id)
+        written++
         continue
       }
 
@@ -207,12 +236,117 @@ async function pollPass(): Promise<number> {
       await release(db, missing)
     }
     log(
-      `batch ${batchId}: ${structured} structured, ${failed} failed` +
-        (missing.length ? `, ${missing.length} released` : ''),
+      stage === 'verify'
+        ? `batch ${batchId}: ${structured} verified, ${failed} mismatched` +
+            (repaired ? `, ${repaired} sent back for a repair round` : '') +
+            (missing.length ? `, ${missing.length} released` : '')
+        : `batch ${batchId}: ${structured} structured, ${failed} failed` +
+            (missing.length ? `, ${missing.length} released` : ''),
     )
   }
   reportFigureKinds()
   return written
+}
+
+/**
+ * The second wave: rows the extract wave has finished, compared against their
+ * own crop.
+ *
+ * Deliberately AFTER the extract pass in each cycle, and deliberately using the
+ * same claim/lease machinery: a verify batch holds its rows exactly the way an
+ * extract batch does, so a worker that dies mid-verification resumes rather
+ * than re-comparing. `batch_stage` is what tells the poll pass which kind of
+ * answer is coming back.
+ */
+async function verifyPass(): Promise<number> {
+  if (await budgetExhausted(db)) return 0
+
+  // Structured, never ruled on, and not already held by anyone. The partial
+  // index on (status, verified_at) covers exactly this.
+  const { data: candidates } = await db
+    .from('questions')
+    .select('*')
+    .eq('status', 'structured')
+    .is('verified_at', null)
+    .is('batch_id', null)
+    .is('claimed_at', null)
+    .order('structured_at')
+    .limit(config.BATCH_SIZE)
+
+  const rows = candidates ?? []
+  if (!rows.length) return 0
+
+  const items: BatchItem[] = []
+  const submitted: { id: number; customId: string }[] = []
+  for (const row of rows) {
+    try {
+      const item = await verifyItemFor(db, row)
+      if (!item) continue
+      items.push(item)
+      submitted.push({ id: row.id, customId: item.customId })
+    } catch (error) {
+      // A row that cannot be RENDERED cannot be verified, and that is a real
+      // defect rather than a reason to stall the wave: it is marked so a
+      // reviewer sees it, and the wave moves on.
+      log(`q${row.id} could not be rendered: ${String(error)}`)
+      await db
+        .from('questions')
+        .update({
+          verified: false,
+          verified_at: new Date().toISOString(),
+          verify_confidence: 0,
+          verify_diff: [
+            { field: 'other', severity: 'critical', note: `render failed: ${String(error).slice(0, 200)}` },
+          ] as never,
+        })
+        .eq('id', row.id)
+    }
+  }
+  if (!items.length) return 0
+
+  // Claimed only once there is something to submit, so a render failure does
+  // not take a lease with it.
+  const held = await claimSpecific(submitted.map((s) => s.id))
+  const live = submitted.filter((s) => held.includes(s.id))
+  if (!live.length) return 0
+
+  let batchId: string
+  try {
+    batchId = await submitBatch(items.filter((i) => live.some((l) => l.customId === i.customId)))
+  } catch (error) {
+    log(`verify submit failed, releasing ${live.length}: ${String(error)}`)
+    await release(db, live.map((l) => l.id))
+    return 0
+  }
+
+  await attachBatch(db, batchId, 'verify', live)
+  log(`batch ${batchId}: submitted ${live.length} question(s) for verification`)
+  return live.length
+}
+
+/**
+ * Take a lease on specific rows.
+ *
+ * The extract wave claims by queue order; verification already knows which rows
+ * it wants, so it asks for those. Same lease, same worker id, same protection
+ * against two workers paying for one comparison.
+ */
+async function claimSpecific(ids: number[]): Promise<number[]> {
+  const { data, error } = await db
+    .from('questions')
+    .update({
+      claimed_at: new Date().toISOString(),
+      claimed_by_worker: config.WORKER_ID,
+      lease_until: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+    })
+    .in('id', ids)
+    .is('claimed_at', null)
+    .select('id')
+  if (error) {
+    log(`verify claim failed: ${error.message}`)
+    return []
+  }
+  return (data ?? []).map((r) => r.id)
 }
 
 /** Claim work and put it in front of the provider. */
@@ -401,13 +535,19 @@ while (!stopping) {
   try {
     await pollPass()
     await submitPass()
+    await verifyPass()
   } catch (error) {
     log(`pass failed: ${String(error)}`)
   }
   if (stopping) break
   const outstanding = (await inFlight(db).catch(() => [])).length
   const queued = await nextQueuedBook(db).catch(() => null)
-  if (!outstanding && queued === null) {
+  const { count: unverified } = await db
+    .from('questions')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'structured')
+    .is('verified_at', null)
+  if (!outstanding && queued === null && !unverified) {
     log('queue empty and nothing in flight — stopping')
     break
   }

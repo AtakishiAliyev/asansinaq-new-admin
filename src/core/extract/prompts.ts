@@ -111,31 +111,6 @@ export const EXTRACT_SYSTEM = [SYSTEM_HEAD, SYSTEM_FIGURE_RULES].join('\n')
 /** System prompt for the raster lane (image model draws the figure). */
 export const EXTRACT_SYSTEM_RASTER = [SYSTEM_HEAD, SYSTEM_NO_FIGURE_RULE].join('\n')
 
-/**
- * A fingerprint of the text actually sent to the model.
- *
- * PROMPT_VERSION is a human decision, and humans forget. Editing a rule without
- * bumping it makes `ops_cache` replay the answer the OLD prompt gave — and the
- * run reports a cache hit and reads as a success. That happened the first time
- * a rule here was tuned: the tuning was measured against its own pre-tuning
- * output, and the only clue was the word "cache" in a log line.
- *
- * So the cache key carries this rather than trusting the number. The version
- * still stamps rows, which is what it is good at — a person reading a row wants
- * to know which generation produced it. The fingerprint decides what may be
- * REPLAYED, which is what a machine is good at. A forgotten bump now costs
- * traceability and never correctness.
- *
- * djb2: this salts a cache key, it is not a security boundary.
- */
-export function promptFingerprint(): string {
-  const source = `${EXTRACT_SYSTEM} ${EXTRACT_SYSTEM_RASTER}`
-  let hash = 5381
-  for (let i = 0; i < source.length; i++) {
-    hash = ((hash << 5) + hash + source.charCodeAt(i)) | 0
-  }
-  return (hash >>> 0).toString(36)
-}
 
 
 export const COMPARE_FIGURES_PROMPT = `İki şəkil verilir: (1) ORİJİNAL fiqur (watermark ola bilər), (2) YENİDƏN YARADILMIŞ fiqur.
@@ -165,3 +140,95 @@ Qaydalar:
 - Cədvəl sütunlarla düzülə bilər (1–20 solda, 21–40 sağda) — HAMISINI oxu, sütun sırası ilə.
 - Boş və ya oxunmayan xanaları BURAXIB davam et — uydurma.
 - Səhifə nömrəsini, başlıqları, reklamı sual sayma.`
+
+// ---- verification: the recreated question against the printed original ----
+//
+// Written to find differences, not to confirm agreement. A verifier that agrees
+// with everything is indistinguishable from one that works, and the failure is
+// silent: rows arrive marked `verified`, auto-approve passes them, and nobody
+// looks again. So the model is asked to ENUMERATE differences before reaching a
+// verdict, and told explicitly which differences do not count — the recreation
+// is deliberately not a facsimile, and a verifier that flags a font change will
+// be turned off within a day.
+export const VERIFY_QUESTION_PROMPT = `İki şəkil verilir:
+(1) ORİJİNAL — kitabdan kəsilmiş sual (watermark ola bilər).
+(2) YENİDƏN YARADILMIŞ — bizim sistemin həmin sualdan çıxardığı məlumatla çəkdiyi versiya.
+
+Vəzifən: yenidən yaradılmış versiya orijinal sualı DÜZGÜN təkrarlayırmı?
+
+ƏVVƏLCƏ fərqləri sadala, SONRA qərar ver. Əvvəlcə "uyğundur" deyib sonra fərq axtarma.
+
+FƏRQ SAYILMAYAN (bunları HEÇ VAXT bildirmə):
+- şrift, hərf ölçüsü, sətir aralığı, boşluqlar, rəng tonu, ümumi tərtibat;
+- watermark-ın olmaması (onu qəsdən atırıq);
+- fiqurun bir az fərqli ölçüdə və ya mövqedə çəkilməsi;
+- $...$ içindəki eyni riyaziyyatın fərqli, amma ekvivalent yazılışı (0,5 = 0.5).
+
+FƏRQ SAYILAN (hər birini ayrıca bildir):
+- stem-də hər hansı RƏQƏM, hərf, ad və ya simvolun fərqli olması;
+- şərtlərdən birinin buraxılması və ya əlavə edilməsi;
+- variantların sayının fərqli olması, sırasının dəyişməsi, birinin boş qalması;
+- hər hansı variantın MƏZMUNUNUN fərqli olması;
+- fiqurun struktur olaraq fərqli olması: əskik/artıq nöqtə, xətt, parça;
+- fiqurdakı İŞARƏLƏRİN əskik olması və ya səhv yerdə olması — bərabərlik cizgiləri,
+  paralellik oxları, düz bucaq kvadratı, bərabər bucaq qövsləri;
+- sualın SORUŞDUĞU kəmiyyətin (adətən α) yenidən yaradılmış fiqurda ümumiyyətlə
+  işarələnməməsi — bu, sualı həll edilməz edir və mütləq bildirilməlidir;
+- orijinalda olan mətnin/fiqurun tamamilə itməsi.
+
+FİQURU ADDIM-ADDIM YOXLA (fərqi "görməyə" güvənmə, SAY):
+1. Orijinaldakı bütün xətt/parça/şüaları say. Yenidən yaradılmışda neçədir? Say fərqlidirsə, hansı əskikdir?
+2. Orijinaldakı bütün işarələri say — qövslər, bərabərlik cizgiləri, paralellik oxları,
+   düz bucaq kvadratları. Hər birini yenidən yaradılmışda tap. Tapa bilmirsənsə, o fərqdir.
+3. Sualın soruşduğu kəmiyyət (α və s.) orijinalda harada işarələnib? Yenidən yaradılmışda
+   həmin yerdə varmı?
+
+severity — bunu özün qiymətləndirmə, qaydaya əməl et:
+- FİQURDA hər hansı əskik və ya artıq xətt, parça, şüa, bucaq və ya işarə → HƏMİŞƏ "critical",
+  hətta sualı yenə də həll etmək mümkün görünsə belə. Fiqur məlumatdır: orada nə itibsə,
+  bizim çıxardığımız məlumatdan itib, və bunu yalnız insan yoxlaya bilər.
+- stem-də və ya variantlarda rəqəm/məzmun fərqi → "critical".
+- yalnız yazılış tərzi ilə bağlı, mənanı dəyişməyən xırdalıq → "minor".
+
+confidence: öz MÜQAYİSƏNƏ nə qədər əminsən (0-1), sualın çətinliyi deyil.
+Şübhə varsa, fərqi BİLDİR və confidence-i aşağı sal — buraxılmış fərq yanlış xəbərdarlıqdan bahalıdır.`
+
+/**
+ * Every prompt whose text reaches a model and whose change must invalidate the
+ * cache. A prompt missing from this list can be edited without moving the
+ * fingerprint, and the next run replays the OLD prompt's answers under the new
+ * text while reporting a cache hit — so `eval/suites/prompts.ts` asserts the
+ * list against the module's own exports rather than trusting this line.
+ */
+export const FINGERPRINTED_PROMPTS = [
+  EXTRACT_SYSTEM,
+  EXTRACT_SYSTEM_RASTER,
+  VERIFY_QUESTION_PROMPT,
+]
+
+/**
+ * A fingerprint of every prompt text sent to the model, extract and verify
+ * alike.
+ *
+ * PROMPT_VERSION is a human decision, and humans forget. Editing a rule without
+ * bumping it makes `ops_cache` replay the answer the OLD prompt gave — and the
+ * run reports a cache hit and reads as a success. That happened the first time
+ * a rule here was tuned: the tuning was measured against its own pre-tuning
+ * output, and the only clue was the word "cache" in a log line.
+ *
+ * So the cache key carries this rather than trusting the number. The version
+ * still stamps rows, which is what it is good at — a person reading a row wants
+ * to know which generation produced it. The fingerprint decides what may be
+ * REPLAYED, which is what a machine is good at. A forgotten bump now costs
+ * traceability and never correctness.
+ *
+ * djb2: this salts a cache key, it is not a security boundary.
+ */
+export function promptFingerprint(): string {
+  const source = FINGERPRINTED_PROMPTS.join('\u0000')
+  let hash = 5381
+  for (let i = 0; i < source.length; i++) {
+    hash = ((hash << 5) + hash + source.charCodeAt(i)) | 0
+  }
+  return (hash >>> 0).toString(36)
+}
