@@ -29,7 +29,7 @@ import {
   type FigureMode,
   type GeminiRequest,
   type ModelKey,
-} from '@/core/extract/request'
+} from '@/core/extract/request-gemini'
 import { PROMPT_VERSION, REDRAW_PROMPT } from '@/core/extract/prompts'
 
 const GEMINI_MODELS: Record<ModelKey, string> = {

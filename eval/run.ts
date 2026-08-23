@@ -3,6 +3,7 @@
 // deliberately does and does not cover.
 import type { Suite } from './harness.ts'
 import { answerKeySuite } from './suites/answer-key.ts'
+import { anthropicRequestSuite } from './suites/anthropic-request.ts'
 import { classifySuite } from './suites/classify.ts'
 import { compareSuite } from './suites/compare.ts'
 import { extractionSuite } from './suites/extraction.ts'
@@ -21,6 +22,7 @@ const SUITES: Suite[] = [
   errorsSuite,
   rateGateSuite,
   promptsSuite,
+  anthropicRequestSuite,
   classifySuite,
   answerKeySuite,
   compareSuite,
