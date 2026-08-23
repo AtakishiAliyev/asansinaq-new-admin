@@ -33,3 +33,9 @@ local/
 
 # Copied from pdfjs-dist on install (scripts/copy-pdfjs-wasm.mjs)
 public/pdfjs/
+
+# Probe artefacts — crops and renders, regenerated per run. The scripts that
+# produce them live only on the abandoned agent-probe branch, which ignores
+# these paths; main never did, so they sat here untracked.
+probe/out/
+probe/cases/
