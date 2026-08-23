@@ -44,7 +44,7 @@ import { readFileSync } from 'node:fs'
 import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@supabase/supabase-js'
 import { buildAnthropicExtract } from '../src/core/extract/request-anthropic.ts'
-import { samplingFor } from '../worker/sampling.ts'
+import { samplingFor } from '../src/core/models.ts'
 import type { Database } from '../src/types/database.ts'
 
 // A 1x1 PNG. The point is to measure everything EXCEPT the crop: a real crop
@@ -191,8 +191,8 @@ for (const [laneName, model] of [
     categories: [{ id: 1, name: 'Cəbr', parentId: null }],
   })
   try {
-    // samplingFor is imported from the worker rather than reimplemented, so
-    // this cannot pass on a request shape the worker would not send.
+    // samplingFor comes from core, the same module the worker and the Edge
+    // Function use, so this cannot pass on a shape they would not send.
     const message = await client.messages.create({
       model,
       ...samplingFor(model),

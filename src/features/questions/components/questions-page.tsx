@@ -157,10 +157,11 @@ export function QuestionsPage() {
   }
 
   function runRestructure(targets: QuestionListItem[]) {
-    // A new job starts with a clean gate; batches inside it keep what it learns.
+    // A new job starts with a clean gate; the calls inside it keep what it
+    // learns about the provider's pace.
     resetRateGate()
     void restructure
-      .run(targets, { suggestCategories: true })
+      .run(targets)
       .then(() => questions.refetch())
       .catch((error) =>
         toast.error(

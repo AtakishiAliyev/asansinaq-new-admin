@@ -3,6 +3,10 @@
     "@/core/extract/prompts": "../../../src/core/extract/prompts.ts",
     "@/core/extract/fewshot": "../../../src/core/extract/fewshot.ts",
     "@/core/extract/schemas": "../../../src/core/extract/schemas.ts",
-    "@/core/extract/request-gemini": "../../../src/core/extract/request-gemini.ts"
+    "@/core/extract/request-gemini": "../../../src/core/extract/request-gemini.ts",
+    "@/core/extract/request-anthropic": "../../../src/core/extract/request-anthropic.ts",
+    "@/core/extract/tool-schema": "../../../src/core/extract/tool-schema.ts",
+    "@/core/models": "../../../src/core/models.ts",
+    "@anthropic-ai/sdk": "npm:@anthropic-ai/sdk@0.120.0"
   }
 }

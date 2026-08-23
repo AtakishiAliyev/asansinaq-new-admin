@@ -7,14 +7,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import { usePipelineStore } from '@/stores/pipeline-store'
 
@@ -77,39 +69,12 @@ export function PipelineSettingsDialog({ onClose }: { onClose: () => void }) {
         </DialogHeader>
 
         <div className="flex flex-col gap-2">
-          <div className="flex items-center justify-between gap-3 rounded-lg border p-3">
-            <div className="flex flex-col gap-0.5">
-              <span className="text-sm font-medium">Paket ölçüsü</span>
-              <span className="text-muted-foreground text-xs">
-                Bir dəfəyə neçə sual götürülsün. Böyük paket sürətlidir, amma
-                tab bağlananda daha çoxu yenidən işlənir.
-              </span>
-            </div>
-            <Select
-              value={String(s.batchSize)}
-              onValueChange={(v) => s.set({ batchSize: Number(v) })}
-            >
-              <SelectTrigger className="w-24" aria-label="Paket ölçüsü">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {[4, 8, 12, 16, 24].map((n) => (
-                    <SelectItem key={n} value={String(n)}>
-                      {n}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </div>
-
           <Toggle
             checked={s.autoApprove}
             onChange={(autoApprove) => s.set({ autoApprove })}
             title="Təmiz sualları avtomatik təsdiqlə"
-            hint="Xətasız, iki oxunuşu üst-üstə düşən və AI kateqoriyası olan suallar review-siz təsdiqlənir. 10k sualda ~28 saat əl işini aradan qaldırır."
-            risk="Hər iki oxunuşun eyni səhvi etdiyi nadir hal insan gözündən yayınır."
+            hint="Xətasız, təsdiqlənmiş və AI kateqoriyası olan suallar review-siz təsdiqlənir. 10k sualda ~28 saat əl işini aradan qaldırır."
+            risk="Doğrulama mərhələsi hazır olana qədər heç bir sual bu şərti keçmir — hamısı review-də qalır."
           />
 
           {s.autoApprove ? (
@@ -124,21 +89,6 @@ export function PipelineSettingsDialog({ onClose }: { onClose: () => void }) {
             />
           ) : null}
 
-          <Toggle
-            checked={s.mediumImages}
-            onChange={(mediumImages) => s.set({ mediumImages })}
-            title="Fiqurları orta keyfiyyətdə çək"
-            hint="Şəkil xərcini təxminən yarıya endirir — 10k sualda yüzlərlə dollar."
-            risk="İncə xətlər və kiçik etiketlər ilk itən yerdir."
-          />
-
-          <Toggle
-            checked={s.dslFirst}
-            onChange={(dslFirst) => s.set({ dslFirst })}
-            title="Rəngli fiqurlarda əvvəlcə vektor sınansın"
-            hint="Alınsa, $0.08-lıq şəkil generasiyası tamamilə keçilir."
-            risk="Vektor dili hər rəng həllini ifadə edə bilmir; alınmasa bir extract xərci artıq gedir."
-          />
         </div>
 
         <DialogFooter>

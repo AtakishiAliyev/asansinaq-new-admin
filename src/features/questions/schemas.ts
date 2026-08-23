@@ -56,15 +56,6 @@ export const suggestCategoryResponseSchema = z.object({
   confidence: z.number().min(0).max(1).catch(0),
 })
 
-export const optionBoxesResponseSchema = z.object({
-  options: z.array(
-    z.object({
-      label: z.enum(['A', 'B', 'C', 'D', 'E']),
-      box: z.array(z.number()).length(4),
-    }),
-  ),
-})
-
 export const parseAnswerKeyResponseSchema = z.object({
   entries: z.array(
     z.object({

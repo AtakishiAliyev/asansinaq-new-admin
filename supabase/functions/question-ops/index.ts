@@ -1,73 +1,74 @@
-// All model calls of the question-recreation pipeline behind one admin-gated
-// door: extraction, figure redraw (OpenAI images/edits — the accuracy winner
-// in the MVP), render-compare, category suggestion and answer-key parsing.
-// A question's answer is never produced here — it comes from the printed key
-// or the reviewer, so there is deliberately no solve op. The function ONLY talks to models — the client
-// orchestrates the flow (lint, repair loop, browser figure rendering).
-// Prompts/schemas/request bodies come from src/core/extract via the
-// import-map alias, so the eval harness exercises the exact same requests.
+// The INTERACTIVE model calls, behind one admin-gated door.
 //
-// Cost controls: every call is logged to ops_log with an estimated cost and
-// refused once today's total passes DAILY_BUDGET_USD; deterministic ops are
-// cached in ops_cache (images in the question-crops bucket under cache/), so
-// a re-sent crop never bills the model twice for the same request. The budget
-// is checked immediately before each model call, never before dispatch — a
-// cache hit costs nothing and must keep serving after the cap is reached,
-// otherwise a capped day turns cached questions into permanent failures.
+// This function is no longer the pipeline. Batch work — every question the
+// queue holds — runs in `worker/`, which talks to the Anthropic Batches API at
+// half price and is not bounded by an Edge Function's wall clock. What is left
+// here is the handful of calls a person triggers and waits for:
+//
+//   extract           re-run ONE question from the review screen
+//   parse_answer_key  read a printed key page during import
+//   detect_questions  find the questions on a scanned page during import
+//   suggest_category  re-file one question without re-reading it
+//   budget_status     free; the only way the browser learns the cap
+//   redraw_figure     the manual image fallback (see its own note below)
+//
+// Deliberately gone: `option_boxes` and `compare_figures`. The first existed
+// only because Gemini ignored the per-option `box` field in the extraction
+// schema (schemas.ts records the diagnosis); Anthropic fills it in, so asking
+// twice buys nothing. The second belonged to the browser's render-and-compare
+// loop, which becomes the worker's verification wave.
+//
+// A question's answer is never produced here. It comes from the printed key or
+// from the reviewer, so there is deliberately no solve op.
+//
+// Cost controls are unchanged in shape: every call is logged to `ops_log` with
+// an estimated cost and refused once the day passes DAILY_BUDGET_USD, and
+// deterministic ops are cached in `ops_cache`. The budget is checked
+// immediately before each model call and never before a cache lookup — a cache
+// hit costs nothing and must keep serving on a capped day, or a capped day
+// turns cached questions into permanent failures.
 //
 // Two Supabase clients on purpose: the caller's JWT answers "is this an
-// admin?", and only the service role writes the ledger, the cache and the
-// cached images. The browser can read ops_log but cannot forge a row in it.
+// admin?", and only the service role writes the ledger and the cache.
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2'
 import {
-  buildCompareFigures,
+  buildAnthropicExtract,
+  type ModelLane,
+} from '@/core/extract/request-anthropic'
+import { EMIT_QUESTION_TOOL_NAME } from '@/core/extract/tool-schema'
+import {
   buildDetectQuestions,
-  buildOptionBoxes,
-  buildExtract,
   buildParseAnswerKey,
   buildSuggestCategory,
-  type FigureMode,
   type GeminiRequest,
-  type ModelKey,
 } from '@/core/extract/request-gemini'
+import { estimateCost, promptTokens, samplingFor, usageFrom } from '@/core/models'
 import { PROMPT_VERSION, REDRAW_PROMPT } from '@/core/extract/prompts'
 
-const GEMINI_MODELS: Record<ModelKey, string> = {
-  extract: Deno.env.get('GEMINI_EXTRACT_MODEL') ?? 'gemini-3.5-flash',
-  figure: Deno.env.get('GEMINI_FIGURE_MODEL') ?? 'gemini-3.1-pro-preview',
-  verify: Deno.env.get('GEMINI_VERIFY_MODEL') ?? 'gemini-3.5-flash',
-  detect: Deno.env.get('GEMINI_DETECT_MODEL') ?? 'gemini-3.5-flash',
+// Ids are configuration, exactly as in the worker: which model serves a lane is
+// a question an eval settles, not a constant.
+const MODELS: Record<ModelLane | 'utility', string> = {
+  text: Deno.env.get('ANTHROPIC_TEXT_MODEL') ?? 'claude-haiku-4-5',
+  figure: Deno.env.get('ANTHROPIC_FIGURE_MODEL') ?? 'claude-sonnet-5',
+  // Answer keys, page detection and category filing: reading tasks with no
+  // figure to recreate, so the cheap tier is the right one.
+  utility: Deno.env.get('ANTHROPIC_UTILITY_MODEL') ?? 'claude-haiku-4-5',
 }
 const OPENAI_IMAGE_MODEL = Deno.env.get('OPENAI_IMAGE_MODEL') ?? 'gpt-image-2'
 const DAILY_BUDGET_USD = Number(Deno.env.get('DAILY_BUDGET_USD') ?? '20')
 
-// A strong model reading a dense figure page routinely passes 90s; the
-// client retries on a fresh invocation, so this only has to cover one attempt.
-// Measured, not guessed: once the figure lane began returning an SVG with the
-// text, extract on the figure model went from a 22 s average to 95 s, with a
-// 111 s peak. At 120 s the tail was landing on the ceiling and a question that
-// had been fully read was thrown away for it.
-const TIMEOUT_MS = 135_000
-// Complex references push gpt-image past 90s; stay just under the edge
-// function's own wall-clock budget so WE report the timeout, not the platform.
+const TIMEOUT_MS = 120_000
+// Complex references push gpt-image past 90s; stay just under the function's
+// own wall-clock budget so WE report the timeout, not the platform.
 const IMAGE_TIMEOUT_MS = 140_000
 // The whole request's wall clock. Per-call timeouts alone were not enough: a
 // retry used to arm a full fresh timeout, so a slow call plus its retry could
-// outlive the function and be killed by the platform — the client then saw a
-// generic failure instead of our timeout message.
+// outlive the function and be killed by the platform.
 const REQUEST_BUDGET_MS = 145_000
 const MAX_BASE64_LENGTH = 8_000_000
 
-// Rough $/1M-token rates for the ESTIMATE column — visibility and the budget
-// guard, not billing. Update alongside model secrets.
-const RATE = {
-  flashIn: 0.3,
-  flashOut: 2.5,
-  proIn: 2.5,
-  proOut: 15,
-  imageFlat: 0.08,
-  imageMedium: 0.04,
-}
+/** Flat per-image price for the manual redraw — the one non-token call left. */
+const IMAGE_RATE = { high: 0.08, medium: 0.04 }
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -108,19 +109,6 @@ async function sha256Hex(input: string): Promise<string> {
     .join('')
 }
 
-function estGeminiCost(
-  model: string,
-  promptTokens: number | null,
-  outputTokens: number | null,
-): number {
-  const pro = model.includes('pro')
-  const inRate = pro ? RATE.proIn : RATE.flashIn
-  const outRate = pro ? RATE.proOut : RATE.flashOut
-  return (
-    ((promptTokens ?? 0) * inRate + (outputTokens ?? 0) * outRate) / 1_000_000
-  )
-}
-
 // Every attempt is armed with what is LEFT of the request's wall clock, so a
 // retry can never push the function past the platform's own limit.
 function remainingMs(deadline: number, perCallTimeout: number): number {
@@ -131,52 +119,148 @@ function deadlineExceeded(): DOMException {
   return new DOMException('request deadline exceeded', 'AbortError')
 }
 
-async function callGemini(
-  req: GeminiRequest,
+interface AnthropicAnswer {
+  /** The forced tool's input, when the model called it. */
+  tool: Record<string, unknown> | null
+  /** Free text, for the ops that ask for JSON rather than a tool. */
+  text: string
+  usage: {
+    input_tokens?: number
+    output_tokens?: number
+    cache_creation_input_tokens?: number
+    cache_read_input_tokens?: number
+  }
+}
+
+/**
+ * Raw fetch rather than the SDK.
+ *
+ * The request body is already assembled by `@/core/extract` — the same bytes
+ * the worker sends — so an SDK here would only be a second way to build
+ * something that is already built, plus an npm import to resolve at cold start.
+ */
+async function callAnthropic(
+  model: string,
+  params: Record<string, unknown>,
   deadline: number,
   attempt = 0,
-): Promise<{ parsed: unknown; model: string; raw: Record<string, unknown> }> {
-  const key = Deno.env.get('GEMINI_API_KEY')
-  if (!key) throw new Error('GEMINI_API_KEY secret is not set')
-  const model = GEMINI_MODELS[req.modelKey]
+): Promise<AnthropicAnswer> {
+  const key = Deno.env.get('ANTHROPIC_API_KEY')
+  if (!key) throw new Error('ANTHROPIC_API_KEY secret is not set')
   const budget = remainingMs(deadline, TIMEOUT_MS)
   if (budget <= 0) throw deadlineExceeded()
+
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), budget)
   try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-        body: JSON.stringify(req.body),
-        signal: controller.signal,
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': key,
+        'anthropic-version': '2023-06-01',
       },
-    )
+      // Sampling is applied here, where the model id is known: the builders
+      // resolve a lane, and whether a lane's model accepts `temperature` is a
+      // property of the id. Sending it to a model that removed it is a 400.
+      body: JSON.stringify({ model, ...samplingFor(model), ...params }),
+      signal: controller.signal,
+    })
     if ((res.status === 429 || res.status >= 500) && attempt < 1) {
       void res.body?.cancel().catch(() => {})
       await new Promise((r) => setTimeout(r, 2000))
-      return callGemini(req, deadline, attempt + 1)
+      return callAnthropic(model, params, deadline, attempt + 1)
     }
     if (!res.ok) {
-      const detail = (await res.text()).slice(0, 300)
-      throw new Error(`Gemini ${res.status}: ${detail}`)
+      const detail = (await res.text()).slice(0, 400)
+      throw new Error(`Anthropic ${res.status}: ${detail}`)
     }
-    const out = (await res.json()) as Record<string, unknown>
-    const candidates = out.candidates as
-      | { content?: { parts?: { text?: string }[] }; finishReason?: string }[]
-      | undefined
-    const text = candidates?.[0]?.content?.parts?.[0]?.text
-    if (!text) {
-      const finishReason = candidates?.[0]?.finishReason
-      throw new Error(
-        `model boş cavab qaytardı${finishReason ? ` (finishReason: ${finishReason})` : ''}`,
-      )
+    const out = (await res.json()) as {
+      content?: { type: string; name?: string; text?: string; input?: unknown }[]
+      usage?: AnthropicAnswer['usage']
+      stop_reason?: string
     }
-    return { parsed: JSON.parse(text), model, raw: out }
+    const blocks = out.content ?? []
+    const tool = blocks.find(
+      (b) => b.type === 'tool_use' && b.name === EMIT_QUESTION_TOOL_NAME,
+    )
+    return {
+      tool: (tool?.input as Record<string, unknown> | undefined) ?? null,
+      text: blocks
+        .filter((b) => b.type === 'text')
+        .map((b) => b.text ?? '')
+        .join(''),
+      usage: out.usage ?? {},
+    }
   } finally {
     clearTimeout(timer)
   }
+}
+
+/**
+ * The ops that still speak in JSON rather than through a tool.
+ *
+ * `parse_answer_key`, `detect_questions` and `suggest_category` were built
+ * against Gemini's responseSchema, which constrained the output. Anthropic has
+ * no equivalent for a plain message, so the schema is described in the prompt
+ * and the answer is parsed here — with the first `{`..`}` extracted, because a
+ * model asked for JSON will occasionally wrap it in prose.
+ */
+function parseJsonAnswer(text: string): unknown {
+  const trimmed = text.trim()
+  try {
+    return JSON.parse(trimmed)
+  } catch {
+    const start = trimmed.indexOf('{')
+    const end = trimmed.lastIndexOf('}')
+    if (start === -1 || end <= start) {
+      throw new Error(`model JSON qaytarmadı: ${trimmed.slice(0, 200)}`)
+    }
+    return JSON.parse(trimmed.slice(start, end + 1))
+  }
+}
+
+/**
+ * A Gemini request body, re-expressed as an Anthropic one.
+ *
+ * The three utility ops keep their Gemini builders because their PROMPTS and
+ * SCHEMAS are the asset and are shared with the eval fixtures. Rather than fork
+ * them, the parts are lifted back out — the prompt text and the images — and
+ * the response schema is appended to the prompt so the model still knows the
+ * shape it owes. When these ops get tool definitions of their own, this goes.
+ */
+function geminiToAnthropic(request: GeminiRequest): Record<string, unknown> {
+  const body = request.body as {
+    contents: { parts: { text?: string; inlineData?: { mimeType: string; data: string } }[] }[]
+    generationConfig?: { responseSchema?: unknown }
+  }
+  const parts = body.contents[0]?.parts ?? []
+  const content: Record<string, unknown>[] = []
+  for (const part of parts) {
+    if (part.inlineData) {
+      content.push({
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: part.inlineData.mimeType,
+          data: part.inlineData.data,
+        },
+      })
+    } else if (part.text) {
+      content.push({ type: 'text', text: part.text })
+    }
+  }
+  const schema = body.generationConfig?.responseSchema
+  if (schema) {
+    content.push({
+      type: 'text',
+      text:
+        'Cavabı YALNIZ bu JSON sxeminə uyğun JSON kimi qaytar. ' +
+        'Heç bir izahat, heç bir markdown çərçivəsi əlavə etmə.\n' +
+        JSON.stringify(schema),
+    })
+  }
+  return { max_tokens: 8192, messages: [{ role: 'user', content }] }
 }
 
 function base64ToBlob(base64: string, mime: string): Blob {
@@ -186,7 +270,13 @@ function base64ToBlob(base64: string, mime: string): Blob {
   return new Blob([bytes], { type: mime })
 }
 
-// images/edits: reference image + instruction → clean redrawn figure.
+/**
+ * The one image-generation call left, and the one non-Anthropic one.
+ *
+ * It is NOT in any automated path: the worker never calls it, and no lane falls
+ * back to it. It survives so an operator reviewing a figure the vector DSL
+ * cannot express has something to reach for. Nothing in the UI triggers it yet.
+ */
 async function callOpenAIRedraw(
   image: string,
   mime: string,
@@ -196,15 +286,14 @@ async function callOpenAIRedraw(
 ): Promise<{ image: string; mime: string; model: string }> {
   const key = Deno.env.get('OPENAI_API_KEY')
   if (!key) throw new Error('OPENAI_API_KEY secret is not set')
+  const budget = remainingMs(deadline, IMAGE_TIMEOUT_MS)
+  if (budget <= 0) throw deadlineExceeded()
   const form = new FormData()
   form.append('model', OPENAI_IMAGE_MODEL)
-  form.append('image', base64ToBlob(image, mime), 'reference.png')
+  form.append('image', base64ToBlob(image, mime), 'figure.png')
   form.append('prompt', REDRAW_PROMPT)
   form.append('size', 'auto')
   form.append('quality', quality)
-
-  const budget = remainingMs(deadline, IMAGE_TIMEOUT_MS)
-  if (budget <= 0) throw deadlineExceeded()
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), budget)
   try {
@@ -220,8 +309,7 @@ async function callOpenAIRedraw(
       return callOpenAIRedraw(image, mime, deadline, quality, attempt + 1)
     }
     if (!res.ok) {
-      const detail = (await res.text()).slice(0, 300)
-      throw new Error(`OpenAI ${res.status}: ${detail}`)
+      throw new Error(`OpenAI ${res.status}: ${(await res.text()).slice(0, 300)}`)
     }
     const out = (await res.json()) as { data?: { b64_json?: string }[] }
     const b64 = out.data?.[0]?.b64_json
@@ -232,83 +320,61 @@ async function callOpenAIRedraw(
   }
 }
 
-function usage(raw: Record<string, unknown>) {
-  const u = raw.usageMetadata as
-    | { promptTokenCount?: number; candidatesTokenCount?: number }
-    | undefined
-  return {
-    promptTokens: u?.promptTokenCount ?? null,
-    outputTokens: u?.candidatesTokenCount ?? null,
-  }
-}
-
-interface OpLogEntry {
+interface LogEntry {
   op: string
   model: string
   promptTokens: number | null
   outputTokens: number | null
+  cachedTokens?: number | null
   ms: number
   cost: number
   cached: boolean
 }
 
-// The log line must never fail the operator's op — warn and continue.
 async function logOp(
   db: SupabaseClient,
   userId: string | null,
-  entry: OpLogEntry,
+  entry: LogEntry,
 ): Promise<void> {
   const { error } = await db.from('ops_log').insert({
     op: entry.op,
     model: entry.model,
     prompt_tokens: entry.promptTokens,
     output_tokens: entry.outputTokens,
+    cached_tokens: entry.cachedTokens ?? null,
     ms: entry.ms,
     est_cost_usd: entry.cost,
     cached: entry.cached,
     created_by: userId,
   })
-  if (error) {
-    console.log(
-      JSON.stringify({ warn: 'ops_log insert failed', detail: error.message }),
-    )
-  }
-  addToSpendCache(entry.cost)
-  console.log(JSON.stringify(entry))
+  if (error) console.warn('ops_log insert failed', error.message)
 }
 
-// Warm-isolate cache: refresh from the DB at most every 30s and track the
-// isolate's own spend in between — the guard stays accurate within cents
-// without a per-op roundtrip.
-let spendCache: { value: number; at: number } | null = null
+let spendCache = { at: 0, value: 0 }
 
-// The sum is computed in SQL: selecting the day's rows and adding them up here
-// silently under-reported past PostgREST's 1000-row page, which quietly
-// disabled the cap on exactly the busy days it exists for.
 async function todaysSpend(db: SupabaseClient): Promise<number> {
-  if (spendCache && Date.now() - spendCache.at < 30_000) return spendCache.value
+  if (Date.now() - spendCache.at < 30_000) return spendCache.value
   const { data, error } = await db.rpc('ops_spend_today')
-  if (error) throw new Error('büdcə yoxlaması alınmadı')
-  const value = Number(data ?? 0)
-  spendCache = { value, at: Date.now() }
-  return value
+  if (error) throw new Error(`spend oxunmadı: ${error.message}`)
+  spendCache = { at: Date.now(), value: Number(data ?? 0) }
+  return spendCache.value
 }
 
 function addToSpendCache(cost: number): void {
-  if (spendCache) spendCache.value += cost
+  spendCache = { at: spendCache.at, value: spendCache.value + cost }
 }
 
-// Called immediately before a model call, never before a cache lookup.
+/** Called immediately before a model call, never before a cache lookup. */
 async function budgetRefusal(db: SupabaseClient): Promise<Response | null> {
-  const spend = await todaysSpend(db)
-  if (spend < DAILY_BUDGET_USD) return null
+  const spent = await todaysSpend(db)
+  if (spent < DAILY_BUDGET_USD) return null
   return json(429, {
     kind: 'budget',
     error: `günlük model büdcəsi dolub ($${DAILY_BUDGET_USD}) — sabah davam edin və ya DAILY_BUDGET_USD secret-ini artırın`,
   })
 }
 
-interface CacheRow {
+interface CacheHit {
   response: Record<string, unknown> | null
   image_path: string | null
   model: string | null
@@ -317,13 +383,13 @@ interface CacheRow {
 async function cacheGet(
   db: SupabaseClient,
   key: string,
-): Promise<CacheRow | null> {
+): Promise<CacheHit | null> {
   const { data } = await db
     .from('ops_cache')
     .select('response, image_path, model')
     .eq('key', key)
     .maybeSingle()
-  return (data as CacheRow | null) ?? null
+  return (data as CacheHit | null) ?? null
 }
 
 async function cachePut(
@@ -342,14 +408,10 @@ async function cachePut(
     response: fields.response ?? null,
     image_path: fields.image_path ?? null,
     model: fields.model ?? null,
-    // Stamped so a stale generation can be swept later; the key already
-    // includes the version, so old rows are unreachable, not wrong.
     prompt_version: PROMPT_VERSION,
   })
-  if (error) {
-    console.log(
-      JSON.stringify({ warn: 'ops_cache insert failed', detail: error.message }),
-    )
+  if (error && !error.message.includes('duplicate')) {
+    console.warn('ops_cache insert failed', error.message)
   }
 }
 
@@ -360,14 +422,11 @@ Deno.serve(async (req) => {
   const started = Date.now()
   const deadline = started + REQUEST_BUDGET_MS
 
-  // Caller-scoped: it answers who is asking and nothing else.
   const caller = createClient(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_ANON_KEY')!,
     { global: { headers: { Authorization: req.headers.get('Authorization')! } } },
   )
-  // Service-scoped: the ledger, the cache and the cached images are written
-  // here so a browser session cannot forge a spend row or a cache hit.
   const db = createClient(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
@@ -390,172 +449,45 @@ Deno.serve(async (req) => {
   const op = String(body.op ?? '')
 
   try {
+    // One question, re-read on demand. The SAME request the worker submits in
+    // bulk — same prompt, same tool, same schema — so an operator re-running a
+    // row from the review screen gets the batch lane's answer, not a second
+    // implementation's.
     if (op === 'extract') {
       const bad = badImage(body)
       if (bad) return json(400, { error: bad })
-      const figureMode = body.figureMode
-      if (figureMode !== 'dsl' && figureMode !== 'plain' && figureMode !== 'raster') {
-        return json(400, { error: 'figureMode yanlışdır' })
-      }
-      const input = {
+
+      const request = buildAnthropicExtract({
         image: body.image as string,
         mime: body.mime as 'image/png' | 'image/jpeg',
+        hasFigure: body.hasFigure === true,
         textLayerHint:
           typeof body.textLayerHint === 'string' ? body.textLayerHint : undefined,
-        testNo: Number.isFinite(Number(body.testNo)) ? Number(body.testNo) : undefined,
-        expectedNumber: Number.isFinite(Number(body.expectedNumber))
-          ? Number(body.expectedNumber)
-          : undefined,
-        figureMode: figureMode as FigureMode,
-        repairNotes:
-          typeof body.repairNotes === 'string' ? body.repairNotes : undefined,
-        modelSwap: body.modelSwap === true,
-      }
-      // Build once and resolve the model from the built request: modelSwap
-      // flips the model class, and the key must name the model that actually
-      // ran — otherwise changing a *_MODEL secret replays the old model's
-      // output from cache forever.
-      const request = buildExtract(input)
-      const model = GEMINI_MODELS[request.modelKey]
-      const key = await sha256Hex(
-        JSON.stringify({ v: PROMPT_VERSION, m: model, op, ...input }),
-      )
-      const hit = await cacheGet(db, key)
-      if (hit?.response) {
-        const ms = Date.now() - started
-        await logOp(db, userId, {
-          op,
-          model: hit.model ?? 'cache',
-          promptTokens: null,
-          outputTokens: null,
-          ms,
-          cost: 0,
-          cached: true,
-        })
-        return json(200, { ...hit.response, ms, cached: true })
-      }
-      const refusal = await budgetRefusal(db)
-      if (refusal) return refusal
-      const { parsed, raw } = await callGemini(request, deadline)
-      const ms = Date.now() - started
-      const u = usage(raw)
-      const cost = estGeminiCost(model, u.promptTokens, u.outputTokens)
-      await cachePut(db, key, op, {
-        response: { wire: parsed, model },
-        model,
+        testNo: typeof body.testNo === 'number' ? body.testNo : undefined,
+        expectedNumber:
+          typeof body.expectedNumber === 'number' ? body.expectedNumber : undefined,
+        categories: Array.isArray(body.categories)
+          ? (body.categories as { id: number; name: string; parentId: number | null }[])
+          : [],
       })
-      await logOp(db, userId, { op, model, ...u, ms, cost, cached: false })
-      return json(200, { wire: parsed, model, ms })
-    }
-
-    if (op === 'redraw_figure') {
-      const bad = badImage(body)
-      if (bad) return json(400, { error: bad })
-      // The client retries a redraw whose render did not match the original.
-      // Without this counter in the key the cache would hand back the exact
-      // image that just failed the comparison, so the retry could never differ.
-      const attempt = body.attempt === undefined ? 0 : Number(body.attempt)
-      if (!Number.isInteger(attempt) || attempt < 0 || attempt > 3) {
-        return json(400, { error: 'attempt yanlışdır' })
-      }
-      // Quality is priced differently, so it is part of the cache key: a
-      // medium image must never be served for a high-quality request.
-      const quality = body.quality === 'medium' ? 'medium' : 'high'
-      const key = await sha256Hex(
-        JSON.stringify({
-          v: PROMPT_VERSION,
-          m: OPENAI_IMAGE_MODEL,
-          op,
-          image: body.image,
-          mime: body.mime,
-          quality,
-          attempt,
-        }),
-      )
-      const hit = await cacheGet(db, key)
-      if (hit?.image_path) {
-        const { data: blob } = await db.storage
-          .from('question-crops')
-          .download(hit.image_path)
-        if (blob) {
-          const buf = new Uint8Array(await blob.arrayBuffer())
-          let bin = ''
-          for (const b of buf) bin += String.fromCharCode(b)
-          const ms = Date.now() - started
-          await logOp(db, userId, {
-            op,
-            model: hit.model ?? 'cache',
-            promptTokens: null,
-            outputTokens: null,
-            ms,
-            cost: 0,
-            cached: true,
-          })
-          return json(200, {
-            image: btoa(bin),
-            mime: 'image/png',
-            model: hit.model ?? 'cache',
-            ms,
-            cached: true,
-          })
-        }
-        // cache row without its object (cleaned up?): fall through and re-run
-      }
-      const refusal = await budgetRefusal(db)
-      if (refusal) return refusal
-      const out = await callOpenAIRedraw(
-        body.image as string,
-        body.mime as string,
-        deadline,
-        quality,
-      )
-      const ms = Date.now() - started
-      const path = `cache/${key}.png`
-      const { error: uploadError } = await db.storage
-        .from('question-crops')
-        .upload(path, base64ToBlob(out.image, out.mime), {
-          upsert: true,
-          contentType: out.mime,
-        })
-      if (!uploadError) {
-        await cachePut(db, key, op, { image_path: path, model: out.model })
-      }
-      await logOp(db, userId, {
-        op,
-        model: out.model,
-        promptTokens: null,
-        outputTokens: null,
-        ms,
-        cost: quality === 'medium' ? RATE.imageMedium : RATE.imageFlat,
-        cached: false,
-      })
-      return json(200, { ...out, ms })
-    }
-
-    if (op === 'compare_figures') {
-      const original = body.original as ImagePayload | undefined
-      const candidate = body.candidate as ImagePayload | undefined
-      const bad = (original && badImage(original)) || (candidate && badImage(candidate))
-      if (!original || !candidate || bad) {
-        return json(400, { error: bad || 'iki şəkil tələb olunur' })
-      }
-      // Cached like every other model op: the compare runs once per redraw
-      // attempt, so without it a re-run of a figure question was never the
-      // "nearly free" replay the rest of the pipeline promises.
-      const request = buildCompareFigures(
-        { image: original.image as string, mime: original.mime as string },
-        { image: candidate.image as string, mime: candidate.mime as string },
-      )
-      const model = GEMINI_MODELS[request.modelKey]
+      const model = MODELS[request.lane]
       const key = await sha256Hex(
         JSON.stringify({
           v: PROMPT_VERSION,
           m: model,
           op,
-          original: original.image,
-          candidate: candidate.image,
+          image: body.image,
+          mime: body.mime,
+          hasFigure: body.hasFigure === true,
+          hint: body.textLayerHint ?? null,
+          testNo: body.testNo ?? null,
+          expectedNumber: body.expectedNumber ?? null,
+          categoryIds: Array.isArray(body.categories)
+            ? (body.categories as { id: number }[]).map((c) => c.id)
+            : [],
         }),
       )
+
       const hit = await cacheGet(db, key)
       if (hit?.response) {
         const ms = Date.now() - started
@@ -570,27 +502,45 @@ Deno.serve(async (req) => {
         })
         return json(200, { ...hit.response, ms, cached: true })
       }
+
       const refusal = await budgetRefusal(db)
       if (refusal) return refusal
-      const { parsed, raw } = await callGemini(request, deadline)
+
+      const answer = await callAnthropic(model, request.params, deadline)
+      if (!answer.tool) {
+        throw new Error(
+          `model ${EMIT_QUESTION_TOOL_NAME} çağırmadı — cavab: ${answer.text.slice(0, 200)}`,
+        )
+      }
       const ms = Date.now() - started
-      const u = usage(raw)
-      const responseBody = { ...(parsed as Record<string, unknown>), model }
+      const usage = usageFrom(answer.usage)
+      const cost = estimateCost(model, usage)
+      const responseBody = { wire: answer.tool, model }
       await cachePut(db, key, op, { response: responseBody, model })
       await logOp(db, userId, {
         op,
         model,
-        ...u,
+        promptTokens: promptTokens(usage),
+        outputTokens: usage.output,
+        cachedTokens: usage.cacheRead,
         ms,
-        cost: estGeminiCost(model, u.promptTokens, u.outputTokens),
+        cost,
         cached: false,
       })
+      addToSpendCache(cost)
       return json(200, { ...responseBody, ms })
     }
 
-    if (op === 'suggest_category' || op === 'parse_answer_key') {
+    // The three reading ops. Same cache/budget/ledger contract, one shared
+    // body because they differ only in what they are handed.
+    if (
+      op === 'suggest_category' ||
+      op === 'parse_answer_key' ||
+      op === 'detect_questions'
+    ) {
       let request: GeminiRequest
       let cachePayload: Record<string, unknown>
+
       if (op === 'suggest_category') {
         if (typeof body.stem !== 'string' || !Array.isArray(body.categories)) {
           return json(400, { error: 'stem/categories tələb olunur' })
@@ -612,17 +562,15 @@ Deno.serve(async (req) => {
       } else {
         const bad = badImage(body)
         if (bad) return json(400, { error: bad })
-        request = buildParseAnswerKey({
-          image: body.image as string,
-          mime: body.mime as string,
-        })
-        cachePayload = { image: body.image, mime: body.mime }
+        const input = { image: body.image as string, mime: body.mime as string }
+        request =
+          op === 'parse_answer_key'
+            ? buildParseAnswerKey(input)
+            : buildDetectQuestions(input)
+        cachePayload = input
       }
 
-      // The resolved model belongs in the key: a changed *_MODEL secret must
-      // start a new cache generation instead of replaying the old model's
-      // answers.
-      const model = GEMINI_MODELS[request.modelKey]
+      const model = MODELS.utility
       const key = await sha256Hex(
         JSON.stringify({ v: PROMPT_VERSION, m: model, op, ...cachePayload }),
       )
@@ -642,25 +590,114 @@ Deno.serve(async (req) => {
       }
       const refusal = await budgetRefusal(db)
       if (refusal) return refusal
-      const { parsed, raw } = await callGemini(request, deadline)
+
+      const answer = await callAnthropic(
+        model,
+        geminiToAnthropic(request),
+        deadline,
+      )
+      const parsed = parseJsonAnswer(answer.text) as Record<string, unknown>
       const ms = Date.now() - started
-      const u = usage(raw)
-      const responseBody = { ...(parsed as Record<string, unknown>), model }
+      const usage = usageFrom(answer.usage)
+      const cost = estimateCost(model, usage)
+      const responseBody = { ...parsed, model }
       await cachePut(db, key, op, { response: responseBody, model })
       await logOp(db, userId, {
         op,
         model,
-        ...u,
+        promptTokens: promptTokens(usage),
+        outputTokens: usage.output,
+        cachedTokens: usage.cacheRead,
         ms,
-        cost: estGeminiCost(model, u.promptTokens, u.outputTokens),
+        cost,
         cached: false,
       })
+      addToSpendCache(cost)
       return json(200, { ...responseBody, ms })
     }
 
+    // Operator-triggered only. See callOpenAIRedraw.
+    if (op === 'redraw_figure') {
+      const bad = badImage(body)
+      if (bad) return json(400, { error: bad })
+      const quality = body.quality === 'medium' ? 'medium' : 'high'
+      const attempt = Number(body.attempt ?? 0)
+      // `attempt` and `quality` are in the key so a retry cannot be served the
+      // image that just failed, and a medium request cannot be served a high one.
+      const key = await sha256Hex(
+        JSON.stringify({
+          v: PROMPT_VERSION,
+          m: OPENAI_IMAGE_MODEL,
+          op,
+          image: body.image,
+          mime: body.mime,
+          attempt,
+          quality,
+        }),
+      )
+      const hit = await cacheGet(db, key)
+      if (hit?.image_path) {
+        const { data: blob } = await db.storage
+          .from('question-crops')
+          .download(hit.image_path)
+        if (blob) {
+          const bytes = new Uint8Array(await blob.arrayBuffer())
+          let binary = ''
+          for (const b of bytes) binary += String.fromCharCode(b)
+          const ms = Date.now() - started
+          await logOp(db, userId, {
+            op,
+            model: hit.model ?? 'cache',
+            promptTokens: null,
+            outputTokens: null,
+            ms,
+            cost: 0,
+            cached: true,
+          })
+          return json(200, {
+            image: btoa(binary),
+            mime: 'image/png',
+            model: hit.model ?? 'cache',
+            ms,
+            cached: true,
+          })
+        }
+        // Row without its object: fall through and pay rather than serve nothing.
+      }
+      const refusal = await budgetRefusal(db)
+      if (refusal) return refusal
+      const out = await callOpenAIRedraw(
+        body.image as string,
+        body.mime as string,
+        deadline,
+        quality,
+      )
+      const path = `cache/${key}.png`
+      await db.storage
+        .from('question-crops')
+        .upload(path, base64ToBlob(out.image, out.mime), {
+          upsert: true,
+          contentType: out.mime,
+        })
+      await cachePut(db, key, op, { image_path: path, model: out.model })
+      const ms = Date.now() - started
+      const cost = quality === 'medium' ? IMAGE_RATE.medium : IMAGE_RATE.high
+      await logOp(db, userId, {
+        op,
+        model: out.model,
+        promptTokens: null,
+        outputTokens: null,
+        ms,
+        cost,
+        cached: false,
+      })
+      addToSpendCache(cost)
+      return json(200, { ...out, ms })
+    }
+
     // Free, and the only way the browser can know the cap: DAILY_BUDGET_USD is
-    // a function secret, so a copy in a VITE_ variable would be a second
-    // number that silently disagrees with the one actually enforced.
+    // a function secret, so a copy in a VITE_ variable would be a second number
+    // that silently disagrees with the one actually enforced.
     if (op === 'budget_status') {
       const spent = await todaysSpend(db)
       return json(200, {
@@ -670,158 +707,16 @@ Deno.serve(async (req) => {
       })
     }
 
-    if (op === 'option_boxes') {
-      const bad = badImage(body)
-      if (bad) return json(400, { error: bad })
-      const request = buildOptionBoxes({
-        image: body.image as string,
-        mime: body.mime as string,
-      })
-      const model = GEMINI_MODELS[request.modelKey]
-      const key = await sha256Hex(
-        JSON.stringify({ v: PROMPT_VERSION, m: model, op, image: body.image, mime: body.mime }),
-      )
-      const hit = await cacheGet(db, key)
-      if (hit?.response) {
-        const ms = Date.now() - started
-        await logOp(db, userId, { op, model: hit.model ?? 'cache', promptTokens: null, outputTokens: null, ms, cost: 0, cached: true })
-        return json(200, { ...hit.response, ms, cached: true })
-      }
-      const refusal = await budgetRefusal(db)
-      if (refusal) return refusal
-      const { parsed, raw } = await callGemini(request, deadline)
-      const out = parsed as Record<string, unknown>
-      // Same rule as the page detector: a box with any non-finite number is
-      // dropped whole rather than forwarded as NaN and failing further in.
-      const boxes = (Array.isArray(out.options) ? (out.options as Record<string, unknown>[]) : [])
-        .map((o) => {
-          const rawBox = Array.isArray(o.box) ? (o.box as unknown[]) : []
-          if (rawBox.length < 4) return null
-          const box = rawBox.slice(0, 4).map(Number)
-          const label = String(o.label ?? '')
-          if (!'ABCDE'.includes(label) || label.length !== 1) return null
-          if (box.some((n) => !Number.isFinite(n))) return null
-          return { label, box }
-        })
-        .filter((b) => b !== null)
-      const responseBody = { options: boxes }
-      const ms = Date.now() - started
-      await cachePut(db, key, op, { response: responseBody, model })
-      const u = usage(raw)
-      await logOp(db, userId, {
-        op, model,
-        promptTokens: u.promptTokens,
-        outputTokens: u.outputTokens,
-        ms,
-        cost: estGeminiCost(model, u.promptTokens, u.outputTokens),
-        cached: false,
-      })
-      return json(200, { ...responseBody, ms })
-    }
-
-    if (op === 'detect_questions') {
-      const bad = badImage(body)
-      if (bad) return json(400, { error: bad })
-      const request = buildDetectQuestions({
-        image: body.image as string,
-        mime: body.mime as string,
-      })
-      const model = GEMINI_MODELS[request.modelKey]
-      const key = await sha256Hex(
-        JSON.stringify({
-          v: PROMPT_VERSION,
-          m: model,
-          op,
-          image: body.image,
-          mime: body.mime,
-        }),
-      )
-      // Segmentation is re-run whenever an operator reopens a book, so the
-      // cache is what keeps a second pass over the same pages free.
-      const hit = await cacheGet(db, key)
-      if (hit?.response) {
-        const ms = Date.now() - started
-        await logOp(db, userId, {
-          op,
-          model: hit.model ?? 'cache',
-          promptTokens: null,
-          outputTokens: null,
-          ms,
-          cost: 0,
-          cached: true,
-        })
-        return json(200, { ...hit.response, ms, cached: true })
-      }
-      const refusal = await budgetRefusal(db)
-      if (refusal) return refusal
-      const { parsed, raw } = await callGemini(request, deadline)
-      const out = parsed as Record<string, unknown>
-
-      // Symmetric sanitization: an anchor with ANY non-finite numeric field is
-      // dropped whole, never forwarded as NaN/null to break the client schema.
-      // Per-anchor column is not forwarded at all — the client reassigns
-      // columns from box geometry anyway.
-      const rawQuestions = Array.isArray(out.questions)
-        ? (out.questions as Record<string, unknown>[])
-        : []
-      const anchors = rawQuestions
-        .map((q) => {
-          const rawBox = Array.isArray(q.box) ? (q.box as unknown[]) : []
-          if (rawBox.length < 4) return null
-          const box = rawBox.slice(0, 4).map(Number)
-          const number = Number(q.number)
-          if (!Number.isFinite(number) || box.some((n) => !Number.isFinite(n))) {
-            return null
-          }
-          return { number, box }
-        })
-        .filter((a) => a !== null)
-      const rawTestNo = Number(out.test_no)
-      const rawColumns = Number(out.columns)
-      const responseBody = {
-        // The page has one or two columns; anything else is a misread, and the
-        // segmenter would flatten it to the same range anyway.
-        columns: Number.isFinite(rawColumns)
-          ? Math.min(2, Math.max(1, Math.round(rawColumns)))
-          : 1,
-        testNo:
-          out.test_no != null && Number.isFinite(rawTestNo) ? rawTestNo : undefined,
-        anchors,
-      }
-
-      const ms = Date.now() - started
-      const u = usage(raw)
-      await cachePut(db, key, op, { response: responseBody, model })
-      await logOp(db, userId, {
-        op,
-        model,
-        ...u,
-        ms,
-        cost: estGeminiCost(model, u.promptTokens, u.outputTokens),
-        cached: false,
-      })
-      return json(200, { ...responseBody, ms })
-    }
-
     return json(400, { error: 'naməlum op' })
   } catch (error) {
-    const ms = Date.now() - started
-    const message = error instanceof Error ? error.message : 'naməlum xəta'
-    const isTimeout = error instanceof DOMException && error.name === 'AbortError'
-    console.log(JSON.stringify({ op, error: message.slice(0, 200), ms }))
-    // A provider rate limit survived the in-function retry: tell the client
-    // what it is, so it can pace itself instead of burning the queue on
-    // errors it could have waited out.
-    if (/\b429\b|rate limit|quota/i.test(message)) {
-      return json(429, {
-        kind: 'rate_limit',
-        error: 'model sorğu limitinə çatdı — bir az yavaşlayırıq',
-        detail: message.slice(0, 300),
-      })
+    const message = error instanceof Error ? error.message : String(error)
+    if (/\b429\b|rate limit|quota|overloaded/i.test(message)) {
+      return json(429, { kind: 'rate_limit', error: 'model həddi aşıldı', detail: message })
     }
-    return json(502, {
-      error: isTimeout ? 'model cavabı vaxt aşımına uğradı' : 'model çağırışı alınmadı',
-      detail: message.slice(0, 300),
-    })
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      return json(502, { error: 'model cavabı vaxt aşımına uğradı' })
+    }
+    console.error('question-ops failed', message)
+    return json(502, { error: 'model çağırışı alınmadı', detail: message })
   }
 })

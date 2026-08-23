@@ -4,14 +4,17 @@ import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
 import { normalizeError } from '@/lib/errors'
 import { questionKeys } from '@/features/questions/api/keys'
-import {
-  questionRowSchema,
-  type QuestionRow,
-} from '@/features/questions/schemas'
 
+// Claiming, renewing, releasing and finishing all left with the browser
+// worker. They are the worker's RPCs now — the *_worker variants, matched on a
+// worker id — and a second implementation reachable from a tab would be a
+// second thing that can take a lease. What the browser still owns is putting
+// work IN: enqueue and clear.
 export const throughputSchema = z.object({
   queued: z.number(),
   running: z.number(),
+  /** Submitted to the provider and waiting. A subset of `running`. */
+  in_batch: z.number(),
   structured_hour: z.number(),
   structured_today: z.number(),
   failed_today: z.number(),
@@ -46,62 +49,6 @@ export async function clearQueue(): Promise<{ cleared: number; held: number }> {
   const { data, error } = await supabase.rpc('clear_queue')
   if (error) throw error
   return clearQueueSchema.parse(data)
-}
-
-/**
- * Take the next batch. Two workers calling this concurrently get disjoint
- * rows (`for update skip locked` in the RPC), so a second tab adds throughput
- * instead of duplicating spend.
- */
-export async function claimQuestions(
-  limit: number,
-  bookId?: number,
-): Promise<QuestionRow[]> {
-  const { data, error } = await supabase.rpc('claim_questions', {
-    p_limit: limit,
-    ...(bookId ? { p_book_id: bookId } : {}),
-  })
-  if (error) throw error
-  return z.array(questionRowSchema).parse(data ?? [])
-}
-
-/** Releases the lease and takes the rows out of the queue — work finished. */
-export async function finishQuestions(ids: number[]): Promise<void> {
-  if (!ids.length) return
-  const { error } = await supabase
-    .from('questions')
-    .update({ queued_at: null, claimed_at: null })
-    .in('id', ids)
-  if (error) throw error
-}
-
-/**
- * Hands rows back so another worker can take them immediately instead of
- * waiting out the lease. The attempt is given back too: stopping the worker is
- * not a failed attempt, and counting it as one used to retire rows that had
- * never actually been processed after three stop/starts.
- */
-export async function releaseQuestions(ids: number[]): Promise<void> {
-  if (!ids.length) return
-  const { error } = await supabase.rpc('release_questions', { p_ids: ids })
-  if (error) throw error
-}
-
-/**
- * Keeps the batch in flight. The lease is sized for a normal batch, but a
- * figure-heavy one — or one waiting out a provider's rate limit — can outrun
- * it, and a reclaimed row is a row two workers pay for.
- */
-export async function renewClaims(ids: number[]): Promise<void> {
-  if (!ids.length) return
-  const { error } = await supabase.rpc('renew_claims', { p_ids: ids })
-  if (error) throw error
-}
-
-export async function nextQueuedBook(): Promise<number | null> {
-  const { data, error } = await supabase.rpc('next_queued_book')
-  if (error) throw error
-  return typeof data === 'number' ? data : null
 }
 
 export function useThroughput(enabled = true) {

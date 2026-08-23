@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/dialog'
 import { QuestionPreview } from '@/components/question/question-preview'
 import { worstLevel } from '@/core/questions/lint'
-import type { StructuringItem } from '@/features/questions/hooks/use-structuring-run'
+import type { StructuringItem } from '@/features/questions/hooks/use-restructure'
 
 // A3's minimal quality-check surface: original crop vs recreation, one
 // question at a time. The full review workbench (approve/edit/queues)
@@ -126,12 +126,6 @@ export function RecreationCheckDialog({
               </Badge>
             ))}
           </div>
-        ) : null}
-        {item.verifyDiffs.length > 0 ? (
-          <p className="text-muted-foreground text-xs">
-            İkinci oxunuş fərqləri:{' '}
-            {item.verifyDiffs.map((d) => d.field).join(', ')}
-          </p>
         ) : null}
 
         <div className="flex items-center justify-between gap-2">

@@ -10,9 +10,7 @@ import {
   type Lane,
 } from '@/features/questions/lib/rate-gate'
 import {
-  compareResponseSchema,
   extractResponseSchema,
-  optionBoxesResponseSchema,
   parseAnswerKeyResponseSchema,
   redrawResponseSchema,
   suggestCategoryResponseSchema,
@@ -86,15 +84,25 @@ export interface OpImage {
   mime: 'image/png' | 'image/jpeg'
 }
 
+/**
+ * ONE structured call: the crop goes once and the forced tool returns stem,
+ * options, figure spec and category together.
+ *
+ * The same request the worker submits in bulk, so a row re-run from the review
+ * screen is read exactly as the batch would have read it. The repair round and
+ * the hint-free second read are gone with the browser pipeline they belonged
+ * to — verification is the worker's second wave now.
+ */
 export function opExtract(input: {
   image: string
   mime: string
-  figureMode: 'dsl' | 'plain' | 'raster'
+  /** The segmenter's verdict. Chooses the model tier and nothing else. */
+  hasFigure: boolean
   textLayerHint?: string
   testNo?: number
   expectedNumber?: number
-  repairNotes?: string
-  modelSwap?: boolean
+  /** The book's tree, so the model files the question as it reads it. */
+  categories?: { id: number; name: string; parentId: number | null }[]
 }) {
   return invokeOp({ op: 'extract', ...input }, (d) =>
     extractResponseSchema.parse(d),
@@ -102,28 +110,17 @@ export function opExtract(input: {
 }
 
 /**
- * `attempt` is part of the server's cache key: a retry after a failed
- * render-compare must not be served the same image that just mismatched.
+ * The manual image fallback, for a figure the vector DSL cannot express.
+ *
+ * NOT part of any automated path: nothing calls it today. It exists so the
+ * review screen can offer it when that button is built. `attempt` is part of
+ * the server's cache key so a retry is never served the image that just failed.
  */
 export function opRedrawFigure(
   input: OpImage & { attempt?: number; quality?: 'medium' | 'high' },
 ) {
   return invokeOp({ op: 'redraw_figure', ...input }, (d) =>
     redrawResponseSchema.parse(d),
-  )
-}
-
-/** Where the picture options sit. Asked separately because asked in passing
- *  during extraction it comes back empty every time. */
-export function opOptionBoxes(input: OpImage) {
-  return invokeOp({ op: 'option_boxes', ...input }, (d) =>
-    optionBoxesResponseSchema.parse(d),
-  )
-}
-
-export function opCompareFigures(original: OpImage, candidate: OpImage) {
-  return invokeOp({ op: 'compare_figures', original, candidate }, (d) =>
-    compareResponseSchema.parse(d),
   )
 }
 

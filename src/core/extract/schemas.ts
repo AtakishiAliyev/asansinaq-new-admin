@@ -316,33 +316,3 @@ export const parseAnswerKeySchema = {
   },
   required: ['entries'],
 }
-
-// Where the five picture options sit inside a crop.
-//
-// The extraction call already has a `box` field per option, and the model
-// reliably ignores it: on an IQ page it marked all five options as pictures
-// and gave a box for none. Boxes are a different kind of task from reading —
-// `detect_questions` does exactly this on a full page and never misses — so
-// this asks for them on their own, with nothing else to attend to and every
-// field required.
-export const optionBoxesSchema = {
-  type: 'object',
-  properties: {
-    options: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          label: { type: 'string', enum: ['A', 'B', 'C', 'D', 'E'] },
-          box: {
-            type: 'array',
-            items: { type: 'number' },
-            description: '[ymin,xmin,ymax,xmax] 0-1000 normalized, the drawing only — not the letter',
-          },
-        },
-        required: ['label', 'box'],
-      },
-    },
-  },
-  required: ['options'],
-} as const

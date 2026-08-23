@@ -6,7 +6,7 @@
 // separate events, which is why nothing in this file holds state between them.
 import Anthropic from '@anthropic-ai/sdk'
 import { config } from './config.ts'
-import { samplingFor } from './sampling.ts'
+import { samplingFor } from '@/core/models'
 
 export const anthropic = new Anthropic({ apiKey: config.ANTHROPIC_API_KEY })
 

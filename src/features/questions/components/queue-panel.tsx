@@ -1,20 +1,10 @@
-import { useEffect, useState } from 'react'
-import {
-  CircleAlert,
-  ListEnd,
-  Play,
-  Settings2,
-  Square,
-  Trash2,
-} from 'lucide-react'
+import { useState } from 'react'
+import { ListEnd, Settings2, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Progress } from '@/components/ui/progress'
 import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
 import { useClearQueue, useThroughput } from '@/features/questions/api/queue'
 import { PipelineSettingsDialog } from '@/features/questions/components/pipeline-settings-dialog'
-import { useQueueWorker } from '@/features/questions/hooks/use-queue-worker'
-import { gateStatus } from '@/features/questions/lib/rate-gate'
 
 function Stat({
   label,
@@ -50,48 +40,39 @@ function formatEta(hours: number): string {
   return `~${(hours / 24).toFixed(1)} gün`
 }
 
-// The operator's control room for a job measured in days, not seconds: what
-// is left, how fast it is going, what it costs, and one switch to run it.
+// What the queue is doing, read from the database rather than from this tab.
+//
+// There is no start button any more. Draining the queue is `worker/`'s job —
+// a separate process, usually on another machine — so this page is a window
+// onto shared state, not a control surface for a run it owns. Every number
+// here is what a second operator would see at the same moment, which is the
+// point: the browser used to be the worker, and a panel that reported its own
+// tab's progress said nothing about the work anyone else was doing.
 export function QueuePanel() {
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const worker = useQueueWorker()
-  const isRunning = worker.status === 'running'
-  const stats = useThroughput(isRunning)
+  const stats = useThroughput()
   const clear = useClearQueue()
   const queued = stats.data?.queued ?? 0
-  const batch = worker.batch
+  const running = stats.data?.running ?? 0
+  const inBatch = stats.data?.in_batch ?? 0
 
   // What the operator actually needs from a job measured in days: when it ends.
   // Derived from the last hour's real throughput, so it already accounts for
-  // cache hits, retries and whatever pace the providers are allowing.
+  // cache hits, retries and whatever pace the provider is allowing.
   const perHour = stats.data?.structured_hour ?? 0
   const eta = queued && perHour ? formatEta(queued / perHour) : null
-
-  // How many model calls are actually in flight. The queue counts questions,
-  // which is not the same thing — one question is several calls — and without
-  // this there is no way to tell a working fleet from a stalled one.
-  const [gate, setGate] = useState(gateStatus)
-  useEffect(() => {
-    if (!isRunning) return
-    const id = setInterval(() => setGate(gateStatus()), 1000)
-    return () => clearInterval(id)
-  }, [isRunning])
 
   return (
     <div className="bg-card flex flex-col gap-3 rounded-xl border p-4">
       <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
-        <Stat
-          label="növbədə"
-          value={queued}
-          tone={queued ? undefined : 'muted'}
-        />
+        <Stat label="növbədə" value={queued} tone={queued ? undefined : 'muted'} />
         <Stat label="son saat" value={stats.data?.structured_hour ?? '—'} />
         <Stat
           label="qalan vaxt"
           value={eta ?? '—'}
           tone={eta ? undefined : 'muted'}
         />
-        <Stat label="işləyir" value={stats.data?.running ?? '—'} tone="muted" />
+        <Stat label="işləyir" value={running || '—'} tone="muted" />
         <Stat label="bu gün" value={stats.data?.structured_today ?? '—'} />
         <Stat
           label="avtomatik təsdiq"
@@ -109,24 +90,14 @@ export function QueuePanel() {
         />
 
         <div className="ml-auto flex items-center gap-2">
-          {isRunning ? (
-            <Button size="sm" variant="outline" onClick={worker.stop}>
-              <Square data-icon="inline-start" />
-              Dayandır
-            </Button>
-          ) : (
-            <Button size="sm" disabled={!queued} onClick={() => void worker.start()}>
-              <Play data-icon="inline-start" />
-              Növbəni işlət
-            </Button>
-          )}
-          {queued && !isRunning ? (
+          {queued && !running ? (
             <Button
               size="sm"
               variant="ghost"
               className="text-muted-foreground"
               disabled={clear.isPending}
               onClick={() => clear.mutate()}
+              title="Növbədən çıxarır — worker-in tutduğu sətirlərə toxunmur"
             >
               <Trash2 data-icon="inline-start" />
               Boşalt
@@ -143,36 +114,25 @@ export function QueuePanel() {
         </div>
       </div>
 
-      {isRunning ? (
-        <div className="flex items-center gap-3">
-          <Progress
-            value={(batch.current / Math.max(1, batch.total)) * 100}
-            className="h-1.5 flex-1"
-          />
-          <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
-            <Spinner data-icon="inline-start" className="inline" />
-            paket {batch.current}/{batch.total} · mətn {gate.text.inFlight}/
-            {gate.text.ceiling} · şəkil {gate.image.inFlight}/{gate.image.ceiling}
-            {gate.text.waiting + gate.image.waiting > 0
-              ? ` · ${gate.text.waiting + gate.image.waiting} gözləyir`
-              : ''}
-            {' · '}bu sessiyada {worker.processed}
-            {worker.approved ? ` · ${worker.approved} avto-təsdiq` : ''}
-            {worker.failed ? ` · ${worker.failed} xəta` : ''}
-          </span>
-        </div>
+      {inBatch ? (
+        // Said out loud because it is the one state that looks broken and is
+        // not: a batch answers in minutes or in hours, and nothing moves while
+        // it does.
+        <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
+          <Spinner className="size-3.5" />
+          {inBatch} sual provayderdə emal olunur — toplu sorğu bir neçə dəqiqədən
+          bir neçə saata qədər çəkə bilər, bu müddətdə say dəyişmir.
+        </p>
+      ) : running ? (
+        <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
+          <Spinner className="size-3.5" />
+          {running} sual worker tərəfindən hazırlanır.
+        </p>
       ) : queued ? (
         <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
           <ListEnd className="size-3.5" />
-          {queued} sual gözləyir. Növbə bazada saxlanılır: tab bağlansa da,
-          başqa səhifəyə keçsəniz də iş itmir — buraya qayıdıb davam edirsiniz.
-        </p>
-      ) : null}
-
-      {worker.error ? (
-        <p className="text-destructive flex items-center gap-1.5 text-xs">
-          <CircleAlert className="size-3.5" />
-          {worker.error}
+          {queued} sual gözləyir. Növbə bazadadır — worker işə düşəndə götürəcək;
+          bu tabın açıq qalmasına ehtiyac yoxdur.
         </p>
       ) : null}
 

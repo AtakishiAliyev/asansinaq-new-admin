@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Eye, FileUp, KeyRound, Play, Send, Square } from 'lucide-react'
+import { FileUp, KeyRound, Play, Send, Square } from 'lucide-react'
 import { useBlocker, useNavigate, useSearchParams } from 'react-router'
 import { toast } from 'sonner'
 import {
@@ -47,13 +47,10 @@ import { useSegmentation } from '@/features/import/hooks/use-segmentation'
 import {
   AnswerKeyDialog,
   cropKey,
-  RecreationCheckDialog,
-  resetRateGate,
   useAnswerKeyRun,
   useEnqueue,
   useSaveAnswerKeys,
   useSaveCrops,
-  useStructuringRun,
 } from '@/features/questions'
 import { loadPdf, type PDFDocumentProxy } from '@/features/import/lib/pdf'
 import { usePageTitle } from '@/hooks/use-page-title'
@@ -117,10 +114,10 @@ export function ImportPage() {
   const saveCrops = useSaveCrops()
   const enqueue = useEnqueue()
   const navigate = useNavigate()
-  const structuring = useStructuringRun()
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set())
   const [sendConfirmOpen, setSendConfirmOpen] = useState(false)
-  const [checkOpen, setCheckOpen] = useState(false)
+  /** Crops already written and queued. They stop arming the unsaved-work guard. */
+  const [sentKeys, setSentKeys] = useState<Set<string>>(new Set())
   const answerKeys = useAnswerKeyRun()
   const saveAnswerKeys = useSaveAnswerKeys()
   const [keyDialogOpen, setKeyDialogOpen] = useState(false)
@@ -156,7 +153,6 @@ export function ImportPage() {
     void docRef.current?.loadingTask.destroy().catch(() => {})
     docRef.current = loaded
     segmentation.reset()
-    structuring.reset()
     answerKeys.reset()
     setSelectedKeys(new Set())
     setRangeInput(opts.initialRange ?? '')
@@ -374,20 +370,16 @@ export function ImportPage() {
     )
   }
 
-  const structuringRunning = structuring.status === 'running'
-  const structuredKeys = new Set(structuring.items.map((i) => cropKey(i.crop)))
   // Crops stay in memory until the operator SENDS them — only selected crops
-  // are persisted (as rows + storage objects) right before structuring, so
-  // the bank never fills with drafts nobody asked for.
+  // are persisted (as rows + storage objects) right before queueing, so the
+  // bank never fills with drafts nobody asked for.
   const allCrops = segmentation.results.flatMap((page) => page.crops)
-  // What is actually at risk: crops no structuring run has consumed. Keying the
-  // guard on the run being idle disarmed it the moment the first run finished,
-  // leaving every never-sent crop unprotected.
-  const hasUnsentCrops = allCrops.some((c) => !structuredKeys.has(cropKey(c)))
+  // What is actually at risk: crops that were never sent.
+  const hasUnsentCrops = allCrops.some((c) => !sentKeys.has(cropKey(c)))
   // Crops persist only when SENT — leaving with unsent results discards them
   // (recoverable by re-running the range, but usually accidental).
   const dirty =
-    running || structuringRunning || saveCrops.isPending || hasUnsentCrops
+    running || saveCrops.isPending || hasUnsentCrops
 
   const blocker = useBlocker(dirty)
 
@@ -401,7 +393,7 @@ export function ImportPage() {
   }, [dirty])
 
   function guardReplace(action: () => void) {
-    if (running || structuring.status === 'running') {
+    if (running) {
       setPendingReplace(() => action)
     } else {
       action()
@@ -412,7 +404,7 @@ export function ImportPage() {
     currentBook
       ? allCrops
           .map((c) => cropKey(c))
-          .filter((key) => !structuredKeys.has(key))
+          .filter((key) => !sentKeys.has(key))
       : [],
   )
   const selectedCrops = allCrops.filter(
@@ -436,7 +428,7 @@ export function ImportPage() {
     })
   }
 
-  function startStructuring(mode: 'now' | 'queue' = 'now') {
+  function sendToQueue() {
     setSendConfirmOpen(false)
     const book = currentBook
     if (!book) return
@@ -447,45 +439,37 @@ export function ImportPage() {
       }))
       .filter((page) => page.crops.length > 0)
     setSelectedKeys(new Set())
-    // Persist ONLY what is being sent, then structure exactly those rows.
+    // Persist ONLY what is being sent, then queue exactly those rows.
+    //
+    // There is no "structure in this tab" any more. Draining questions belongs
+    // to the worker: it batches them at half price, is not bounded by an Edge
+    // Function's wall clock, and does not stop when the tab closes. What this
+    // page owes the operator is the crops and a place in the queue.
     saveCrops.mutate(
       { book, results: selectedResults },
       {
         onSuccess: (res) => {
           if (!res.saved.length) return
-          if (mode === 'queue') {
-            void enqueue
-              .mutateAsync(res.saved.map((e) => e.row.id))
-              .then(() =>
-                toast.info('Növbə Suallar səhifəsindən işə salınır', {
-                  action: {
-                    label: 'Suallara keç',
-                    onClick: () => navigate('/questions'),
-                  },
-                }),
-              )
-              .catch(() => undefined)
-            return
-          }
-          // A new job starts with a clean gate; batches inside it keep what
-          // it learns about the providers' limits.
-          resetRateGate()
-          void structuring
-            .run(res.saved.map((e) => ({ row: e.row, crop: e.crop })), {
-              suggestCategories: true,
-            })
-            .then((items) => {
-              if (!items.length) return
-              const failed = items.filter((i) => i.status === 'failed').length
-              const stopped = res.saved.length - items.length
-              ;(failed || stopped ? toast.warning : toast.success)(
-                `${items.length - failed} sual strukturlaşdırıldı` +
-                  (failed ? `, ${failed} alınmadı` : '') +
-                  (stopped ? `, ${stopped} işlənmədi (gündəlik büdcə)` : ''),
-              )
-            })
-            .catch((error) => toast.error(normalizeError(error).message))
+          // Sent crops stop arming the unsaved-work guard: they are rows now,
+          // and leaving the page no longer loses them.
+          setSentKeys((prev) => {
+            const next = new Set(prev)
+            for (const entry of res.saved) next.add(cropKey(entry.crop))
+            return next
+          })
+          void enqueue
+            .mutateAsync(res.saved.map((e) => e.row.id))
+            .then(() =>
+              toast.info(`${res.saved.length} sual növbəyə əlavə edildi`, {
+                action: {
+                  label: 'Suallara keç',
+                  onClick: () => navigate('/questions'),
+                },
+              }),
+            )
+            .catch(() => undefined)
         },
+        onError: (error) => toast.error(normalizeError(error).message),
       },
     )
   }
@@ -693,7 +677,7 @@ export function ImportPage() {
         <CropGrid
           results={segmentation.results}
           selection={
-            eligibleKeys.size > 0 && !structuringRunning
+            eligibleKeys.size > 0
               ? {
                   eligible: eligibleKeys,
                   selected: selectedKeys,
@@ -704,7 +688,7 @@ export function ImportPage() {
         />
       ) : null}
 
-      {eligibleKeys.size > 0 && !structuringRunning ? (
+      {eligibleKeys.size > 0 ? (
         <div className="bg-background sticky bottom-0 z-10 flex flex-wrap items-center gap-2 rounded-lg border p-2 shadow-xs">
           <Button
             variant="ghost"
@@ -722,12 +706,6 @@ export function ImportPage() {
             Təmizlə
           </Button>
           <div className="ml-auto flex items-center gap-2">
-            {structuring.items.length > 0 ? (
-              <Button variant="outline" size="sm" onClick={() => setCheckOpen(true)}>
-                <Eye data-icon="inline-start" />
-                Nəticələrə bax ({structuring.items.length})
-              </Button>
-            ) : null}
             <Button
               size="sm"
               disabled={selectedCrops.length === 0}
@@ -737,30 +715,6 @@ export function ImportPage() {
               Çıxarılmaya göndər ({selectedCrops.length})
             </Button>
           </div>
-        </div>
-      ) : null}
-
-      {structuringRunning ? (
-        <div className="flex items-center gap-3">
-          <Progress
-            value={(structuring.current / Math.max(1, structuring.total)) * 100}
-            className="h-2 flex-1"
-          />
-          <span className="text-muted-foreground shrink-0 text-sm tabular-nums">
-            {structuring.current}/{structuring.total} sual strukturlaşdırılır
-          </span>
-          <Button variant="outline" size="sm" onClick={structuring.stop}>
-            <Square data-icon="inline-start" />
-            Dayandır
-          </Button>
-        </div>
-      ) : null}
-      {!structuringRunning && structuring.items.length > 0 && eligibleKeys.size === 0 ? (
-        <div className="flex justify-end">
-          <Button variant="outline" size="sm" onClick={() => setCheckOpen(true)}>
-            <Eye data-icon="inline-start" />
-            Nəticələrə bax ({structuring.items.length})
-          </Button>
         </div>
       ) : null}
 
@@ -925,27 +879,12 @@ export function ImportPage() {
               {laneCounts.rule > 0
                 ? 'Sxem fiquru DSL ilə çəkilə bilməsə, şəkil generasiyasına keçir — bu halda xərc yuxarı hədə yaxınlaşır. '
                 : ''}
-              <strong>İndi çıxar</strong> — bu tabda işlənir, nəticələr
-              dərhal yan-yana göstərilir; tab bağlansa qalanı dayanır.{' '}
-              <strong>Növbəyə at</strong> — iş bazada saxlanılır, Suallar
-              səhifəsindən işə salınır, tab bağlansa da itmir. Böyük paketlər
-              üçün növbə.
+              Nəticələr Suallar səhifəsində görünür.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter className="sm:justify-between">
+          <AlertDialogFooter>
             <AlertDialogCancel>İmtina</AlertDialogCancel>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                onClick={() => startStructuring('now')}
-                title="Bu tabda işlənir, nəticələr dərhal yan-yana göstərilir"
-              >
-                İndi çıxar
-              </Button>
-              <AlertDialogAction onClick={() => startStructuring('queue')}>
-                Növbəyə at
-              </AlertDialogAction>
-            </div>
+            <AlertDialogAction onClick={sendToQueue}>Növbəyə at</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -959,12 +898,6 @@ export function ImportPage() {
           onConfirm={applyAnswerKeys}
         />
       ) : null}
-
-      <RecreationCheckDialog
-        items={structuring.items}
-        open={checkOpen}
-        onClose={() => setCheckOpen(false)}
-      />
 
       {/* Opening another PDF/book while a run is live also needs a yes. */}
       <AlertDialog

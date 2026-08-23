@@ -5,7 +5,6 @@
 // prompts.ts and the caller assembles the FormData itself.
 import {
   COMPARE_FIGURES_PROMPT,
-  OPTION_BOXES_PROMPT,
   DETECT_QUESTIONS_PROMPT,
   EXTRACT_SYSTEM,
   EXTRACT_SYSTEM_RASTER,
@@ -17,7 +16,6 @@ import {
   compareFiguresSchema,
   detectQuestionsSchema,
   extractResponseSchema,
-  optionBoxesSchema,
   parseAnswerKeySchema,
   suggestCategorySchema,
 } from '@/core/extract/schemas'
@@ -200,30 +198,6 @@ export function buildParseAnswerKey(page: ImageInput): GeminiRequest {
         temperature: 0,
         responseMimeType: 'application/json',
         responseSchema: parseAnswerKeySchema,
-      },
-    },
-  }
-}
-
-/** Where the picture options sit — asked on its own, because asked in passing
- *  during extraction the model simply does not answer it. */
-export function buildOptionBoxes(crop: ImageInput): GeminiRequest {
-  return {
-    modelKey: 'detect',
-    body: {
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            { inlineData: { mimeType: crop.mime, data: crop.image } },
-            { text: OPTION_BOXES_PROMPT },
-          ],
-        },
-      ],
-      generationConfig: {
-        temperature: 0,
-        responseMimeType: 'application/json',
-        responseSchema: optionBoxesSchema,
       },
     },
   }
