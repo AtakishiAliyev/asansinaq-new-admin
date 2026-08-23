@@ -1,7 +1,15 @@
 // Bump on ANY change to prompts/schemas below: it versions cache keys and
 // is stamped onto structured rows so a prompt regression can be traced back
 // to the questions it produced.
-export const PROMPT_VERSION = 5
+//
+// 6 is the batch worker's first generation. The texts below are unchanged, but
+// the Anthropic lane assembles them differently — the fewshots move into the
+// system block, and the category tree arrives as its own turn — and it writes
+// rows. A row stamped 5 was read by a browser through Gemini; a row stamped 6
+// was read by the worker through Anthropic. Without the bump those two are
+// indistinguishable in the bank, which is precisely the question anyone
+// debugging a regression will need to ask.
+export const PROMPT_VERSION = 6
 
 // Prompt texts for the question-recreation pipeline. Shared by the
 // question-ops Edge Function and the Node eval harness — ONE source of truth,
