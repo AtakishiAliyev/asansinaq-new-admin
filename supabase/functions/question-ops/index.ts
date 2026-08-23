@@ -713,7 +713,7 @@ Deno.serve(async (req) => {
         promptTokens: u.promptTokens,
         outputTokens: u.outputTokens,
         ms,
-        cost: estimateCost(model, u.promptTokens, u.outputTokens),
+        cost: estGeminiCost(model, u.promptTokens, u.outputTokens),
         cached: false,
       })
       return json(200, { ...responseBody, ms })
