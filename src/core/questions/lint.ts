@@ -3,6 +3,7 @@ import { texCompiles } from '@/core/questions/tex-normalize'
 import { pointsLieOnCurves, sampleCurve } from '@/core/figures/curve'
 import { parseSetExpr, setIdsUsed } from '@/core/figures/set-expr'
 import type { ExtractedQuestion } from '@/core/questions/extraction'
+import { figureRefs } from '@/core/questions/figure-refs'
 import type { FigureDoc } from '@/core/figures/figspec'
 
 export interface Flag {
@@ -40,6 +41,98 @@ const REFERENCES_DRAWING = new RegExp(
 // error routes the draft to needs_review; warnings just annotate it.
 /** Real options are short: a number, a set, an interval. */
 const MAX_OPTION_TEX = 120
+
+/**
+ * Does the figure contain what the question asks about?
+ *
+ * Deterministic, free, and the answer to a real row: a question asking for
+ * m(CDE) whose figure declared five angles, none of them at D. That row passed
+ * every other check — geometry kind, correct topology, marks present — and was
+ * missing the only thing the reader needed.
+ *
+ * Two different failures, kept apart because they mean different things:
+ *
+ *   The figure CANNOT show it. A vertex or an arm is absent, so no amount of
+ *   marking would help. That is an error.
+ *
+ *   The figure COULD show it and does not. The edges are there but no angle is
+ *   declared at that vertex, so nothing is drawn and the unknown the question
+ *   asks for is invisible. That is a warning: the geometry is right and a
+ *   reviewer can add the mark.
+ */
+function lintFigureRefs(q: ExtractedQuestion): Flag[] {
+  const geo = q.figures?.items.find((i) => i.kind === 'geometry')
+  // Only the structured kind can be checked. raw_svg has no structure to ask.
+  if (!geo || geo.kind !== 'geometry') return []
+
+  const flags: Flag[] = []
+  const known = new Set<string>()
+  for (const p of geo.points) {
+    known.add(p.id)
+    if (p.label) known.add(p.label)
+  }
+  // Ids and printed labels are usually the same letter here, but not always.
+  const resolve = (name: string): string | null => {
+    if (geo.points.some((p) => p.id === name)) return name
+    return geo.points.find((p) => p.label === name)?.id ?? null
+  }
+
+  const adjacent = new Set<string>()
+  for (const line of geo.lines) {
+    adjacent.add([line.from, line.to].sort().join('\u0000'))
+  }
+  const joined = (a: string, b: string) =>
+    adjacent.has([a, b].sort().join('\u0000'))
+
+  const refs = figureRefs(q.stem)
+
+  for (const ref of refs.angles) {
+    const v = resolve(ref.vertex)
+    const a = resolve(ref.arms[0])
+    const b = resolve(ref.arms[1])
+    if (!v || !a || !b) {
+      flags.push({
+        level: 'error',
+        code: 'figure_missing_referenced_angle',
+        message: `Sual m(${ref.text}) bucağından danışır, amma fiqurda ${[ref.vertex, ...ref.arms].filter((n) => !resolve(n)).join(', ')} nöqtəsi yoxdur`,
+      })
+      continue
+    }
+    if (!joined(v, a) || !joined(v, b)) {
+      flags.push({
+        level: 'error',
+        code: 'figure_missing_referenced_angle',
+        message: `Sual m(${ref.text}) bucağından danışır, amma ${v} təpəsindən ${!joined(v, a) ? a : b} istiqamətində xətt yoxdur — bucaq çəkilə bilməz`,
+      })
+      continue
+    }
+    const marked = (geo.angles ?? []).some((angle) => {
+      const [x, y, z] = angle.at.map((id) => resolve(id) ?? id)
+      return y === v && ((x === a && z === b) || (x === b && z === a))
+    })
+    if (!marked) {
+      flags.push({
+        level: 'warning',
+        code: 'figure_angle_not_marked',
+        message: `Sual m(${ref.text}) bucağını soruşur, amma fiqurda ${v} təpəsində heç bir bucaq işarələnməyib — axtarılan kəmiyyət görünmür`,
+      })
+    }
+  }
+
+  for (const ref of refs.edges) {
+    const a = resolve(ref.a)
+    const b = resolve(ref.b)
+    if (!a || !b || !joined(a, b)) {
+      flags.push({
+        level: 'error',
+        code: 'figure_missing_referenced_segment',
+        message: `Sual [${ref.text}] parçasından/şüasından danışır, amma fiqurda bu iki nöqtəni birləşdirən xətt yoxdur`,
+      })
+    }
+  }
+
+  return flags
+}
 
 export function lintQuestion(q: ExtractedQuestion, expectedNumber?: number): Flag[] {
   const flags: Flag[] = []
@@ -135,6 +228,11 @@ export function lintQuestion(q: ExtractedQuestion, expectedNumber?: number): Fla
     add('error', 'missing_figure', 'Stem şəkilə istinad edir, amma fiqur çıxarılmayıb')
 
   if (q.figures) flags.push(...lintFigures(q.figures))
+  // Last, because it is the only check that reads the STEM and the FIGURE
+  // together — everything above asks whether each half is well formed on its
+  // own, and a question can pass all of that while asking about something the
+  // picture does not contain.
+  flags.push(...lintFigureRefs(q))
 
   return flags
 }

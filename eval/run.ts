@@ -7,6 +7,7 @@ import { anthropicRequestSuite } from './suites/anthropic-request.ts'
 import { classifySuite } from './suites/classify.ts'
 import { compareSuite } from './suites/compare.ts'
 import { extractionSuite } from './suites/extraction.ts'
+import { figureRefsSuite } from './suites/figure-refs.ts'
 import { figuresSuite } from './suites/figures.ts'
 import { lintSuite } from './suites/lint.ts'
 import { pageRangeSuite } from './suites/page-range.ts'
@@ -30,6 +31,7 @@ const SUITES: Suite[] = [
   extractionSuite,
   lintSuite,
   figuresSuite,
+  figureRefsSuite,
   renderSuite,
   pageRangeSuite,
 ]
