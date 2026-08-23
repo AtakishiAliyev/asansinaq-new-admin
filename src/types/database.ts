@@ -231,6 +231,7 @@ export type Database = {
       ops_log: {
         Row: {
           cached: boolean
+          cached_tokens: number | null
           created_at: string
           created_by: string | null
           est_cost_usd: number
@@ -243,6 +244,7 @@ export type Database = {
         }
         Insert: {
           cached?: boolean
+          cached_tokens?: number | null
           created_at?: string
           created_by?: string | null
           est_cost_usd?: number
@@ -255,6 +257,7 @@ export type Database = {
         }
         Update: {
           cached?: boolean
+          cached_tokens?: number | null
           created_at?: string
           created_by?: string | null
           est_cost_usd?: number
@@ -330,10 +333,14 @@ export type Database = {
           answer_source: string | null
           attempts: number
           auto_approved: boolean
+          batch_custom_id: string | null
+          batch_id: string | null
+          batch_stage: string | null
           book_id: number
           category_id: number | null
           claimed_at: string | null
           claimed_by: string | null
+          claimed_by_worker: string | null
           col: number
           created_at: string
           created_by: string | null
@@ -346,6 +353,7 @@ export type Database = {
           flags: Json
           id: number
           is_scan: boolean
+          lease_until: string | null
           model: string | null
           needs_attention: boolean | null
           options: Json | null
@@ -353,6 +361,7 @@ export type Database = {
           prompt_version: number | null
           q_no: number
           queued_at: string | null
+          repair_round: number
           reviewed_at: string | null
           reviewed_by: string | null
           reviewer_difficulty: number | null
@@ -373,10 +382,14 @@ export type Database = {
           answer_source?: string | null
           attempts?: number
           auto_approved?: boolean
+          batch_custom_id?: string | null
+          batch_id?: string | null
+          batch_stage?: string | null
           book_id: number
           category_id?: number | null
           claimed_at?: string | null
           claimed_by?: string | null
+          claimed_by_worker?: string | null
           col: number
           created_at?: string
           created_by?: string | null
@@ -389,6 +402,7 @@ export type Database = {
           flags?: Json
           id?: never
           is_scan?: boolean
+          lease_until?: string | null
           model?: string | null
           needs_attention?: boolean | null
           options?: Json | null
@@ -396,6 +410,7 @@ export type Database = {
           prompt_version?: number | null
           q_no: number
           queued_at?: string | null
+          repair_round?: number
           reviewed_at?: string | null
           reviewed_by?: string | null
           reviewer_difficulty?: number | null
@@ -416,10 +431,14 @@ export type Database = {
           answer_source?: string | null
           attempts?: number
           auto_approved?: boolean
+          batch_custom_id?: string | null
+          batch_id?: string | null
+          batch_stage?: string | null
           book_id?: number
           category_id?: number | null
           claimed_at?: string | null
           claimed_by?: string | null
+          claimed_by_worker?: string | null
           col?: number
           created_at?: string
           created_by?: string | null
@@ -432,6 +451,7 @@ export type Database = {
           flags?: Json
           id?: never
           is_scan?: boolean
+          lease_until?: string | null
           model?: string | null
           needs_attention?: boolean | null
           options?: Json | null
@@ -439,6 +459,7 @@ export type Database = {
           prompt_version?: number | null
           q_no?: number
           queued_at?: string | null
+          repair_round?: number
           reviewed_at?: string | null
           reviewed_by?: string | null
           reviewer_difficulty?: number | null
@@ -536,6 +557,10 @@ export type Database = {
     }
     Functions: {
       apply_answer_keys: { Args: { p_pairs: Json }; Returns: number }
+      claim_expired: {
+        Args: { p_claimed_at: string; p_lease_until: string }
+        Returns: boolean
+      }
       claim_questions: {
         Args: { p_book_id?: number; p_limit: number }
         Returns: {
@@ -547,10 +572,14 @@ export type Database = {
           answer_source: string | null
           attempts: number
           auto_approved: boolean
+          batch_custom_id: string | null
+          batch_id: string | null
+          batch_stage: string | null
           book_id: number
           category_id: number | null
           claimed_at: string | null
           claimed_by: string | null
+          claimed_by_worker: string | null
           col: number
           created_at: string
           created_by: string | null
@@ -563,6 +592,7 @@ export type Database = {
           flags: Json
           id: number
           is_scan: boolean
+          lease_until: string | null
           model: string | null
           needs_attention: boolean | null
           options: Json | null
@@ -570,6 +600,70 @@ export type Database = {
           prompt_version: number | null
           q_no: number
           queued_at: string | null
+          repair_round: number
+          reviewed_at: string | null
+          reviewed_by: string | null
+          reviewer_difficulty: number | null
+          status: string
+          stem: string | null
+          structured_at: string | null
+          test_no: number | null
+          text_layer: string | null
+          updated_at: string
+          verified: boolean
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "questions"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      claim_questions_worker: {
+        Args: {
+          p_book_id?: number
+          p_lease: string
+          p_limit: number
+          p_worker_id: string
+        }
+        Returns: {
+          ai_category_confidence: number | null
+          ai_category_id: number | null
+          ai_difficulty: number | null
+          answer: string | null
+          answer_confidence: number | null
+          answer_source: string | null
+          attempts: number
+          auto_approved: boolean
+          batch_custom_id: string | null
+          batch_id: string | null
+          batch_stage: string | null
+          book_id: number
+          category_id: number | null
+          claimed_at: string | null
+          claimed_by: string | null
+          claimed_by_worker: string | null
+          col: number
+          created_at: string
+          created_by: string | null
+          crop_mime: string
+          crop_path: string
+          empirical_difficulty: number | null
+          extraction_error: string | null
+          figure_kind: string
+          figures: Json | null
+          flags: Json
+          id: number
+          is_scan: boolean
+          lease_until: string | null
+          model: string | null
+          needs_attention: boolean | null
+          options: Json | null
+          page_number: number
+          prompt_version: number | null
+          q_no: number
+          queued_at: string | null
+          repair_round: number
           reviewed_at: string | null
           reviewed_by: string | null
           reviewer_difficulty: number | null
@@ -590,6 +684,10 @@ export type Database = {
       }
       clear_queue: { Args: never; Returns: Json }
       enqueue_questions: { Args: { p_ids: number[] }; Returns: number }
+      finish_questions_worker: {
+        Args: { p_ids: number[]; p_worker_id: string }
+        Returns: number
+      }
       is_admin: { Args: never; Returns: boolean }
       mark_pages_worked: {
         Args: { p_book_id: number; p_pages: number[] }
@@ -602,7 +700,15 @@ export type Database = {
       questions_throughput: { Args: never; Returns: Json }
       queue_lease: { Args: never; Returns: string }
       release_questions: { Args: { p_ids: number[] }; Returns: number }
+      release_questions_worker: {
+        Args: { p_ids: number[]; p_worker_id: string }
+        Returns: number
+      }
       renew_claims: { Args: { p_ids: number[] }; Returns: number }
+      renew_claims_worker: {
+        Args: { p_ids: number[]; p_lease: string; p_worker_id: string }
+        Returns: number
+      }
     }
     Enums: {
       [_ in never]: never
