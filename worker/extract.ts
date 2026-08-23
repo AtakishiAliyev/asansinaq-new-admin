@@ -15,6 +15,7 @@ import { lintQuestion, type Flag } from '@/core/questions/lint'
 import type { Db, QuestionRow } from './db.ts'
 import { answerFor, type BookContext } from './book-context.ts'
 import { modelFor } from './models.ts'
+import { attachOptionImages } from './option-images.ts'
 
 /** A verdict a reviewer reached outranks anything produced here. */
 const REVIEWED = new Set(['approved', 'rejected'])
@@ -105,8 +106,15 @@ export async function applyResult(
   row: QuestionRow,
   context: BookContext,
   wire: Record<string, unknown>,
+  crop: { image: string; mime: string } | null,
 ): Promise<ApplyOutcome> {
   const question = wireToQuestion(wire)
+
+  // Before lint, not after: an option that declared a picture and has not been
+  // given one yet is an `option_empty` error, so linting first would flag every
+  // picture option on a question that is about to be complete.
+  if (crop) await attachOptionImages(db, row, crop, question.options)
+
   const flags = lintQuestion(question, row.q_no)
 
   const answer = answerFor(context, row.test_no, row.q_no)

@@ -4,7 +4,7 @@ import {
   stripDollars,
   wireToQuestion,
 } from '@/core/questions/extraction'
-import { deepEq, eq, ok, suite } from '../harness.ts'
+import { deepEq, eq, notOk, ok, suite } from '../harness.ts'
 
 export const extractionSuite = suite('extraction', {
   'a stray dollar inside an option is stripped'() {
@@ -45,6 +45,40 @@ export const extractionSuite = suite('extraction', {
       options: [{ label: 'A', is_image: true, box: [0, 0, 100, 100] }],
     })
     eq(q.options[0]!.isImage, true, 'isImage')
+  },
+
+  // The box is how a picture option gets its picture: the region is cut out of
+  // the crop the question came from, with no model and no cost. Dropping it
+  // here produced five options with neither text nor image on every IQ page,
+  // and the row read as a model failure rather than a lost field — the case
+  // above passed a box the whole time and never looked at it.
+  'a picture option keeps the box its image is cut from'() {
+    const q = wireToQuestion({
+      stem: 'S',
+      options: [{ label: 'A', is_image: true, box: [368, 60, 505, 235] }],
+    })
+    deepEq(q.options[0]!.box, [368, 60, 505, 235], 'box')
+  },
+
+  // A box that is not four finite numbers, or that encloses nothing, would cut
+  // a zero-pixel image. Better absent: lint then says the option is empty,
+  // which is true, instead of the row carrying a blank picture.
+  'a box that could not be cut from is dropped rather than kept'() {
+    const bad = [
+      [10, 10, 10, 90], // zero height
+      [10, 10, 90, 10], // zero width
+      [90, 10, 10, 90], // reversed
+      [1, 2, 3], // too short
+      ['a', 2, 3, 4], // not numbers
+      null,
+    ]
+    for (const box of bad) {
+      const q = wireToQuestion({
+        stem: 'S',
+        options: [{ label: 'A', is_image: true, box }],
+      })
+      notOk(q.options[0]!.box, `qəbul edilməməli: ${JSON.stringify(box)}`)
+    }
   },
 
   'venn items the model split apart are merged back'() {

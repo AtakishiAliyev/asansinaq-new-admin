@@ -14,7 +14,7 @@
 // twice.
 import { EMIT_QUESTION_TOOL_NAME } from '@/core/extract/tool-schema'
 import { config } from './config.ts'
-import { db } from './db.ts'
+import { db, type QuestionRow } from './db.ts'
 import { bookContext } from './book-context.ts'
 import { batchResults, batchState, submitBatch, type BatchItem } from './batch.ts'
 import {
@@ -48,6 +48,43 @@ import {
 
 const POLL_MS = 60_000
 const log = (msg: string) => console.log(`[${new Date().toISOString()}] ${msg}`)
+
+/**
+ * How many figures came back as each FigSpec kind, per book.
+ *
+ * `raw_svg` is the DSL's escape hatch: it means the model could not express the
+ * drawing as a structured figure and fell back to hand-written SVG, which
+ * nothing downstream can lint, compare or re-render reliably. A book where
+ * everything lands there is one where the vector lane is not working, and there
+ * is no other signal for that — the questions all look structured.
+ */
+const figureKindTally = new Map<number, Map<string, number>>()
+
+function noteFigureKinds(row: QuestionRow, wire: Record<string, unknown>): void {
+  const figures = Array.isArray(wire.figures) ? wire.figures : []
+  const byBook = figureKindTally.get(row.book_id) ?? new Map<string, number>()
+  const kinds = figures.length
+    ? figures.map((f) => String((f as { kind?: unknown }).kind ?? 'unknown'))
+    : ['(none)']
+  for (const kind of kinds) byBook.set(kind, (byBook.get(kind) ?? 0) + 1)
+  figureKindTally.set(row.book_id, byBook)
+}
+
+function reportFigureKinds(): void {
+  for (const [bookId, kinds] of figureKindTally) {
+    const total = [...kinds.values()].reduce((a, b) => a + b, 0)
+    const rawSvg = kinds.get('raw_svg') ?? 0
+    const drawn = total - (kinds.get('(none)') ?? 0)
+    const parts = [...kinds.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([kind, n]) => `${kind}=${n}`)
+    log(
+      `book ${bookId} figures: ${parts.join(' ')}` +
+        (drawn ? ` — DSL ${drawn - rawSvg}/${drawn}, raw_svg ${rawSvg}/${drawn}` : ''),
+    )
+  }
+  figureKindTally.clear()
+}
 
 let stopping = false
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
@@ -132,13 +169,15 @@ async function pollPass(): Promise<number> {
 
       try {
         const context = await bookContext(db, row.book_id)
-        const applied = await applyResult(db, row, context, outcome.wire)
+        // Downloaded BEFORE the row is written: the picture options are cut out
+        // of it. Re-downloaded rather than remembered because this pass may be
+        // running in a different process than the one that submitted, and the
+        // cache key has to be computed from the same bytes either way.
+        const crop = await downloadCrop(db, row)
+        const applied = await applyResult(db, row, context, outcome.wire, crop)
         if (applied.status === 'structured') structured++
         else failed++
-        // Re-downloaded rather than remembered: this pass may be running in a
-        // different process than the one that submitted, and the cache key has
-        // to be computed from the same bytes either way.
-        const crop = await downloadCrop(db, row)
+        noteFigureKinds(row, outcome.wire)
         if (crop) {
           const model = modelFor(row.figure_kind !== 'none' ? 'figure' : 'text')
           await cachePut(
@@ -172,6 +211,7 @@ async function pollPass(): Promise<number> {
         (missing.length ? `, ${missing.length} released` : ''),
     )
   }
+  reportFigureKinds()
   return written
 }
 
@@ -212,7 +252,11 @@ async function submitPass(): Promise<number> {
     const key = cacheKey(EXTRACT_OP, model, cacheInputFor(row, crop, rowContext))
     const cached = (await cacheGet(db, key)) as { wire?: Record<string, unknown> } | null
     if (cached?.wire) {
-      await applyResult(db, row, rowContext, cached.wire)
+      await applyResult(db, row, rowContext, cached.wire, crop)
+      // Tallied on this path too: a re-run served entirely from cache would
+      // otherwise report no figure coverage at all, which reads as "no figures"
+      // rather than "not measured".
+      noteFigureKinds(row, cached.wire)
       await logOp(db, {
         op: EXTRACT_OP,
         model,
@@ -235,7 +279,10 @@ async function submitPass(): Promise<number> {
     await release(db, undownloadable)
   }
   if (served) log(`${served} question(s) served from cache, unbilled`)
-  if (!items.length) return served
+  if (!items.length) {
+    reportFigureKinds()
+    return served
+  }
 
   let batchId: string
   try {

@@ -31,6 +31,17 @@ export interface ExtractedOption {
    * invent TeX for a picture.
    */
   isImage?: boolean
+  /**
+   * Where the picture sits in the source crop: `[ymin, xmin, ymax, xmax]`,
+   * normalised to 0-1000.
+   *
+   * This is how `image` gets filled — the region is cut out of the crop the
+   * question came from, which needs no model and costs nothing. Dropping it
+   * here is not cosmetic: it is the difference between five picture options and
+   * five empty ones, and the row that results looks like a model failure rather
+   * than a lost field.
+   */
+  box?: [number, number, number, number]
 }
 
 export interface ExtractedQuestion {
@@ -303,6 +314,19 @@ export function isComplexSchemeFigure(doc: FigureDoc | null): boolean {
   return false
 }
 
+/**
+ * A usable `[ymin, xmin, ymax, xmax]`. The schema cannot say "tuple of four" —
+ * it is an array of numbers — so the shape is checked here, and a degenerate
+ * box (zero width or height, or reversed edges) is rejected rather than passed
+ * on to become a zero-pixel crop.
+ */
+function isBox(value: unknown): value is [number, number, number, number] {
+  if (!Array.isArray(value) || value.length !== 4) return false
+  if (!value.every((n) => typeof n === 'number' && Number.isFinite(n))) return false
+  const [ymin, xmin, ymax, xmax] = value as [number, number, number, number]
+  return ymax > ymin && xmax > xmin
+}
+
 export function wireToQuestion(raw: Record<string, unknown>): ExtractedQuestion {
   const figuresWire = (raw.figures as Record<string, unknown>[]) ?? []
   const items = mergeVennItems(figuresWire.map(wireFigure).filter((x): x is FigItem => x !== null))
@@ -315,6 +339,8 @@ export function wireToQuestion(raw: Record<string, unknown>): ExtractedQuestion 
       if (o.tex != null) opt.tex = normalizeTexField(String(o.tex))
       if (o.image != null) opt.image = o.image
       if ((o as { is_image?: boolean }).is_image) opt.isImage = true
+      const box = (o as { box?: unknown }).box
+      if (isBox(box)) opt.box = box
       return opt
     }),
     figures: items.length ? { v: 1, items } : null,
