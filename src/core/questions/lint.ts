@@ -163,6 +163,52 @@ function lintFigures(doc: FigureDoc): Flag[] {
         }
       }
     }
+    if (item.kind === 'geometry') {
+      // A degenerate angle is a real model failure, not a style choice: the
+      // arms and the vertex have to be three DIFFERENT points or there is no
+      // angle to draw and the mark lands on nothing.
+      for (const angle of item.angles ?? []) {
+        const [a, v, b] = angle.at
+        if (a === v || b === v || a === b) {
+          flags.push({
+            level: 'error',
+            code: 'geo_degenerate_angle',
+            message: `Bucaq [${angle.at.join(', ')}] eyni nöqtələrdən ibarətdir — təpə ORTADA və üç nöqtə fərqli olmalıdır`,
+          })
+        }
+        // Both notations for the same fact. A reader looking for the square
+        // will not accept an arc, and one of the two is always wrong.
+        if (angle.right && angle.arcs) {
+          flags.push({
+            level: 'warning',
+            code: 'geo_right_angle_with_arcs',
+            message: `Bucaq [${angle.at.join(', ')}] həm düz bucaq, həm qövslə işarələnib — biri artıqdır`,
+          })
+        }
+      }
+      // Two points at the same place is how a misread construction shows up:
+      // the lines through them collapse and the figure quietly loses a side.
+      const seen = new Map<string, string>()
+      for (const point of item.points) {
+        const at = `${Math.round(point.x)},${Math.round(point.y)}`
+        const other = seen.get(at)
+        if (other) {
+          flags.push({
+            level: 'warning',
+            code: 'geo_coincident_points',
+            message: `"${other}" və "${point.id}" eyni yerdədir (${at}) — biri səhv oxunub`,
+          })
+        } else seen.set(at, point.id)
+      }
+      if (!item.lines.length && !(item.angles ?? []).length) {
+        flags.push({
+          level: 'error',
+          code: 'geo_empty',
+          message: 'Həndəsə fiqurunda nə xətt, nə bucaq var — çəkiləcək bir şey yoxdur',
+        })
+      }
+    }
+
     if (item.kind === 'raw_svg') {
       // The one figure kind nothing can check for us: no schema, no geometry
       // to re-derive, only markup a model wrote. It is worth having, and it is

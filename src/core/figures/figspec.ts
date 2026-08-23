@@ -152,6 +152,90 @@ export interface NumberLineFig {
   intervals?: { from: number; to: number; closedLeft: boolean; closedRight: boolean; color?: ColorToken }[]
 }
 
+// ---- Plane geometry ----
+
+// The FEM-style angle and ray figures: a handful of named points, segments and
+// rays between them, and — the part that matters — the MARKS.
+//
+// raw_svg already draws these, and draws the topology correctly. What it drops
+// every time is the notation: the double tick that says an angle was bisected,
+// the arrowheads that say two lines are parallel, the little square that says
+// an angle is right. Those are not decoration, they are the given conditions —
+// a bisector figure with the ticks missing is a different problem, usually an
+// unsolvable one.
+//
+// So they are DATA here, not strokes. A mark that is a field can be linted
+// against the question, compared between two reads, and drawn correctly at any
+// size; a mark that is a `<path>` in a model-authored blob can only be looked
+// at by a human.
+//
+// Coordinates are a plain drawing plane, y DOWN like SVG's, so the model can
+// place points the way it sees them.
+export interface GeoPoint {
+  id: string
+  x: number
+  y: number
+  /** The printed name (A, B, O…). Omit for an unlabelled construction point. */
+  label?: string
+  labelAnchor?: 'left' | 'right' | 'above' | 'below'
+  /** Draw a dot. Vertices usually carry one; ray endpoints usually do not. */
+  dot?: boolean
+}
+
+/** How far a drawn line extends past the points that define it. */
+export type GeoLineKind = 'segment' | 'ray' | 'line'
+
+export interface GeoLine {
+  from: string
+  to: string
+  kind?: GeoLineKind
+  color?: ColorToken
+  dashed?: boolean
+  /**
+   * Equal-length ticks: one, two or three cross-hatches at the midpoint. The
+   * standard notation for "these sides are the same length", and the reason a
+   * reader knows an isosceles triangle is isosceles.
+   */
+  ticks?: 1 | 2 | 3
+  /**
+   * Parallelism arrowheads. Lines carrying the same count are parallel — that
+   * is the whole convention, so the number is meaningful and not a style.
+   */
+  parallel?: 1 | 2 | 3
+  label?: string
+}
+
+export interface GeoAngle {
+  /** The three points, in order: the arms and the vertex in the middle. */
+  at: [string, string, string]
+  /** Printed measure, TeX. "30°", "x", "2\\alpha". */
+  label?: string
+  /**
+   * A right angle is drawn as a square, never as an arc with "90°" — that is
+   * the notation, and a reader looking for the square will not accept an arc.
+   */
+  right?: boolean
+  /**
+   * Congruent-angle arcs, the angular twin of `ticks`. Two angles marked with
+   * the same count are equal, which is how a bisector says it bisects.
+   */
+  arcs?: 1 | 2 | 3
+  color?: ColorToken
+  /** Arc radius in plane units. The renderer picks a sane default. */
+  radius?: number
+}
+
+export interface GeometryFig {
+  kind: 'geometry'
+  width: number
+  height: number
+  points: GeoPoint[]
+  lines: GeoLine[]
+  angles?: GeoAngle[]
+  /** Shaded polygons, by point id, for "the shaded region" questions. */
+  regions?: { points: string[]; color?: ColorToken; opacity?: number }[]
+}
+
 // ---- Escape hatch ----
 
 // AI-regenerated raster figure (image-generation fallback lane). Not editable,
@@ -178,6 +262,7 @@ export interface RawSvgFig {
 
 export type FigItem =
   | RawSvgFig
+  | GeometryFig
   | FunctionGraphFig
   | VennFig
   | DivisionScheme

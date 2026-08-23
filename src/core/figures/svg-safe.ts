@@ -185,3 +185,31 @@ export function sanitizeSvg(source: string): SvgSanitizeResult {
 export function svgNodeCount(node: SvgNode): number {
   return 1 + node.children.reduce((n, c) => n + svgNodeCount(c), 0)
 }
+
+const MARKUP_ESCAPES: Record<string, string> = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&apos;',
+}
+
+const escapeMarkup = (value: string): string =>
+  value.replace(/[&<>"']/g, (c) => MARKUP_ESCAPES[c] ?? c)
+
+/**
+ * Back to markup, for a renderer that emits SVG text rather than React nodes.
+ *
+ * The inverse of `sanitizeSvg`, and safe for the same reason: it can only
+ * serialise a tree that already passed the allowlist, and it escapes every
+ * value on the way out. Nothing here re-admits what the parser refused —
+ * there is no path from a raw string to this function.
+ */
+export function toMarkup(node: SvgNode): string {
+  const attrs = Object.entries(node.attrs)
+    .map(([k, v]) => ` ${k}="${escapeMarkup(v)}"`)
+    .join('')
+  const inner =
+    (node.text ? escapeMarkup(node.text) : '') + node.children.map(toMarkup).join('')
+  return inner ? `<${node.tag}${attrs}>${inner}</${node.tag}>` : `<${node.tag}${attrs}/>`
+}

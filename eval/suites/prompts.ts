@@ -34,7 +34,7 @@ export const promptsSuite = suite('prompts', {
   },
 
   'each assembled prompt is one unbroken list of rules'() {
-    deepEq(numbering(EXTRACT_SYSTEM), sequence(15), 'DSL lane')
+    deepEq(numbering(EXTRACT_SYSTEM), sequence(16), 'DSL lane')
     deepEq(numbering(EXTRACT_SYSTEM_RASTER), sequence(12), 'raster lane')
   },
 
@@ -78,6 +78,6 @@ export const promptsSuite = suite('prompts', {
   },
 
   'the version is bumped whenever these texts change'() {
-    ok(PROMPT_VERSION >= 3)
+    ok(PROMPT_VERSION >= 7)
   },
 })

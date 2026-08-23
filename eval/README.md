@@ -33,6 +33,8 @@ a copy, not a port. Adding a test framework would have bought nothing here.
 | `lint` | option count, duplicates, empty stem, broken LaTeX, warning vs error |
 | `figures` | curve sampling, set-algebra parsing and its aliases |
 | `page-range` | strict and lenient parsing, formatting round-trip |
+| `render` | figure SVG: marks drawn as data, deterministic output, no foreignObject |
+| `anthropic-request` | the cached prefix, block order, tool schema validity |
 
 ## What is NOT covered
 
@@ -45,7 +47,16 @@ Say so out loud, because a green run is easy to over-read:
   `crop.ts` (rendering, ink refinement, figure classification) need a real
   document and a canvas. The fixtures start one step later, at text items.
   Test books are commercial and cannot be committed.
-- **No rendering.** The figure renderers and `snapshotFigure` are DOM code.
+- **Not all rendering.** `core/figures/render.ts` emits SVG as a string, so the
+  figure kinds it covers ARE checked here — that is what the `render` suite is.
+  The kinds still drawn only by React (venn, table, division scheme, vertical
+  arithmetic) are not, and the renderer says so in its output rather than
+  returning an empty figure, because a figure that renders to nothing looks
+  exactly like a question that never had one.
+- **No typesetting.** Labels go through an injected TeX renderer; the default
+  is a plain `<text>` node, correct for the letters and degrees plane geometry
+  carries and visibly wrong for a fraction. What a real engine produces is not
+  measured here.
 
 ## Adding a case
 

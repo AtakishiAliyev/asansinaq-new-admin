@@ -185,6 +185,13 @@ function wireVennGeom(s: Record<string, unknown>): VennGeom {
   return { type: 'ellipse', cx: Number(s.cx), cy: Number(s.cy), rx: Number(s.rx ?? 40), ry: Number(s.ry ?? 70), rotate: s.rotate as number | undefined }
 }
 
+/** Marks are 1, 2 or 3 — the count IS the meaning (same count = congruent), so
+ *  an out-of-range number is clamped rather than dropped. */
+function clampMark(value: unknown): 1 | 2 | 3 {
+  const n = Math.round(Number(value))
+  return (n >= 3 ? 3 : n <= 1 ? 1 : 2) as 1 | 2 | 3
+}
+
 function wireFigure(w: Record<string, unknown>): FigItem | null {
   const kind = w.kind as string
   switch (kind) {
@@ -199,6 +206,70 @@ function wireFigure(w: Record<string, unknown>): FigItem | null {
         node,
         ...(dropped.length ? { dropped } : {}),
         ...(w.note ? { note: String(w.note) } : {}),
+      }
+    }
+    case 'geometry': {
+      const points = ((w.points as Record<string, unknown>[]) ?? [])
+        .map((p) => ({
+          id: String(p.id ?? ''),
+          x: Number(p.x ?? 0),
+          y: Number(p.y ?? 0),
+          ...(p.label != null ? { label: String(p.label) } : {}),
+          ...(p.label_anchor != null
+            ? { labelAnchor: p.label_anchor as 'left' | 'right' | 'above' | 'below' }
+            : {}),
+          ...(p.dot ? { dot: true } : {}),
+        }))
+        .filter((p) => p.id !== '')
+      // A line between points that were never declared draws from (0,0) — a
+      // stray stroke across the figure that reads as part of the construction.
+      const known = new Set(points.map((p) => p.id))
+      const lines = ((w.lines as Record<string, unknown>[]) ?? [])
+        .map((l) => ({
+          from: String(l.from ?? ''),
+          to: String(l.to ?? ''),
+          ...(l.kind ? { kind: l.kind as 'segment' | 'ray' | 'line' } : {}),
+          ...(l.color ? { color: l.color as ColorToken } : {}),
+          ...(l.dashed ? { dashed: true } : {}),
+          ...(l.ticks ? { ticks: clampMark(l.ticks) } : {}),
+          ...(l.parallel ? { parallel: clampMark(l.parallel) } : {}),
+          ...(l.label != null ? { label: String(l.label) } : {}),
+        }))
+        // Both endpoints must exist AND differ: a line from a point to itself
+        // is zero length, draws nothing, and its ticks land on a single pixel.
+        .filter((l) => l.from !== l.to && known.has(l.from) && known.has(l.to))
+      const angles = ((w.angles as Record<string, unknown>[]) ?? [])
+        .map((a) => {
+          const at = ((a.at as string[]) ?? []).map(String)
+          return {
+            at: [at[0] ?? '', at[1] ?? '', at[2] ?? ''] as [string, string, string],
+            ...(a.label != null ? { label: String(a.label) } : {}),
+            ...(a.right ? { right: true } : {}),
+            ...(a.arcs ? { arcs: clampMark(a.arcs) } : {}),
+            ...(a.color ? { color: a.color as ColorToken } : {}),
+            ...(a.radius != null ? { radius: Number(a.radius) } : {}),
+          }
+        })
+        .filter((a) => a.at.every((id) => known.has(id)))
+      if (!points.length || (!lines.length && !angles.length)) return null
+      return {
+        kind: 'geometry',
+        width: Number(w.width ?? 320),
+        height: Number(w.height ?? 240),
+        points,
+        lines,
+        ...(angles.length ? { angles } : {}),
+        ...(Array.isArray(w.regions)
+          ? {
+              regions: (w.regions as Record<string, unknown>[])
+                .map((r) => ({
+                  points: ((r.points as string[]) ?? []).map(String),
+                  ...(r.color ? { color: r.color as ColorToken } : {}),
+                  ...(r.opacity != null ? { opacity: Number(r.opacity) } : {}),
+                }))
+                .filter((r) => r.points.length >= 3 && r.points.every((id) => known.has(id))),
+            }
+          : {}),
       }
     }
     case 'function_graph':

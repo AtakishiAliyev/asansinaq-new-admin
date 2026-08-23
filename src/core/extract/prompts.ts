@@ -2,14 +2,17 @@
 // is stamped onto structured rows so a prompt regression can be traced back
 // to the questions it produced.
 //
-// 6 is the batch worker's first generation. The texts below are unchanged, but
-// the Anthropic lane assembles them differently — the fewshots move into the
-// system block, and the category tree arrives as its own turn — and it writes
-// rows. A row stamped 5 was read by a browser through Gemini; a row stamped 6
-// was read by the worker through Anthropic. Without the bump those two are
-// indistinguishable in the bank, which is precisely the question anyone
-// debugging a regression will need to ask.
-export const PROMPT_VERSION = 6
+// 6 was the batch worker's first generation: same texts, assembled differently
+// for Anthropic, and the first to write rows. A row stamped 5 was read by a
+// browser through Gemini; a row stamped 6 by the worker through Anthropic.
+//
+// 7 adds the `geometry` figure kind. This one is a real change to what is
+// asked for, not just how: a question whose diagram is an angle construction
+// now has somewhere structured to put its bisector ticks and right-angle
+// squares instead of falling through to hand-written SVG that drops them. Rows
+// stamped 6 and 7 can hold visibly different figures for the same crop, which
+// is exactly what the version is for.
+export const PROMPT_VERSION = 7
 
 // Prompt texts for the question-recreation pipeline. Shared by the
 // question-ops Edge Function and the Node eval harness — ONE source of truth,
@@ -72,7 +75,18 @@ const SYSTEM_FIGURE_RULES = `12. Fiqurlar: deklarativ spec ver, şəkil çəkmə
    ən aşağı nəticə sətri result_tex.
    Nümunə: ••••×36, altda xətt, •••••, +9762 (1 sola), xətt, •••••• →
    {"rows":[{"tex":"••••"},{"tex":"36","op":"×"},{"tex":"•••••"},{"tex":"9762","op":"+","indent":1}],"hline_after":[1,3],"result_tex":"••••••"}.
-15. YUXARIDAKI NÖVLƏRİN HEÇ BİRİNƏ UYMAYAN FİQUR — kind="raw_svg", raw_svg sahəsinə SVG yaz.
+15. MÜSTƏVİ HƏNDƏSƏ (bucaqlar, şüalar, üçbucaqlar, paralel xətlər) — kind="geometry".
+   Bu növ raw_svg-dən ÜSTÜNDÜR: həndəsi şəkil çəkirsənsə və nöqtə/xətt/bucaqla ifadə oluna bilirsə, raw_svg YOX, geometry ver.
+   points: hər adlandırılmış nöqtə {id, x, y, label, dot}. Koordinatlar sadə müstəvi, y AŞAĞI (SVG kimi), width/height ver (məs. 320x240).
+   lines: {from, to, kind} — kind="segment" (parça), "ray" (şüa, from-dan to istiqamətinə sonsuz), "line" (düz xətt, hər iki tərəfə sonsuz).
+   İŞARƏLƏR — bunlar bəzək deyil, sualın ŞƏRTİDİR; şəkildə varsa MÜTLƏQ ver:
+     ticks: 1-3 — bərabər uzunluq işarəsi. EYNİ say = həmin parçalar bərabərdir.
+     parallel: 1-3 — paralellik oxu. EYNİ say = həmin xətlər paraleldir.
+     angles[].right: true — düz bucaq. KVADRAT kimi çəkilir; "90°" yazılı qövs DEYİL.
+     angles[].arcs: 1-3 — bərabər bucaq qövsü. EYNİ say = həmin bucaqlar bərabərdir; tənbölən (bisektris) məhz bununla bildirilir.
+   angles: at=[qol, TƏPƏ, qol] — təpə ORTADA. label = çap olunmuş ölçü ("30°", "x", "2\\alpha").
+   Ölçüləri şəkildən oxu. İşarəsiz verilən tənbölən və ya paralellik sualı həll oluna bilməyən başqa suala çevrilir.
+16. YUXARIDAKI NÖVLƏRİN HEÇ BİRİNƏ UYMAYAN FİQUR — kind="raw_svg", raw_svg sahəsinə SVG yaz.
    Həndəsə şəkilləri bura düşür: bucaqlı şüalar, üçbucaq/dördbucaq qurumları, işarələnmiş bucaqlar, paralel oxlar, adlandırılmış nöqtələr.
    Sual şəklə istinad edirsə və uyğun struktur növ yoxdursa, figures-i BOŞ BURAXMA — raw_svg ver.
    Qaydalar: viewBox MÜTLƏQ olsun (məs. viewBox="0 0 400 300"); yalnız path, line, polyline, polygon, rect, circle, ellipse, text, tspan, g, defs, marker;

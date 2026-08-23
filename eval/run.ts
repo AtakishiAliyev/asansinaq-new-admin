@@ -10,6 +10,7 @@ import { extractionSuite } from './suites/extraction.ts'
 import { figuresSuite } from './suites/figures.ts'
 import { lintSuite } from './suites/lint.ts'
 import { pageRangeSuite } from './suites/page-range.ts'
+import { renderSuite } from './suites/render.ts'
 import { segmenterSuite } from './suites/segmenter.ts'
 import { errorsSuite } from './suites/errors.ts'
 import { promptsSuite } from './suites/prompts.ts'
@@ -29,6 +30,7 @@ const SUITES: Suite[] = [
   extractionSuite,
   lintSuite,
   figuresSuite,
+  renderSuite,
   pageRangeSuite,
 ]
 

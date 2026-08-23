@@ -1,4 +1,5 @@
 import { RawSvgFig } from '@/components/question/raw-svg-fig'
+import { GeometryFigView } from '@/components/question/geometry-fig'
 import type { FigItem, FigureDoc } from '@/core/figures/figspec'
 import { FunctionGraphView } from './function-graph'
 import { VennFigView } from './venn-fig'
@@ -15,6 +16,8 @@ export function FigItemView({
   resolveImageUrl?: (src: string) => string
 }) {
   switch (item.kind) {
+    case 'geometry':
+      return <GeometryFigView fig={item} />
     case 'function_graph':
       return <FunctionGraphView fig={item} />
     case 'venn':

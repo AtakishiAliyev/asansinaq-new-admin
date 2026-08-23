@@ -26,7 +26,7 @@ const figureObject = {
   properties: {
     kind: {
       type: 'string',
-      enum: ['function_graph', 'venn', 'division_scheme', 'vertical_arithmetic', 'table', 'number_line', 'raw_svg'],
+      enum: ['geometry', 'function_graph', 'venn', 'division_scheme', 'vertical_arithmetic', 'table', 'number_line', 'raw_svg'],
     },
     // function_graph
     panels: {
@@ -75,6 +75,68 @@ const figureObject = {
           },
         },
         required: ['x_min', 'x_max', 'y_min', 'y_max'],
+      },
+    },
+    // geometry — plane figures whose MARKS are data, not strokes
+    width: T.num,
+    height: T.num,
+    points: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'short id referenced by lines/angles, e.g. A, B, O' },
+          x: T.num,
+          y: T.num,
+          label: { type: 'string', description: 'the printed name; omit for an unlabelled construction point' },
+          label_anchor: { type: 'string', enum: ['left', 'right', 'above', 'below'] },
+          dot: { type: 'boolean', description: 'draw a filled dot at this point' },
+        },
+        required: ['id', 'x', 'y'],
+      },
+    },
+    lines: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          from: T.str,
+          to: T.str,
+          kind: { type: 'string', enum: ['segment', 'ray', 'line'] },
+          color: { type: 'string', enum: ['primary', 'secondary', 'guide', 'ink', 'muted'] },
+          dashed: T.bool,
+          ticks: { type: 'integer', description: '1-3 equal-length cross ticks; SAME count on two lines means those lengths are equal' },
+          parallel: { type: 'integer', description: '1-3 chevrons; SAME count on two lines means those lines are parallel' },
+          label: { type: 'string', description: 'a length or name printed along the line' },
+        },
+        required: ['from', 'to'],
+      },
+    },
+    angles: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          at: { type: 'array', items: T.str, description: '[armPoint, vertexPoint, armPoint] — the vertex is in the MIDDLE' },
+          label: { type: 'string', description: 'the printed measure, e.g. 30°, x, 2\\alpha' },
+          right: { type: 'boolean', description: 'true for a right angle: drawn as a square, never as an arc labelled 90' },
+          arcs: { type: 'integer', description: '1-3 arcs; SAME count on two angles means those angles are equal — this is how a bisector says it bisects' },
+          color: { type: 'string', enum: ['primary', 'secondary', 'guide', 'ink', 'muted'] },
+          radius: T.num,
+        },
+        required: ['at'],
+      },
+    },
+    regions: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          points: { type: 'array', items: T.str },
+          color: { type: 'string', enum: ['primary', 'secondary', 'guide', 'ink', 'muted'] },
+          opacity: T.num,
+        },
+        required: ['points'],
       },
     },
     // venn
