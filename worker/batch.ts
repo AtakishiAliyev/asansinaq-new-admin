@@ -6,6 +6,7 @@
 // separate events, which is why nothing in this file holds state between them.
 import Anthropic from '@anthropic-ai/sdk'
 import { config } from './config.ts'
+import { samplingFor } from './sampling.ts'
 
 export const anthropic = new Anthropic({ apiKey: config.ANTHROPIC_API_KEY })
 
@@ -19,7 +20,10 @@ export async function submitBatch(items: BatchItem[]): Promise<string> {
   const batch = await anthropic.messages.batches.create({
     requests: items.map((item) => ({
       custom_id: item.customId,
-      params: { model: item.model, ...item.params },
+      // Sampling is applied here, where the model id is known. The request
+      // builder cannot decide it: it resolves a lane, and whether a lane's
+      // model accepts `temperature` is a property of the id in config.
+      params: { model: item.model, ...samplingFor(item.model), ...item.params },
     })),
   })
   return batch.id
@@ -30,6 +34,25 @@ export type BatchState = 'in_progress' | 'ended' | 'canceling'
 export async function batchState(batchId: string): Promise<BatchState> {
   const batch = await anthropic.messages.batches.retrieve(batchId)
   return batch.processing_status
+}
+
+/**
+ * The useful half of a batch error is nested one level deeper than it looks.
+ *
+ * `result.error` is an envelope whose own `type` is always the string "error";
+ * the reason lives in `result.error.error.message`. Reporting the envelope
+ * writes "provider error: error" onto every failed row, which is what happened
+ * on the first live run: twelve rows failed for two DIFFERENT reasons and every
+ * one of them said the same uninformative thing. The messages were sitting in
+ * the batch the whole time — results are retained for 29 days — but nothing in
+ * the database pointed at them.
+ */
+function describeError(
+  envelope: Anthropic.Messages.MessageBatchErroredResult['error'],
+): string {
+  const inner = (envelope as { error?: { type?: string; message?: string } }).error
+  if (inner?.message) return `${inner.type ?? 'error'}: ${inner.message}`
+  return `provider error: ${envelope.type}`
 }
 
 export interface BatchOutcome {
@@ -62,7 +85,7 @@ export async function* batchResults(
         usage: null,
         error:
           result.type === 'errored'
-            ? `provider error: ${result.error.type}`
+            ? describeError(result.error)
             : `batch request ${result.type}`,
       }
       continue

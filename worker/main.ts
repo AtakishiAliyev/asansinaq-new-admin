@@ -93,7 +93,12 @@ async function pollPass(): Promise<number> {
     }
 
     const byId = new Map(batchRows.map((r) => [r.id, r]))
+    // `done` means "this row is finished with, one way or the other". Counting
+    // it as work written conflated a structured question with a failed one and
+    // reported a batch where every request errored as twelve questions written.
     const done: number[] = []
+    let structured = 0
+    let failed = 0
     for await (const outcome of batchResults(batchId, EMIT_QUESTION_TOOL_NAME)) {
       const id = idFromCustomId(outcome.customId)
       const row = id === null ? undefined : byId.get(id)
@@ -116,13 +121,20 @@ async function pollPass(): Promise<number> {
 
       if (!outcome.wire) {
         await markFailed(db, row, outcome.error ?? 'no answer')
+        // Surfaced once per batch, not per row: when a whole batch fails it
+        // fails for the same one or two reasons, and twelve identical lines
+        // bury the one that matters.
+        if (failed === 0) log(`  first failure: ${outcome.error ?? 'no answer'}`)
+        failed++
         done.push(row.id)
         continue
       }
 
       try {
         const context = await bookContext(db, row.book_id)
-        await applyResult(db, row, context, outcome.wire)
+        const applied = await applyResult(db, row, context, outcome.wire)
+        if (applied.status === 'structured') structured++
+        else failed++
         // Re-downloaded rather than remembered: this pass may be running in a
         // different process than the one that submitted, and the cache key has
         // to be computed from the same bytes either way.
@@ -142,6 +154,7 @@ async function pollPass(): Promise<number> {
       } catch (error) {
         log(`row ${row.id} not applied: ${String(error)}`)
         await markFailed(db, row, String(error).slice(0, 300))
+        failed++
         done.push(row.id)
       }
     }
@@ -154,7 +167,10 @@ async function pollPass(): Promise<number> {
       log(`batch ${batchId}: ${missing.length} row(s) had no result — released`)
       await release(db, missing)
     }
-    log(`batch ${batchId}: ${done.length} question(s) written`)
+    log(
+      `batch ${batchId}: ${structured} structured, ${failed} failed` +
+        (missing.length ? `, ${missing.length} released` : ''),
+    )
   }
   return written
 }
@@ -232,7 +248,14 @@ async function submitPass(): Promise<number> {
 
   // Written before anything waits on it: this is what a restart reads.
   await attachBatch(db, batchId, 'extract', submitted)
-  log(`batch ${batchId}: submitted ${items.length} question(s) from book ${bookId}`)
+  // The books the batch ACTUALLY holds, not the one the claim started from: the
+  // fallback claim above takes rows from anywhere, so a batch that began with
+  // book 22 can end up carrying three books' questions and reporting one.
+  const books = [...new Set(rows.map((r) => r.book_id))].sort((a, b) => a - b)
+  log(
+    `batch ${batchId}: submitted ${items.length} question(s) from ` +
+      `book${books.length > 1 ? 's' : ''} ${books.join(', ')}`,
+  )
   return served
 }
 

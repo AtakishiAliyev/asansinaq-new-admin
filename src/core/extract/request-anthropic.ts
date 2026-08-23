@@ -92,12 +92,28 @@ const SYSTEM_PROMPT = `${EXTRACT_SYSTEM}\n\n${FEWSHOT_FIGURES}`
 // answer rather than as a limit we set.
 const MAX_TOKENS = 8192
 
+// NOT strict.
+//
+// Strict tool use compiles the schema into a sampling grammar, and that
+// compiler caps a schema at 24 optional parameters. Ours has 63, because the
+// figure shape is a flat union: one object whose `kind` names the figure and
+// whose per-kind fields all sit beside each other as optional siblings. That
+// shape is inherited from Gemini's responseSchema, which could not express
+// oneOf at all, and it is what `wireFigure` and the extraction fixtures read.
+//
+// So the two are mutually exclusive by construction, and no amount of pruning
+// closes a gap of 63 to 24. A real discriminated union would fix both at once
+// and is the right eventual answer; it is a schema change with its own
+// before-and-after, not something to fold into a provider migration.
+//
+// The tool is still forced, so the model always answers through it. What is
+// lost is the guarantee that the answer validates — which is what lint has
+// always been for.
 const TOOL: Anthropic.Tool = {
   name: EMIT_QUESTION_TOOL_NAME,
   description:
     'Return the question exactly as printed in the image: its stem, its five options, any figure as a structured spec, and the category it belongs to. Copy the source; never solve it, correct it, or improve it.',
   input_schema: emitQuestionSchema,
-  strict: true,
 }
 
 function categoryTree(categories: CategoryOption[]): string {
@@ -146,9 +162,17 @@ export function buildAnthropicExtract(
     lane: input.hasFigure ? 'figure' : 'text',
     params: {
       max_tokens: MAX_TOKENS,
-      // The recreation must copy, not compose. Sampling is the one setting
-      // that can turn a correct read into a plausible one.
-      temperature: 0,
+      // `temperature` is deliberately absent.
+      //
+      // The recreation must copy rather than compose, and temperature 0 used to
+      // say so. But sampling parameters are REMOVED on the current models —
+      // Sonnet 5 rejects `temperature` outright with "deprecated for this
+      // model" — while older ones still accept it. This module resolves a lane,
+      // not a model id, so it cannot know which it is talking to; the worker
+      // can, and adds it back where the configured model takes it.
+      //
+      // Determinism now rests on the copy-only rules and the forced tool, not
+      // on a knob. Nothing here may add a sampling parameter unconditionally.
       system: [
         {
           type: 'text',

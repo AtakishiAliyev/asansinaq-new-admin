@@ -49,6 +49,20 @@ function objectNodes(node: unknown, found: Record<string, unknown>[] = []) {
   return found
 }
 
+/** Properties an object declares but does not require — what strict tool use
+ *  counts, and caps at 24. */
+function countOptional(node: unknown): number {
+  let total = 0
+  for (const object of objectNodes(node)) {
+    const properties = Object.keys(
+      (object.properties as Record<string, unknown> | undefined) ?? {},
+    )
+    const required = new Set((object.required as string[] | undefined) ?? [])
+    total += properties.filter((name) => !required.has(name)).length
+  }
+  return total
+}
+
 function hasKeyAnywhere(node: unknown, key: string): boolean {
   if (Array.isArray(node)) return node.some((n) => hasKeyAnywhere(n, key))
   if (node === null || typeof node !== 'object') return false
@@ -152,8 +166,31 @@ export const anthropicRequestSuite = suite('anthropic-request', {
     eq(r.params.tools?.length, 1)
   },
 
-  'the recreation is not sampled'() {
-    eq(build().params.temperature, 0)
+  // A live batch rejected every figure-lane request with "`temperature` is
+  // deprecated for this model". Sampling parameters are removed on the current
+  // models and accepted on older ones, and this module resolves a lane rather
+  // than a model id, so it cannot tell which it is addressing. The worker adds
+  // them back where the configured model takes them.
+  'no sampling parameter is sent from here, because the model is not known yet'() {
+    const params = build().params as Record<string, unknown>
+    for (const key of ['temperature', 'top_p', 'top_k']) {
+      notOk(key in params, `${key} göndərilir — model bilinmədən olmaz`)
+    }
+  },
+
+  // Strict tool use compiles the schema into a grammar and caps it at 24
+  // optional parameters. The flat figure union has 63, so the two cannot
+  // coexist: a live batch failed every text-lane request on exactly this.
+  // Turning strict back on means giving the figures a real discriminated union
+  // first, not trimming a field or two.
+  'the tool is not strict, which the flat union cannot satisfy'() {
+    const tool = build().params.tools?.[0] as { strict?: boolean }
+    notOk(tool.strict, 'strict yenidən açılıb — 24 optional limitini yoxlayın')
+    const optional = countOptional(emitQuestionSchema)
+    ok(
+      optional > 24,
+      `optional sahə sayı ${optional} — 24-dən aşağı düşübsə, strict yenidən mümkündür`,
+    )
   },
 
   // `nullable` is Gemini's spelling and is not a JSON Schema keyword. It is not

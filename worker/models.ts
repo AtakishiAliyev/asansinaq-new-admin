@@ -8,6 +8,8 @@
 import type { ModelLane } from '@/core/extract/request-anthropic'
 import { config } from './config.ts'
 
+export { acceptsSampling, samplingFor } from './sampling.ts'
+
 export function modelFor(lane: ModelLane): string {
   return lane === 'figure' ? config.MODEL_FIGURE : config.MODEL_TEXT
 }
