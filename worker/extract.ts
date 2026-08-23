@@ -5,6 +5,7 @@
 // that happens before submission; `applyResult` is everything that happens
 // after, and it must not depend on anything the submitting process held in
 // memory. The only thing carried between them is the batch handle on the row.
+import { extractCacheInput } from '@/core/extract/cache-input'
 import { PROMPT_VERSION } from '@/core/extract/prompts'
 import {
   buildAnthropicExtract,
@@ -65,28 +66,18 @@ export function requestFor(
   })
 }
 
-/** The cache key's input half — everything that could change the answer. */
+/** The cache key's input half — everything that could change the answer.
+ *  The shape itself lives in core so every caller computes the same key. */
 export function cacheInputFor(
   row: QuestionRow,
   crop: { image: string; mime: string },
   context: BookContext,
 ): unknown {
-  return {
-    image: crop.image,
-    mime: crop.mime,
-    hasFigure: row.figure_kind !== 'none',
-    hint: row.text_layer ?? null,
-    testNo: row.test_no ?? null,
-    expectedNumber: row.q_no,
-    categoryIds: context.categories.map((c) => c.id),
-    // A repair is a re-read of a crop we have already read, so without this it
-    // is the most perfect cache hit in the system: same image, same prompt, same
-    // key, and the "repaired" question comes back byte-identical. The round
-    // increments, the wave compares the same output to the same crop, reaches
-    // the same verdict, and the row burns both of its repairs having changed
-    // nothing — while every log line reads like the loop is working.
-    repairRound: row.repair_round,
-  }
+  return extractCacheInput(
+    row,
+    crop,
+    context.categories.map((c) => c.id),
+  )
 }
 
 export interface ApplyOutcome {

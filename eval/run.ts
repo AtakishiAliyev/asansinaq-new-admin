@@ -17,6 +17,7 @@ import { errorsSuite } from './suites/errors.ts'
 import { promptsSuite } from './suites/prompts.ts'
 import { rateGateSuite } from './suites/rate-gate.ts'
 import { svgSafeSuite } from './suites/svg-safe.ts'
+import { workerCacheSuite } from './suites/worker-cache.ts'
 
 const SUITES: Suite[] = [
   segmenterSuite,
@@ -25,6 +26,7 @@ const SUITES: Suite[] = [
   rateGateSuite,
   promptsSuite,
   anthropicRequestSuite,
+  workerCacheSuite,
   classifySuite,
   answerKeySuite,
   compareSuite,
