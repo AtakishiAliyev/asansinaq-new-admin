@@ -69,7 +69,17 @@ const onlyIds = argv.includes('--ids')
  * quietly congratulating it for agreeing.
  */
 const KNOWN_UNFAITHFUL = new Map<number, string>([
-  [461, 'asked angle m(CDE) is never declared in the figure spec'],
+  // #461 lived here: its stem asked for m(CDE) and its figure declared five
+  // angles, none at D. The wave caught it unprompted on the first live run, the
+  // repair round re-extracted it, and ∠CDE is now in the spec — so it is a
+  // faithful row and expecting a flag on it would be the failure.
+  //
+  // Nothing replaced it, which is worth saying out loud: this map is empty
+  // because the bank is currently clean, not because the check was dropped. The
+  // synthetic corruptions below cover the same class deliberately. When a real
+  // unfaithful row is found, put it here rather than fixing it quietly — a
+  // defect the wave has never been shown is a defect it has never been proven
+  // to catch.
 ])
 
 type Corruption = {
