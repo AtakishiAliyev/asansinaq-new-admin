@@ -6,7 +6,7 @@
 // there was a worker. The shapes match deliberately, so the ops page keeps
 // showing one pipeline rather than two.
 import { createHash } from 'node:crypto'
-import { PROMPT_VERSION } from '@/core/extract/prompts'
+import { PROMPT_VERSION, promptFingerprint } from '@/core/extract/prompts'
 import type { Db } from './db.ts'
 import { config } from './config.ts'
 import { estimateCost, promptTokens, type TokenUsage } from './models.ts'
@@ -63,13 +63,26 @@ export async function logOp(
 }
 
 /**
- * Keyed by everything that could change the answer, including the resolved
- * model and the prompt version — so swapping MODEL_TEXT or editing a prompt
- * starts a fresh generation instead of replaying the old one's output.
+ * Keyed by everything that could change the answer: the resolved model, the
+ * prompt version, and a fingerprint of the prompt TEXT.
+ *
+ * The fingerprint is the one that matters. The version is bumped by hand, and
+ * the first time a rule was tuned it was not — so the cache replayed the
+ * pre-tuning answer, reported a hit, and the tuning was measured against its
+ * own old output. Now an edited prompt invalidates itself whether or not
+ * anyone remembered the number.
  */
 export function cacheKey(op: string, model: string, input: unknown): string {
   return createHash('sha256')
-    .update(JSON.stringify({ v: PROMPT_VERSION, m: model, op, input }))
+    .update(
+      JSON.stringify({
+        v: PROMPT_VERSION,
+        p: promptFingerprint(),
+        m: model,
+        op,
+        input,
+      }),
+    )
     .digest('hex')
 }
 

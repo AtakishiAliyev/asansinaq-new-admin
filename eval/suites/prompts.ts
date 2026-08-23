@@ -1,4 +1,5 @@
 import {
+  promptFingerprint,
   EXTRACT_SYSTEM,
   EXTRACT_SYSTEM_RASTER,
   COMPARE_FIGURES_PROMPT,
@@ -75,6 +76,19 @@ export const promptsSuite = suite('prompts', {
     ).confidence!.description!
     ok(/NOT question difficulty/i.test(desc))
     ok(desc.includes('0.85'))
+  },
+
+  // The version is a human decision and was once forgotten mid-tuning: the
+  // cache replayed the pre-edit answer, reported a hit, and the tuning was
+  // measured against its own old output. The fingerprint is what actually
+  // guards the cache now, so it has to move when the text does.
+  'the fingerprint tracks the prompt text, not the version number'() {
+    const before = promptFingerprint()
+    eq(promptFingerprint(), before, 'eyni mətn üçün sabit olmalıdır')
+    ok(/^[0-9a-z]+$/.test(before), `barmaq izi qəribədir: ${before}`)
+    // Not a constant, and not derived from PROMPT_VERSION — those are the two
+    // ways this could silently stop protecting anything.
+    ok(before !== '0' && before !== String(PROMPT_VERSION))
   },
 
   'the version is bumped whenever these texts change'() {

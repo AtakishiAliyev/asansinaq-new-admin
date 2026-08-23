@@ -186,6 +186,22 @@ function lintFigures(doc: FigureDoc): Flag[] {
           })
         }
       }
+      // Equal-length ticks need a finite length to be equal to. On a ray or a
+      // line they cannot mean what they say, and the figure they appear in is
+      // almost always two parallel rays cut by a transversal — the mark meant
+      // was `parallel`. Flagged rather than rewritten: converting it would be
+      // the pipeline inventing a given condition, which is the one thing the
+      // recreation must never do.
+      for (const line of item.lines) {
+        if (line.ticks && (line.kind ?? 'segment') !== 'segment') {
+          flags.push({
+            level: 'warning',
+            code: 'geo_ticks_on_ray',
+            message: `"${line.from}${line.to}" şüa/xəttdir, amma bərabər uzunluq işarəsi daşıyır — yəqin ki, paralellik (parallel) nəzərdə tutulub`,
+          })
+        }
+      }
+
       // Two points at the same place is how a misread construction shows up:
       // the lines through them collapse and the figure quietly loses a side.
       const seen = new Map<string, string>()

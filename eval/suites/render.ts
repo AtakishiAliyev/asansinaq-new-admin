@@ -263,6 +263,58 @@ export const renderSuite = suite('render', {
     ok(codes.includes('geo_coincident_points'), codes.join(','))
   },
 
+  // Seen live: three of four FEM figures marked their two rays `parallel`, and
+  // the fourth marked the same shape `ticks`. Equal-length marks need a finite
+  // length to be equal to, so on a ray they cannot mean what they say — and the
+  // figure is a transversal, where the mark meant is parallelism. Flagged and
+  // not rewritten: converting it would invent a given condition.
+  'equal-length ticks on a ray are flagged as a probable parallelism mark'() {
+    const q = wireToQuestion({
+      stem: 'S',
+      figures: [
+        {
+          kind: 'geometry',
+          width: 300,
+          height: 200,
+          points: [
+            { id: 'A', x: 10, y: 20 },
+            { id: 'B', x: 280, y: 20 },
+            { id: 'C', x: 10, y: 160 },
+            { id: 'D', x: 280, y: 160 },
+          ],
+          lines: [
+            { from: 'A', to: 'B', kind: 'ray', ticks: 1 },
+            { from: 'C', to: 'D', kind: 'ray', ticks: 1 },
+          ],
+        },
+      ],
+    })
+    const codes = lintQuestion(q).map((f) => f.code)
+    eq(codes.filter((c) => c === 'geo_ticks_on_ray').length, 2, codes.join(','))
+  },
+
+  'ticks on a real segment are left alone'() {
+    const q = wireToQuestion({
+      stem: 'S',
+      figures: [
+        {
+          kind: 'geometry',
+          width: 100,
+          height: 100,
+          points: [
+            { id: 'A', x: 10, y: 10 },
+            { id: 'B', x: 90, y: 90 },
+          ],
+          lines: [{ from: 'A', to: 'B', kind: 'segment', ticks: 2 }],
+        },
+      ],
+    })
+    notOk(
+      lintQuestion(q).some((f) => f.code === 'geo_ticks_on_ray'),
+      'parça üçün xəbərdarlıq olmamalıdır',
+    )
+  },
+
   // The kind exists to take work AWAY from raw_svg, so the prompt has to
   // prefer it. If this drifts, geometry silently stops being used and the
   // marks start disappearing again.

@@ -80,7 +80,8 @@ const SYSTEM_FIGURE_RULES = `12. Fiqurlar: deklarativ spec ver, şəkil çəkmə
    points: hər adlandırılmış nöqtə {id, x, y, label, dot}. Koordinatlar sadə müstəvi, y AŞAĞI (SVG kimi), width/height ver (məs. 320x240).
    lines: {from, to, kind} — kind="segment" (parça), "ray" (şüa, from-dan to istiqamətinə sonsuz), "line" (düz xətt, hər iki tərəfə sonsuz).
    İŞARƏLƏR — bunlar bəzək deyil, sualın ŞƏRTİDİR; şəkildə varsa MÜTLƏQ ver:
-     ticks: 1-3 — bərabər uzunluq işarəsi. EYNİ say = həmin parçalar bərabərdir.
+     ticks: 1-3 — bərabər uzunluq işarəsi. EYNİ say = həmin parçalar bərabərdir. YALNIZ kind="segment" üçün: şüanın/xəttin uzunluğu yoxdur, ona ticks vermə.
+     İki şüa/xətt üzərindəki eyni işarələr demək olar ki, həmişə PARALELLİKDİR — ticks yox, parallel ver.
      parallel: 1-3 — paralellik oxu. EYNİ say = həmin xətlər paraleldir.
      angles[].right: true — düz bucaq. KVADRAT kimi çəkilir; "90°" yazılı qövs DEYİL.
      angles[].arcs: 1-3 — bərabər bucaq qövsü. EYNİ say = həmin bucaqlar bərabərdir; tənbölən (bisektris) məhz bununla bildirilir.
@@ -109,6 +110,32 @@ export const EXTRACT_SYSTEM = [SYSTEM_HEAD, SYSTEM_FIGURE_RULES].join('\n')
 
 /** System prompt for the raster lane (image model draws the figure). */
 export const EXTRACT_SYSTEM_RASTER = [SYSTEM_HEAD, SYSTEM_NO_FIGURE_RULE].join('\n')
+
+/**
+ * A fingerprint of the text actually sent to the model.
+ *
+ * PROMPT_VERSION is a human decision, and humans forget. Editing a rule without
+ * bumping it makes `ops_cache` replay the answer the OLD prompt gave — and the
+ * run reports a cache hit and reads as a success. That happened the first time
+ * a rule here was tuned: the tuning was measured against its own pre-tuning
+ * output, and the only clue was the word "cache" in a log line.
+ *
+ * So the cache key carries this rather than trusting the number. The version
+ * still stamps rows, which is what it is good at — a person reading a row wants
+ * to know which generation produced it. The fingerprint decides what may be
+ * REPLAYED, which is what a machine is good at. A forgotten bump now costs
+ * traceability and never correctness.
+ *
+ * djb2: this salts a cache key, it is not a security boundary.
+ */
+export function promptFingerprint(): string {
+  const source = `${EXTRACT_SYSTEM} ${EXTRACT_SYSTEM_RASTER}`
+  let hash = 5381
+  for (let i = 0; i < source.length; i++) {
+    hash = ((hash << 5) + hash + source.charCodeAt(i)) | 0
+  }
+  return (hash >>> 0).toString(36)
+}
 
 
 export const COMPARE_FIGURES_PROMPT = `İki şəkil verilir: (1) ORİJİNAL fiqur (watermark ola bilər), (2) YENİDƏN YARADILMIŞ fiqur.

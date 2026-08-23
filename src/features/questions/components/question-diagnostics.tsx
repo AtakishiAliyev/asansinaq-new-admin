@@ -9,6 +9,7 @@ const FLAG_HINTS: Record<string, string> = {
   geo_degenerate_angle: 'bucaq eyni nöqtələrdən ibarətdir',
   geo_right_angle_with_arcs: 'bucaq həm düz, həm qövslə işarələnib',
   geo_coincident_points: 'iki nöqtə eyni yerdədir',
+  geo_ticks_on_ray: 'şüada bərabər uzunluq işarəsi — paralellik nəzərdə tutulub?',
   geo_empty: 'həndəsə fiqurunda çəkiləcək bir şey yoxdur',
   raster_figure: 'fiqur şəkil kimi yaradılıb — gözlə təsdiqlə',
   raster_mismatch: 'yaradılan fiqur orijinala uyğun gəlmədi',

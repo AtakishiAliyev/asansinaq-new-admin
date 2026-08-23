@@ -48,7 +48,7 @@ import {
   type GeminiRequest,
 } from '@/core/extract/request-gemini'
 import { estimateCost, promptTokens, samplingFor, usageFrom } from '@/core/models'
-import { PROMPT_VERSION } from '@/core/extract/prompts'
+import { PROMPT_VERSION, promptFingerprint } from '@/core/extract/prompts'
 
 // Ids are configuration, exactly as in the worker: which model serves a lane is
 // a question an eval settles, not a constant.
@@ -415,6 +415,9 @@ Deno.serve(async (req) => {
       const key = await sha256Hex(
         JSON.stringify({
           v: PROMPT_VERSION,
+          // See promptFingerprint: the version is bumped by hand and was once
+          // forgotten, which made the cache serve a pre-edit answer.
+          p: promptFingerprint(),
           m: model,
           op,
           image: body.image,
@@ -487,7 +490,7 @@ Deno.serve(async (req) => {
 
       const model = MODELS.utility
       const key = await sha256Hex(
-        JSON.stringify({ v: PROMPT_VERSION, m: model, op, ...cachePayload }),
+        JSON.stringify({ v: PROMPT_VERSION, p: promptFingerprint(), m: model, op, ...cachePayload }),
       )
       const hit = await cacheGet(db, key)
       if (hit?.response) {
