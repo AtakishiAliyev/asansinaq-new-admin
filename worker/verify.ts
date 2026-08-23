@@ -136,12 +136,14 @@ export async function applyVerdict(
       verify_diff: verdict.differences as never,
       verified_at: new Date().toISOString(),
       flags: flags as never,
+      // `queued_at` is deliberately NOT set here. The caller still holds the
+      // claim and the batch handle, and clearing those is `finish`, which nulls
+      // queued_at along with them — so a re-queue written now is erased a few
+      // lines later and the row falls back to the verify wave to be compared
+      // against unchanged, forever. The caller owns the claim lifecycle, so the
+      // caller re-queues, after it has let go.
       ...(repairing
-        ? {
-            repair_round: row.repair_round + 1,
-            queued_at: new Date().toISOString(),
-            verified_at: null,
-          }
+        ? { repair_round: row.repair_round + 1, verified_at: null }
         : {}),
     })
     .eq('id', row.id)

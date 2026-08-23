@@ -14,6 +14,7 @@
     "eval": "node --import ./eval/loader.mjs --disable-warning=ExperimentalWarning eval/run.ts",
     "smoke:queue": "node --disable-warning=ExperimentalWarning scripts/queue-smoke.ts",
     "smoke:verify": "node --import ./eval/loader.mjs --disable-warning=ExperimentalWarning scripts/verify-smoke.ts",
+    "sample:verify": "node --import ./eval/loader.mjs --disable-warning=ExperimentalWarning scripts/verify-sample.ts",
     "smoke:request": "node --import ./eval/loader.mjs --disable-warning=ExperimentalWarning scripts/request-smoke.ts",
     "worker": "node --import ./eval/loader.mjs --disable-warning=ExperimentalWarning worker/main.ts",
     "clean:testdata": "node --disable-warning=ExperimentalWarning scripts/clean-testdata.ts",

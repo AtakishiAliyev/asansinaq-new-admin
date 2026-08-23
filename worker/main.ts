@@ -49,6 +49,7 @@ import {
   finish,
   inFlight,
   nextQueuedBook,
+  requeue,
   release,
   renew,
 } from './queue.ts'
@@ -142,6 +143,8 @@ async function pollPass(): Promise<number> {
     // it as work written conflated a structured question with a failed one and
     // reported a batch where every request errored as twelve questions written.
     const done: number[] = []
+    /** Mismatched rows that earned another extraction attempt. */
+    const repairIds: number[] = []
     let structured = 0
     let failed = 0
     let repaired = 0
@@ -190,7 +193,10 @@ async function pollPass(): Promise<number> {
         const applied = await applyVerdict(db, row, verdict)
         if (verdict.matches) structured++
         else failed++
-        if (applied.repairing) repaired++
+        if (applied.repairing) {
+          repaired++
+          repairIds.push(row.id)
+        }
         done.push(row.id)
         written++
         continue
@@ -231,6 +237,10 @@ async function pollPass(): Promise<number> {
     // sitting on a handle for a batch that has already ended.
     const missing = batchRows.filter((r) => !done.includes(r.id)).map((r) => r.id)
     await finish(db, done)
+    // After `finish`, never before: it clears queued_at with the rest of the
+    // claim, so a repair re-queued any earlier is silently dropped and the row
+    // comes back to the verify wave unchanged.
+    await requeue(db, repairIds)
     if (missing.length) {
       log(`batch ${batchId}: ${missing.length} row(s) had no result — released`)
       await release(db, missing)
@@ -270,6 +280,10 @@ async function verifyPass(): Promise<number> {
     .is('verified_at', null)
     .is('batch_id', null)
     .is('claimed_at', null)
+    // A row waiting on a repair has not been re-extracted yet, so verifying it
+    // again compares the same output to the same crop and reaches the same
+    // verdict at full price.
+    .is('queued_at', null)
     .order('structured_at')
     .limit(config.BATCH_SIZE)
 

@@ -20,7 +20,6 @@
 // and be equally useless, so passing the untouched row is half the test.
 //
 // Nothing is written to the database. The corruptions live in memory.
-import { readFileSync } from 'node:fs'
 import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@supabase/supabase-js'
 import {
@@ -35,21 +34,7 @@ import type { ExtractedQuestion } from '../src/core/questions/extraction.ts'
 import type { GeometryFig } from '../src/core/figures/figspec.ts'
 import type { Database } from '../src/types/database.ts'
 import { renderQuestion, fetchOptionImages } from '../worker/render-question.ts'
-
-function readEnvFile(path: string): Record<string, string> {
-  const out: Record<string, string> = {}
-  let raw: string
-  try {
-    raw = readFileSync(path, 'utf8')
-  } catch {
-    return out
-  }
-  for (const line of raw.split('\n')) {
-    const m = /^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/.exec(line)
-    if (m?.[1]) out[m[1]] = (m[2] ?? '').replace(/^["']|["']$/g, '')
-  }
-  return out
-}
+import { readEnvFile } from './env-file.ts'
 
 const env = { ...readEnvFile('.env'), ...process.env }
 const url = env.SUPABASE_URL ?? env.VITE_SUPABASE_URL

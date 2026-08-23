@@ -120,3 +120,18 @@ export async function inFlight(db: Db): Promise<QuestionRow[]> {
   if (error) throw new Error(`in-flight rows could not be read: ${error.message}`)
   return data ?? []
 }
+
+/**
+ * Put rows back on the extraction queue.
+ *
+ * Only safe once the claim is released — `finish` nulls `queued_at` along with
+ * the lease and the batch handle, so re-queueing before it undoes itself.
+ */
+export async function requeue(db: Db, ids: number[]): Promise<void> {
+  if (!ids.length) return
+  const { error } = await db
+    .from('questions')
+    .update({ queued_at: new Date().toISOString() })
+    .in('id', ids)
+  if (error) throw new Error(`rows could not be re-queued: ${error.message}`)
+}
