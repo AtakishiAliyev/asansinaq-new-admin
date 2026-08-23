@@ -11,37 +11,81 @@ review the extracted questions, then assemble exams from the question bank.
 Also: user management, credits, and general operations. Fresh build,
 no legacy code.
 
+## Branches
+
+Work only on `main`. `agent-probe` is an abandoned experiment — a
+browser-driven multi-turn agent loop with tools, Gemini support and image
+models inside the loop — kept for reference only. Do not merge it and do not
+base anything on it. Its verify/repair ideas may be consulted when the batch
+verification stage is built; the architecture below replaces that approach
+entirely.
+
 ## Where work runs
 
-There is no separate backend service. The split is by what each stage needs:
+There is no separate backend for the *interactive* app, but the paid pipeline
+is not interactive: it runs as a long-lived worker service. The split is by
+what each stage needs.
 
 - **Segmentation and cropping** run in the browser, in a Web Worker (pdf.js +
   canvas). Deterministic, no secrets, no per-page cost.
-- **Every AI model call** goes through a Supabase Edge Function
-  (`question-ops`, one function with an `op` discriminator) — page detection
-  included. Model API keys live in function secrets and never reach the client
-  bundle, and one door is also what keeps the budget cap, the ledger and the
-  cache impossible to bypass by adding a second function.
-- **Orchestration stays in the browser** and is deliberate, not temporary: the
-  vector figure must be rendered before it can be compared with the original,
-  and crops are read through the operator's own session. The function only
-  runs models; every decision (lint, repair, lane routing, verification) lives
-  client-side where the renderers are.
+- **The `worker/` service owns every batch model call.** A long-running
+  Node/TypeScript process claims work through the queue RPCs with the service
+  role key, builds one structured request per question, submits it to the
+  Anthropic Message Batches API, polls, writes the questions back, and finishes
+  the claim. It runs under Node's own TypeScript stripping with the eval
+  harness's alias loader — no bundler, no build step. It runs on the operator's
+  machine today; moving it to a host is an env-var change, so nothing may bake
+  in a location.
+- **Anthropic only.** Haiku for text-only questions, Sonnet for questions with
+  figures. **Both model ids come from worker env vars — never hardcode a model**,
+  so a golden-set eval can settle the choice empirically. The system prompt and
+  tool schema sit in the cached prefix; the crop image is sent exactly once per
+  call. Batch pricing is half of synchronous, which is why nothing paid runs
+  synchronously.
+- **Extraction is ONE structured call per question.** A forced `tool_use` with a
+  strict schema returns stem, options, figure spec, category and confidence
+  together. No repair round-trip in the extract wave, no separate option-box
+  call, no separate category call. The per-book category tree is its own content
+  block placed AFTER the stable prefix with its own `cache_control` breakpoint —
+  a batch is per-book, so within a run the tree caches too, and a book change
+  invalidates only that block instead of the whole prompt.
+- **Figures are vector only.** `core/figures` (figspec, curve, set-expr,
+  svg-safe, render) emits SVG that Node can rasterize, and the DSL carries
+  colour as data. Coloured figures are attempted, then flagged if the DSL cannot
+  express them. Image-generation models are NOT in the automated lane — a figure
+  the vector kinds cannot express routes to review, never to image-gen. They
+  survive only as a manual, operator-triggered fallback on the review screen.
+- **Verification is a second batch wave.** The worker renders the produced
+  question and compares it against the original crop in one Sonnet call, then
+  writes a diff and a confidence. Low confidence lands in the existing review
+  queue. At most 2 repair iterations.
+- **The browser orchestrates exactly one thing: a single-question interactive
+  re-run** from the review screen. That is what the `question-ops` Edge Function
+  is still for — that, category suggestion, answer-key parsing and page
+  detection, which stays interactive because import needs immediate feedback.
+  It is not a batch path, and no batch work may be added to it.
 - **The work list lives in the database.** `questions.queued_at` marks work to
-  do and `claimed_at`/`claimed_by` is a lease, so a closed tab loses at most
-  the batch in flight and a second tab adds throughput instead of duplicating
-  spend. Claims go through `claim_questions()` (`for update skip locked`); a
-  worker renews its lease (`renew_claims`) while a batch runs, and handing work
-  back (`release_questions`) returns the attempt — only a worker that never
-  came back spends one.
-- Pipeline logic (segmentation, the figure DSL, lint/verify, answer-key
-  parsing) is written as pure, runtime-agnostic modules — no DOM, no
-  `import.meta.env` — so the same code runs in the browser, in a function, and
-  in Node for evals.
+  do and `claimed_at`/`lease_until`/`claimed_by_worker` is a lease, so a worker
+  that dies loses at most the batch in flight and a second worker adds
+  throughput instead of duplicating spend. Claims go through
+  `claim_questions_worker()` (`for update skip locked`); the batch handle
+  (`batch_id`, `batch_custom_id`, `batch_stage`) is persisted on the row, so a
+  restart resumes polling instead of resubmitting and paying twice.
+- Pipeline logic (segmentation, the figure DSL, rendering, lint/verify,
+  answer-key parsing) is written as pure, runtime-agnostic modules — no DOM, no
+  `import.meta.env` — so the same code runs in the browser, in the worker, in a
+  function, and in Node for evals.
 
 The sibling `exam/` folder is a throwaway MVP kept as reference for its
 algorithms only. Its architecture — API keys in the browser, anon-writable
 tables — is deliberately not carried over.
+
+**Migration in progress.** The section above is the target, and parts of it are
+not built yet. Still true of the code on `main` today: every model call goes
+through `question-ops`, which calls Gemini and OpenAI `gpt-image-2`; the browser
+runs the queue worker; `core/extract/request.ts` emits Gemini bodies; figure
+redraw uses an image model; and there is no `worker/`. Sections below that still
+describe that state say so. Delete this note when the last milestone lands.
 
 ## Stack
 
@@ -58,6 +102,9 @@ tables — is deliberately not carried over.
 
 - `npm run dev` — dev server
 - `npm run eval` — pipeline-core regression suite (free, offline; see `eval/README.md`)
+- `npm run worker` — the batch worker. Needs `.env` loaded
+  (`set -a; . ./.env; set +a`) for the service-role and Anthropic keys. Spends
+  real money: it claims queued questions and submits them to the Batches API.
 - `npm run typecheck` — TS check (a hook runs this automatically after edits)
 - `npm run lint` / `npm run lint:fix` — oxlint
 - `npm run format` — Prettier write
@@ -83,28 +130,41 @@ questions, so cost is a first-class concern, not an afterthought.
 - A daily budget cap (`DAILY_BUDGET_USD`, checked via `ops_spend_today()`)
   refuses new spend server-side. The client treats that refusal as a stop, not
   as a per-question failure.
-- All calls pass through one shared rate gate (`lib/rate-gate.ts`): a provider
-  429 backs every caller off together and lowers the ceiling, because a 429
-  wastes the paid steps a question already completed.
+- Batch work is paced by the Batches API itself, not by a client gate. The
+  shared rate gate (`lib/rate-gate.ts`) covers the browser's *interactive* ops
+  only: a provider 429 backs every caller off together and lowers the ceiling,
+  because a 429 wastes the paid steps a question already completed.
 - `stores/pipeline-store.ts` holds the operator's speed/cost knobs. Every
   default reproduces the careful behaviour; each knob's UI names the risk it
-  trades away, not just the saving.
+  trades away, not just the saving. Knobs that only tuned image generation have
+  no meaning once image-gen leaves the automated lane.
+- Cost per question is the call count, not the prompt size. One extract plus one
+  verify is the budget; anything that adds a third paid call to the batch lane
+  needs a reason written down.
 
 ## Hallucination defences
 
-The recreation must copy the source, never improve it. Four independent
+The recreation must copy the source, never improve it. Three independent
 layers, none of which the system may self-certify:
 
 1. Temperature 0, copy-only prompt rules, and the PDF text layer as a hint.
 2. Deterministic lint (`core/questions/lint.ts`) over the structured result.
-3. A second, hint-free read compared against the first — agreement is what
-   earns `verified`. On scans (no hint to withhold) the model class is swapped
-   instead, or the two reads would be the same call.
-4. Generated figures and image options are rendered and compared against the
-   original region they came from.
+3. Render-and-compare: the produced question is rendered (math + vector figure)
+   and compared against the original crop in a second batch wave. Agreement is
+   what earns `verified`. This covers the figure and the text in one pass,
+   because both are in the render.
 
 Anything that fails a layer lands in the Diqqət queue with a flag. Auto-approve
-(off by default) only ever passes questions that cleared all four.
+(off by default) only ever passes questions that cleared all three.
+
+This is **three** layers where there used to be four, and the change is load
+bearing. The dropped layer was a second, hint-free read compared against the
+first — agreement between two independent reads. One structured call per
+question is the whole point of the refactor, so that layer cannot survive; layer
+3 has to be strictly stronger than it was, not merely cheaper. A verification
+wave that agrees with everything is worse than the read it replaced, and the way
+to catch that is to compare `verified` rates against questions the old pipeline
+already processed, not to trust the new number on its own.
 
 ## Source of truth
 
@@ -188,6 +248,15 @@ supabase/
 ├── templates/              # auth email bodies, referenced from config.toml
 └── migrations/             # the schema and RLS — committed, never ad-hoc SQL
 eval/                       # core regression suites — `npm run eval`, no deps
+worker/                     # the batch worker — `npm run worker`. Node + the
+│                           # eval's alias loader, no bundler, no build step.
+├── main.ts                 # claim → submit → poll → write back
+├── config.ts               # Zod-validated env; every model id lives here
+├── db.ts                   # the service-role client, created once
+├── queue.ts                # the *_worker queue RPCs
+├── batch.ts                # messages.batches create / retrieve / results
+├── ops.ts                  # ops_log, ops_cache, the daily budget guard
+└── extract.ts              # crop → request → wire → lint → row
 src/
 ├── app/                    # routing, providers, root setup
 │   ├── providers.tsx       # QueryClient, auth bootstrap, toaster
@@ -195,10 +264,10 @@ src/
 │   ├── protected-layout.tsx # the one route guard
 │   └── App.tsx
 ├── core/                   # pure pipeline logic: no DOM, no env, no React.
-│   │                       # Shared by the app, Edge Functions, and evals.
+│   │                       # Shared by the app, the worker, functions, evals.
 │   ├── segment/            # column/question detection from the text layer
 │   ├── extract/            # prompts, wire schemas, request builders
-│   ├── figures/            # the figure DSL (FigSpec) and its evaluators
+│   ├── figures/            # the figure DSL (FigSpec), evaluators, SVG render
 │   ├── questions/          # lint, compare, wire→question normalisation
 │   └── answer-key/         # deterministic key-table parsing and matching
 ├── features/
@@ -257,10 +326,14 @@ Decision rules:
 
 - Only `VITE_`-prefixed env vars reach the client. All of them are validated
   in `src/lib/env.ts` with Zod — fail fast on missing vars.
-- The Supabase anon key is public by design. The `service_role` key must
-  NEVER appear anywhere in this repo. Not in code, not in `.env`, nowhere.
-- Model API keys (Gemini, OpenAI) belong in Edge Function secrets. A model key
-  behind a `VITE_` prefix is a published key.
+- The Supabase anon key is public by design. The `service_role` key must NEVER
+  be committed and must NEVER reach the client bundle — not in code, not in any
+  tracked file, and never behind a `VITE_` prefix. It lives in the environment of
+  the process that needs it: Edge Function secrets for `question-ops`, and the
+  worker host's environment for `worker/` (the gitignored `.env` while the worker
+  runs on the operator's machine). Nothing under `src/` may read it.
+- Model API keys (Anthropic) belong in Edge Function secrets and the worker
+  host's environment. A model key behind a `VITE_` prefix is a published key.
 - `supabase/config.toml` is the source of truth for project settings, including
   auth. Change a setting there and run `config push` — never in the dashboard,
   or the repo and the project drift apart silently (it has happened twice).
@@ -315,8 +388,23 @@ No unit tests in the current phase; revisit once the UI stabilizes.
 `npm run eval` — a segmentation change that silently loses two questions per
 page is invisible in the UI and expensive downstream. The harness lives in
 `eval/`, runs free and offline against the real core modules, and its README
-states plainly what it does not cover (no model calls, no PDFs, no rendering).
-A core change lands with its case in the matching suite.
+states plainly what it does not cover. A core change lands with its case in the
+matching suite.
+
+Two things that make the gate real, and must stay that way:
+
+- **Async cases must be awaited.** A runner that calls a case without `await`
+  counts every async assertion as passed the moment it returns a promise. Any
+  suite may hold async cases; the runner is what has to be trusted.
+- **Prompt and schema changes are eval changes.** `eval/suites/prompts.ts` pins
+  invariants that a careless edit trips: contiguous rule numbering in the
+  assembled system prompts, a >20-char `description` on every schema field the
+  pipeline acts on, and the `confidence` field's stated threshold. Bump
+  `PROMPT_VERSION` in the same commit — it keys `ops_cache` and stamps rows.
+
+Rendering is covered too, once figures emit SVG from `core/` rather than React:
+an SVG string is assertable offline, so the renderers stop being the one paid
+part of the pipeline nothing can check for free.
 
 If asked to write a test ad-hoc (tricky utility, recurring bug), write it;
 otherwise skip test files.
