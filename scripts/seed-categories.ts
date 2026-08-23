@@ -13,10 +13,14 @@
 // them would put a level of nesting between every question and its real
 // category for no gain.
 //
-// `sort_order` is left at 0 like Matematik's, which means the taxonomy page —
-// it orders by sort_order then name — shows these ALPHABETICALLY rather than in
-// the order written below. Give the entries ascending sort_order values instead
-// if the listed order is meant to be the displayed one.
+// `sort_order` ascends in the order written below, because the order IS the
+// content: these are curriculum sequences, and the taxonomy page orders by
+// sort_order then name, so leaving them at 0 would file "Uzay Geometri" between
+// "Terazi" and "Yamuk" and lose the sequence entirely. Subjects already carry
+// explicit sort_order in seed.sql for the same reason.
+//
+// Existing rows are repaired, not just skipped — the first run of this script
+// inserted them all at 0.
 //
 // Data, not schema, so this is not a migration. CLAUDE.md puts data in
 // seed.sql; seeds do not run on `db push`, which is why it is also a script
@@ -117,26 +121,46 @@ for (const { subjectId, expectName, categories } of PLAN) {
 
   const { data: existing, error: existingError } = await db
     .from('categories')
-    .select('name')
+    .select('id, name, sort_order')
     .eq('subject_id', subjectId)
   if (existingError) throw new Error(`categories ${subjectId}: ${existingError.message}`)
 
-  // The unique index is on lower(name), so the skip check has to match it or a
-  // re-run would fail on a case difference rather than skipping.
-  const have = new Set((existing ?? []).map((c) => c.name.toLocaleLowerCase('tr')))
-  const missing = categories.filter((name) => !have.has(name.toLocaleLowerCase('tr')))
+  // The unique index is on lower(name), so the match has to be case-insensitive
+  // or a re-run would fail on a case difference rather than recognising the row.
+  const key = (name: string) => name.toLocaleLowerCase('tr')
+  const byName = new Map((existing ?? []).map((c) => [key(c.name), c]))
 
+  const missing = categories.filter((name) => !byName.has(key(name)))
   if (missing.length) {
     // id is GENERATED ALWAYS — supplying one is an error, not an override.
+    const { error } = await db.from('categories').insert(
+      missing.map((name) => ({
+        subject_id: subjectId,
+        name,
+        parent_id: null,
+        sort_order: categories.indexOf(name) + 1,
+      })),
+    )
+    if (error) throw new Error(`insert into ${expectName}: ${error.message}`)
+  }
+
+  // Rows that already exist may carry the wrong position — every row the first
+  // run of this script created is sitting at 0.
+  let reordered = 0
+  for (const [index, name] of categories.entries()) {
+    const row = byName.get(key(name))
+    if (!row || row.sort_order === index + 1) continue
     const { error } = await db
       .from('categories')
-      .insert(missing.map((name) => ({ subject_id: subjectId, name, parent_id: null })))
-    if (error) throw new Error(`insert into ${expectName}: ${error.message}`)
+      .update({ sort_order: index + 1 })
+      .eq('id', row.id)
+    if (error) throw new Error(`reorder ${name}: ${error.message}`)
+    reordered++
   }
 
   console.log(
     `${expectName} (subject ${subjectId}): ${missing.length} inserted, ` +
-      `${categories.length - missing.length} already present`,
+      `${categories.length - missing.length} already present, ${reordered} reordered`,
   )
 }
 
@@ -152,8 +176,16 @@ for (const subject of subjects ?? []) {
     .select('*', { count: 'exact', head: true })
     .eq('subject_id', subject.id)
     .not('parent_id', 'is', null)
+  const { count: unordered } = await db
+    .from('categories')
+    .select('*', { count: 'exact', head: true })
+    .eq('subject_id', subject.id)
+    .eq('sort_order', 0)
   console.log(
     `  ${subject.id}  ${subject.name.padEnd(12)} ${String(count ?? 0).padStart(3)} categories` +
-      (nested ? `  (${nested} NESTED — expected all flat)` : ''),
+      (nested ? `  (${nested} NESTED — expected all flat)` : '') +
+      // Not an error: Matematik predates this script and has no stated order,
+      // so it sorts by name. Worth showing rather than leaving to be discovered.
+      (unordered ? `  (${unordered} at sort_order 0 — listed alphabetically)` : ''),
   )
 }
