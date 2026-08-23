@@ -23,6 +23,14 @@
 import type { FigItem, FigureDoc } from '@/core/figures/figspec'
 import { toMarkup } from '@/core/figures/svg-safe'
 import { layoutGeometry } from '@/core/figures/render-geometry'
+import { renderVenn } from '@/core/figures/render-venn'
+import { renderFunctionGraph } from '@/core/figures/render-graph'
+import {
+  renderDivisionScheme,
+  renderNumberLine,
+  renderTable,
+  renderVerticalArithmetic,
+} from '@/core/figures/render-simple'
 import { esc, hex, num, plainTextRenderer, tag, type TexRenderer } from '@/core/figures/svg-emit'
 
 export { esc, num, tag, plainTextRenderer, type TexRenderer }
@@ -52,18 +60,49 @@ export function renderFigureDoc(doc: FigureDoc, options: RenderOptions = {}): st
 }
 
 export function renderFigItem(item: FigItem, options: RenderOptions = {}): string {
+  const tex = options.tex ?? plainTextRenderer
   switch (item.kind) {
     case 'geometry':
-      return layoutGeometry(item, options.tex ?? plainTextRenderer).svg
+      return layoutGeometry(item, tex).svg
+    case 'venn':
+      // The id prefix is the figure's position in the document, never a
+      // counter: masks are referenced by id, and a counter that never resets
+      // makes the same diagram serialise differently depending on what was
+      // rendered before it.
+      return renderVenn(item, tex, options.idPrefix ?? 'venn')
+    case 'function_graph':
+      return renderFunctionGraph(item, tex)
+    case 'table':
+      return renderTable(item, tex)
+    case 'division_scheme':
+      return renderDivisionScheme(item, tex)
+    case 'vertical_arithmetic':
+      return renderVerticalArithmetic(item, tex)
+    case 'number_line':
+      return renderNumberLine(item, tex)
+    case 'image':
+      // A stored raster from the old image-generation lane. Nothing produces
+      // these any more, but rows that already hold one must still render.
+      return tag(
+        'svg',
+        {
+          xmlns: 'http://www.w3.org/2000/svg',
+          viewBox: '0 0 420 300',
+          width: 420,
+          height: 300,
+        },
+        tag('image', { href: item.src, x: 0, y: 0, width: 420, height: 300 }),
+      )
     case 'raw_svg':
       // Already sanitized at the extraction boundary; this only re-serialises
       // the tree we chose to keep.
       return toMarkup(item.node)
     default:
-      // Not ported yet. Returning an empty string would look like a figure that
-      // rendered to nothing, which is exactly the failure this lane exists to
-      // catch — so it says so instead.
-      return unsupported(item.kind)
+      // Every kind in the union is handled above, so this is unreachable —
+      // until someone adds a kind and forgets. Returning an empty string would
+      // look like a figure that rendered to nothing, which is exactly the
+      // failure this lane exists to catch, so it says so instead.
+      return unsupported((item as { kind: string }).kind)
   }
 }
 

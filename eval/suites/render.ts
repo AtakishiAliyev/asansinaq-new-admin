@@ -1,4 +1,4 @@
-import type { GeometryFig } from '@/core/figures/figspec'
+import type { FigItem, GeometryFig } from '@/core/figures/figspec'
 import {
   CLEARANCE,
   layoutGeometry,
@@ -228,12 +228,11 @@ export const renderSuite = suite('render', {
   },
 
   // Silence is the failure mode this whole lane exists to catch: a figure that
-  // renders to nothing looks exactly like a question with no figure.
-  'a kind that cannot be rendered yet says so instead of vanishing'() {
-    const svg = renderFigItem({
-      kind: 'table',
-      cells: [['1', '2']],
-    })
+  // renders to nothing looks exactly like a question with no figure. Every
+  // kind in the union is handled now, so this covers the case where someone
+  // adds one and forgets the emitter.
+  'an unknown kind says so instead of vanishing'() {
+    const svg = renderFigItem({ kind: 'sunburst', cells: [] } as unknown as FigItem)
     ok(svg.length > 0, 'boş qayıtdı')
     ok(/not renderable/.test(svg), 'səbəb yazılmayıb')
   },
@@ -382,6 +381,144 @@ export const renderSuite = suite('render', {
     )
     ok(Number.isFinite(small) && Number.isFinite(large), 'qövs tapılmadı')
     ok(large > small * 1.5, `qövs miqyaslanmır: ${small} → ${large}`)
+  },
+
+  // ---- the kinds ported out of React ----
+
+  // Four of these were HTML — flex boxes and a <table> — which is fine for a
+  // review screen and useless to a rasteriser. There was nothing to port; they
+  // are new emitters, and this is the first check any of them has ever had.
+  'every figure kind renders to well-formed svg'() {
+    const items: FigItem[] = [
+      TRIANGLE,
+      {
+        kind: 'venn',
+        width: 300,
+        height: 230,
+        shapes: [
+          { id: 'A', label: 'A', geom: { type: 'circle', cx: 115, cy: 115, r: 70 } },
+          { id: 'B', label: 'B', geom: { type: 'circle', cx: 185, cy: 115, r: 70 } },
+        ],
+        shaded: ['A∩B'],
+        regionLabels: [{ expr: 'A-B', tex: '2' }],
+      },
+      {
+        kind: 'function_graph',
+        panels: [
+          {
+            x: { min: -3, max: 3, ticks: [{ at: -1, tex: '-1' }, { at: 2, tex: '2' }] },
+            y: { min: -2, max: 6, ticks: [{ at: 4, tex: '4' }] },
+            grid: 'dotted',
+            curves: [
+              {
+                id: 'f',
+                color: 'primary',
+                def: { type: 'expr', expr: 'x^2', domain: [-2, 2] },
+                label: { tex: 'f(x)', at: [2, 4] },
+              },
+            ],
+            points: [{ x: 2, y: 4, style: 'dot', label: 'P' }],
+          },
+        ],
+      },
+      { kind: 'table', headerRows: 1, cells: [['x', 'y'], ['1', '2'], ['3', '4']] },
+      {
+        kind: 'division_scheme',
+        style: 'arithmetic',
+        dividendTex: 'A',
+        divisorTex: 'B',
+        quotientTex: '4',
+        remainderTex: '5',
+      },
+      {
+        kind: 'vertical_arithmetic',
+        rows: [{ tex: '••••' }, { tex: '36', op: '×' }, { tex: '9762', op: '+', indent: 1 }],
+        hlineAfter: [1],
+        resultTex: '••••••',
+      },
+      {
+        kind: 'number_line',
+        min: -2,
+        max: 5,
+        ticks: [{ at: 0, tex: '0' }, { at: 3, tex: '3' }],
+        points: [{ at: 3, style: 'filled', tex: 'a' }],
+        intervals: [{ from: 0, to: 3, closedLeft: true, closedRight: false }],
+      },
+    ]
+    for (const item of items) {
+      const svg = renderFigItem(item)
+      ok(svg.startsWith('<svg '), `${item.kind}: svg deyil`)
+      ok(svg.includes('xmlns='), `${item.kind}: xmlns yoxdur`)
+      notOk(/not renderable/.test(svg), `${item.kind}: hələ də dəstəklənmir`)
+      notOk(/<\/[a-zA-Z]+[ \t]/.test(svg), `${item.kind}: bağlayan teqdə atribut var`)
+      notOk(/foreignObject/i.test(svg), `${item.kind}: foreignObject`)
+      // Content, not an empty frame: every one of these has something to draw.
+      ok(svg.length > 200, `${item.kind}: çox qısa (${svg.length})`)
+      for (const m of svg.matchAll(/<text[^>]*>([\s\S]*?)<\/text>/g)) {
+        notOk(m[1]!.includes('\\'), `${item.kind}: etiketdə backslash`)
+      }
+    }
+  },
+
+  // The shading IS the question. A venn region that is approximately right is
+  // wrong, so it is compiled from the set expression rather than eyeballed.
+  'a venn shades exactly the expression it was given'() {
+    const base = {
+      kind: 'venn' as const,
+      width: 300,
+      height: 230,
+      shapes: [
+        { id: 'A', label: 'A', geom: { type: 'circle' as const, cx: 115, cy: 115, r: 70 } },
+        { id: 'B', label: 'B', geom: { type: 'circle' as const, cx: 185, cy: 115, r: 70 } },
+      ],
+    }
+    const inter = renderFigItem({ ...base, shaded: ['A∩B'] })
+    const union = renderFigItem({ ...base, shaded: ['A∪B'] })
+    const none = renderFigItem({ ...base, shaded: [] })
+    ok(count(inter, /<mask /g) > 0, 'kəsişmə üçün maska yoxdur')
+    ok(count(union, /<mask /g) > count(inter, /<mask /g) - 1, 'birləşmə maskası yoxdur')
+    eq(count(none, /<mask /g), 0, 'ştrixləmə yoxdursa maska da olmamalıdır')
+    // An expression naming a set the figure does not define is left UNSHADED
+    // rather than shaded wrongly — lint reports it, and a convincing wrong
+    // region is worse than a missing one.
+    const bogus = renderFigItem({ ...base, shaded: ['A∩Z'] })
+    eq(count(bogus, /<mask /g), 0, 'naməlum çoxluq ştrixlənib')
+  },
+
+  // Mask ids are referenced by url(#id). A counter that never reset made the
+  // same diagram serialise differently depending on what preceded it.
+  'venn mask ids come from the document position, not a global counter'() {
+    const fig: FigItem = {
+      kind: 'venn',
+      width: 300,
+      height: 230,
+      shapes: [{ id: 'A', label: 'A', geom: { type: 'circle', cx: 150, cy: 115, r: 70 } }],
+      shaded: ["A'"],
+    }
+    eq(renderFigItem(fig), renderFigItem(fig), 'təkrar render fərqlidir')
+    const [first, second] = renderFigureDoc({ v: 1, items: [fig, fig] })
+    // Two copies in ONE document must not collide: same-id masks would make
+    // the second figure reference the first's region.
+    notOk(first === second, 'sənəddə iki fiqur eyni id istifadə edir')
+    for (const svg of [first!, second!]) {
+      for (const m of svg.matchAll(/url\(#([^)]+)\)/g)) {
+        ok(svg.includes(`id="${m[1]}"`), `${m[1]} təyin olunmayıb`)
+      }
+    }
+  },
+
+  // Masked-digit puzzles: a column that does not line up is a different sum.
+  'vertical arithmetic right-aligns, and an indent shifts by digits'() {
+    const svg = renderFigItem({
+      kind: 'vertical_arithmetic',
+      rows: [{ tex: '1234' }, { tex: '99', indent: 0 }, { tex: '99', indent: 2 }],
+      resultTex: '1333',
+    })
+    const xs = [...svg.matchAll(/translate\(([\d.]+) /g)].map((m) => Number(m[1]))
+    ok(xs.length >= 4, 'sətirlər yerləşdirilməyib')
+    // The indented row starts further LEFT than the un-indented one of the
+    // same width, which is what shifting a partial product means.
+    ok(xs[2]! < xs[1]!, `indent sola sürüşdürmür: ${xs[1]} → ${xs[2]}`)
   },
 
   // ---- the wire → figure → lint path for the new kind ----

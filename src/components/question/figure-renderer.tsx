@@ -1,49 +1,42 @@
-import { RawSvgFig } from '@/components/question/raw-svg-fig'
-import { GeometryFigView } from '@/components/question/geometry-fig'
 import type { FigItem, FigureDoc } from '@/core/figures/figspec'
-import { FunctionGraphView } from './function-graph'
-import { VennFigView } from './venn-fig'
-import { DivisionSchemeView, NumberLineView, TableFigView, VerticalArithmeticView } from './simple-figs'
+import { renderFigItem } from '@/core/figures/render'
 
-const identity = (src: string) => src
-
+// A wrapper, not a renderer.
+//
+// Every figure kind is drawn by `core/figures/render.ts`, so the review screen
+// and the worker's verification wave produce the same SVG from the same spec.
+// A second implementation here would mean a reviewer approving one picture
+// while the verifier compared another, and the two would have to disagree
+// before anyone noticed — by which point the disagreement is in the bank.
+//
+// `dangerouslySetInnerHTML` is safe because the markup is built by us from a
+// typed spec and every value goes through the escaper in `svg-emit.ts`. The one
+// kind that carries model-authored markup, `raw_svg`, is sanitized into a
+// typed tree at the extraction boundary and re-serialised from that tree —
+// there is no path from a raw model string to this element.
 export function FigItemView({
   item,
-  resolveImageUrl = identity,
+  resolveImageUrl,
+  index = 0,
 }: {
   item: FigItem
-  // Maps an image fig's `src` (storage path or data URL) to a displayable URL.
+  /** Maps an image fig's `src` (storage path) to a displayable URL. */
   resolveImageUrl?: (src: string) => string
+  /** Position in the document — the seed for deterministic element ids. */
+  index?: number
 }) {
-  switch (item.kind) {
-    case 'geometry':
-      return <GeometryFigView fig={item} />
-    case 'function_graph':
-      return <FunctionGraphView fig={item} />
-    case 'venn':
-      return <VennFigView fig={item} />
-    case 'division_scheme':
-      return <DivisionSchemeView fig={item} />
-    case 'vertical_arithmetic':
-      return <VerticalArithmeticView fig={item} />
-    case 'table':
-      return <TableFigView fig={item} />
-    case 'number_line':
-      return <NumberLineView fig={item} />
-    case 'raw_svg':
-      return <RawSvgFig node={item.node} />
-    case 'image':
-      return (
-        <img
-          src={resolveImageUrl(item.src)}
-          alt="AI ilə yenidən çəkilmiş fiqur"
-          title="AI ilə çəkilmiş raster fiqur — orijinalla vizual müqayisə tələb olunur"
-          className="block w-full max-w-[420px]"
-        />
-      )
-    default:
-      return <div style={{ color: '#c0392b' }}>Naməlum fiqur növü</div>
-  }
+  const resolved =
+    item.kind === 'image' && resolveImageUrl
+      ? { ...item, src: resolveImageUrl(item.src) }
+      : item
+  return (
+    <div
+      className="text-foreground [&_svg]:h-auto [&_svg]:max-w-full"
+      dangerouslySetInnerHTML={{
+        __html: renderFigItem(resolved, { idPrefix: `fig-${index}` }),
+      }}
+    />
+  )
 }
 
 export function FigureRenderer({
@@ -53,12 +46,18 @@ export function FigureRenderer({
   doc: FigureDoc
   resolveImageUrl?: (src: string) => string
 }) {
-  const dir = doc.layout?.direction ?? 'row'
-  const gap = doc.layout?.gap ?? 16
   return (
-    <div className="flex flex-wrap items-start" style={{ flexDirection: dir, gap }}>
-      {doc.items.map((it, i) => (
-        <FigItemView key={i} item={it} resolveImageUrl={resolveImageUrl} />
+    <div
+      className="flex flex-wrap items-start gap-4"
+      style={doc.layout?.direction === 'column' ? { flexDirection: 'column' } : undefined}
+    >
+      {doc.items.map((item, index) => (
+        <FigItemView
+          key={index}
+          item={item}
+          index={index}
+          resolveImageUrl={resolveImageUrl}
+        />
       ))}
     </div>
   )
