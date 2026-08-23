@@ -79,6 +79,13 @@ export function cacheInputFor(
     testNo: row.test_no ?? null,
     expectedNumber: row.q_no,
     categoryIds: context.categories.map((c) => c.id),
+    // A repair is a re-read of a crop we have already read, so without this it
+    // is the most perfect cache hit in the system: same image, same prompt, same
+    // key, and the "repaired" question comes back byte-identical. The round
+    // increments, the wave compares the same output to the same crop, reaches
+    // the same verdict, and the row burns both of its repairs having changed
+    // nothing — while every log line reads like the loop is working.
+    repairRound: row.repair_round,
   }
 }
 
