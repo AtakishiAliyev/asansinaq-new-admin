@@ -193,11 +193,7 @@ async function submitPass(): Promise<number> {
 
     // An unchanged crop re-run costs nothing. Checked before submission so a
     // cache hit never enters a batch at all.
-    const key = (await import('./ops.ts')).cacheKey(
-      EXTRACT_OP,
-      model,
-      cacheInputFor(row, crop, rowContext),
-    )
+    const key = cacheKey(EXTRACT_OP, model, cacheInputFor(row, crop, rowContext))
     const cached = (await cacheGet(db, key)) as { wire?: Record<string, unknown> } | null
     if (cached?.wire) {
       await applyResult(db, row, rowContext, cached.wire)
@@ -253,6 +249,25 @@ async function submitPass(): Promise<number> {
  */
 async function dryRun(): Promise<void> {
   log('DRY RUN — nothing will be claimed, submitted, or written')
+
+  // Resume rests entirely on this id being the same one that submitted. Change
+  // it and the outstanding batches become invisible: the rows still hold their
+  // handles, but no worker recognises them, so the questions are claimed again
+  // and a second batch is paid for to learn what the first already knows.
+  const mine = await inFlight(db)
+  const { count: strays } = await db
+    .from('questions')
+    .select('id', { count: 'exact', head: true })
+    .not('batch_id', 'is', null)
+    .neq('claimed_by_worker', config.WORKER_ID)
+  log(
+    `WORKER_ID=${config.WORKER_ID} — ${mine.length} in-flight row(s) belong to it` +
+      (strays ? `, and ${strays} in-flight row(s) belong to ANOTHER worker id` : ''),
+  )
+  if (strays) {
+    log('  ^ if that other id was yours before a restart, resubmitting will pay twice')
+  }
+
   log(`spent today: $${(await spendToday(db)).toFixed(4)} of $${config.DAILY_BUDGET_USD}`)
   log(`budget would ${(await budgetExhausted(db)) ? 'BLOCK' : 'allow'} a submission`)
 
