@@ -16,9 +16,17 @@
 // a regression back into it.
 //
 // It exercises one real row: claim, renew, release, finish, plus the attempts
-// that a second worker must not be allowed to make. Every field it touches is
-// snapshotted first and RESTORED in a finally block, including on failure. It
-// makes no model call and writes nothing to ops_log, so it costs nothing.
+// that a second worker must not be allowed to make. It makes no model call and
+// writes nothing to ops_log, so it costs nothing.
+//
+// It leaves the queue as it found it, by two different mechanisms, because one
+// was not enough. The exercised row is snapshotted and restored in a finally
+// block, and the restore is then re-read rather than assumed. Every OTHER row a
+// claim sweeps up — a claim takes everything eligible up to its limit, not just
+// the row under test — is released, which is an exact undo for a row that was
+// queued and unclaimed. The first version of this file did only the former and
+// quietly leased rows it never mentioned, on a queue an operator had just
+// filled; the last two checks exist so that cannot recur silently.
 //
 // Reads the service key from .env, which is gitignored. It never prints it.
 import { readFileSync } from 'node:fs'
@@ -57,6 +65,27 @@ if (!url || !key) {
 }
 
 const db = createClient<Database>(url, key, { auth: { persistSession: false } })
+
+/**
+ * A claim takes every eligible row up to its limit, not just the one being
+ * exercised — so any OTHER queued row gets swept up as collateral. Releasing
+ * it is an exact undo: it was queued and unclaimed before, and release returns
+ * it to queued and unclaimed with its attempt given back.
+ *
+ * This is not hypothetical. Without it the harness leased rows it never
+ * reported and never returned, and a real worker then could not touch them
+ * until the lease ran out — on a queue the operator had just filled.
+ */
+async function releaseCollateral(
+  workerId: string,
+  claimed: { id: number }[] | null | undefined,
+  keep: number,
+): Promise<number> {
+  const ids = (claimed ?? []).map((r) => r.id).filter((rowId) => rowId !== keep)
+  if (!ids.length) return 0
+  await db.rpc('release_questions_worker', { p_worker_id: workerId, p_ids: ids })
+  return ids.length
+}
 
 const results: { name: string; pass: boolean; detail?: string }[] = []
 const check = (name: string, pass: boolean, detail?: unknown): void => {
@@ -111,6 +140,8 @@ try {
     p_lease: LEASE,
   })
   check('service_role can call claim_questions_worker', !claimError, claimError?.message)
+  const sweptUp = await releaseCollateral(WORKER, claimed, id)
+  if (sweptUp) console.log(`  (released ${sweptUp} row(s) claimed alongside the target)`)
   const got = (claimed ?? []).find((r) => r.id === id)
   check('the claim returned the queued row', Boolean(got))
   check('claimed_by_worker holds the worker id', got?.claimed_by_worker === WORKER)
@@ -166,6 +197,10 @@ try {
     'a row under a live lease is not handed to a second worker',
     !(second ?? []).some((r) => r.id === id),
   )
+  // The impostor claims under its OWN id, so its collateral has to be handed
+  // back under that id too — the target's holder cannot release rows it never
+  // held.
+  await releaseCollateral('second-worker', second, id)
 
   const { data: released, error: releaseError } = await db.rpc('release_questions_worker', {
     p_worker_id: WORKER,
@@ -193,11 +228,12 @@ try {
   )
   check('releasing leaves the row queued for the next worker', afterRelease?.queued_at !== null)
 
-  await db.rpc('claim_questions_worker', {
+  const { data: reclaimed } = await db.rpc('claim_questions_worker', {
     p_worker_id: WORKER,
     p_limit: 5,
     p_lease: LEASE,
   })
+  await releaseCollateral(WORKER, reclaimed, id)
   const { data: finished, error: finishError } = await db.rpc('finish_questions_worker', {
     p_worker_id: WORKER,
     p_ids: [id],
@@ -238,6 +274,35 @@ try {
     })
     .eq('id', id)
   check('the exercised row was restored', !restoreError, restoreError?.message)
+
+  // Re-read rather than trust the write. An update that reports no error can
+  // still have restored the wrong values, and this harness has already shipped
+  // once claiming to leave the queue as it found it while it did not.
+  const { data: after } = await db
+    .from('questions')
+    .select('queued_at, claimed_at, claimed_by_worker, lease_until, attempts, batch_id')
+    .eq('id', id)
+    .single()
+  check(
+    'the restore actually took',
+    after?.claimed_by_worker === before.claimed_by_worker &&
+      after?.lease_until === before.lease_until &&
+      after?.attempts === before.attempts &&
+      after?.queued_at === before.queued_at,
+    `claimed_by_worker=${after?.claimed_by_worker} attempts=${after?.attempts}`,
+  )
+
+  // Nothing may be left leased under this harness's identity, whatever path
+  // the run took to get here.
+  const { data: stragglers } = await db
+    .from('questions')
+    .select('id')
+    .in('claimed_by_worker', [WORKER, 'second-worker', 'other-worker'])
+  check(
+    'no row is left leased to the harness',
+    (stragglers ?? []).length === 0,
+    (stragglers ?? []).map((r) => r.id).join(',') || undefined,
+  )
 }
 
 let failed = 0
