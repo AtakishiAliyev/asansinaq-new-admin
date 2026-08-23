@@ -1,5 +1,12 @@
 import type { GeometryFig } from '@/core/figures/figspec'
-import { renderFigItem, renderFigureDoc } from '@/core/figures/render'
+import {
+  CLEARANCE,
+  layoutGeometry,
+  renderFigItem,
+  renderFigureDoc,
+  texToUnicode,
+} from '@/core/figures/render'
+import { boxDistance, boxSegDistance, type Vec } from '@/core/figures/layout'
 import { wireToQuestion } from '@/core/questions/extraction'
 import { lintQuestion } from '@/core/questions/lint'
 import { eq, notOk, ok, suite } from '../harness.ts'
@@ -27,6 +34,58 @@ const TRIANGLE: GeometryFig = {
   angles: [{ at: ['A', 'C', 'B'], label: '40°', arcs: 1 }],
 }
 
+// Two rays from one vertex with equal arcs: the bisector figure, and the
+// shape that put a 30° label on top of a ray.
+const BISECTOR: GeometryFig = {
+  kind: 'geometry',
+  width: 300,
+  height: 200,
+  points: [
+    { id: 'O', x: 20, y: 180, label: 'O', dot: true },
+    { id: 'A', x: 280, y: 180, label: 'A' },
+    { id: 'B', x: 220, y: 60, label: 'B' },
+    { id: 'C', x: 120, y: 20, label: 'C' },
+  ],
+  lines: [
+    { from: 'O', to: 'A', kind: 'ray' },
+    { from: 'O', to: 'B', kind: 'ray' },
+    { from: 'O', to: 'C', kind: 'ray' },
+  ],
+  angles: [
+    { at: ['A', 'O', 'B'], label: '30°', arcs: 1 },
+    { at: ['B', 'O', 'C'], label: '30°', arcs: 1 },
+  ],
+}
+
+// Deliberately cramped: six labelled points close together, which is where
+// naive fixed-offset placement piles labels on top of each other.
+const CROWDED: GeometryFig = {
+  kind: 'geometry',
+  width: 260,
+  height: 200,
+  points: [
+    { id: 'A', x: 30, y: 20, label: 'A', dot: true },
+    { id: 'B', x: 250, y: 20, label: 'B', dot: true },
+    { id: 'C', x: 140, y: 90, label: 'C', dot: true },
+    { id: 'E', x: 140, y: 150, label: 'E', dot: true },
+    { id: 'F', x: 220, y: 150, label: 'F', dot: true },
+    { id: 'D', x: 60, y: 190, label: 'D', dot: true },
+  ],
+  lines: [
+    { from: 'B', to: 'A', kind: 'ray', parallel: 1 },
+    { from: 'B', to: 'C' },
+    { from: 'C', to: 'D' },
+    { from: 'D', to: 'E' },
+    { from: 'E', to: 'F', kind: 'ray', parallel: 1 },
+    { from: 'C', to: 'E' },
+  ],
+  angles: [
+    { at: ['A', 'B', 'C'], label: '20°' },
+    { at: ['B', 'C', 'D'], label: '120°' },
+    { at: ['C', 'D', 'E'], label: '10°' },
+  ],
+}
+
 const count = (svg: string, pattern: RegExp): number => (svg.match(pattern) ?? []).length
 
 export const renderSuite = suite('render', {
@@ -35,6 +94,26 @@ export const renderSuite = suite('render', {
     ok(svg.startsWith('<svg '), `svg ilə başlamır: ${svg.slice(0, 40)}`)
     ok(svg.includes('xmlns="http://www.w3.org/2000/svg"'), 'xmlns yoxdur')
     ok(svg.includes('viewBox="0 0 320 240"'), 'viewBox yoxdur')
+  },
+
+  // Shipped broken once: the closing tag repeated the opening tag's attributes
+  // (`</text x="0" …>`), which browsers forgive and XML parsers do not. The
+  // figures looked correct on screen and would have failed the instant M6 tried
+  // to rasterise one.
+  'the output is well-formed: every element closes with its own name'() {
+    const svg = renderFigItem(CROWDED)
+    notOk(/<\/[a-zA-Z]+[ \t][^>]*>/.test(svg), 'bağlayan teqdə atribut var')
+    const opens = [...svg.matchAll(/<([a-zA-Z]+)(?=[ />])/g)].map((m) => m[1]!)
+    const selfClosing = (svg.match(/\/>/g) ?? []).length
+    const closes = [...svg.matchAll(/<\/([a-zA-Z]+)>/g)].map((m) => m[1]!)
+    eq(opens.length - selfClosing, closes.length, 'açılan/bağlanan teq sayı')
+    // And the names pair up, innermost first.
+    const stack: string[] = []
+    for (const m of svg.matchAll(/<(\/?)([a-zA-Z]+)(?:[^>]*?)(\/?)>/g)) {
+      if (m[1]) eq(stack.pop(), m[2], 'bağlanma sırası')
+      else if (!m[3]) stack.push(m[2]!)
+    }
+    eq(stack.length, 0, 'bağlanmamış teq qaldı')
   },
 
   // foreignObject is why the old renderer could not be rasterised: resvg and
@@ -107,21 +186,27 @@ export const renderSuite = suite('render', {
     eq(count(svg, /<path /g), 2)
   },
 
-  // A ray runs off the canvas; a segment stops. Drawing a ray as a segment is
-  // a different figure, so the extent has to be visible in the output.
+  // A ray runs off the canvas; a segment stops. Drawing a ray as a segment is a
+  // different figure. Asserted against the LAYOUT rather than against a literal
+  // coordinate: points are now fitted to the canvas, so raw numbers from the
+  // spec no longer appear in the output at all.
   'a ray leaves the canvas and a segment does not'() {
-    const seg = renderFigItem({
+    const seg = layoutGeometry({
       ...TRIANGLE,
       lines: [{ from: 'A', to: 'B', kind: 'segment' }],
       angles: [],
     })
-    const ray = renderFigItem({
+    const ray = layoutGeometry({
       ...TRIANGLE,
       lines: [{ from: 'A', to: 'B', kind: 'ray' }],
       angles: [],
     })
-    ok(seg.includes('x2="280"'), 'parça B-də bitməlidir')
-    notOk(ray.includes('x2="280"'), 'şüa B-də bitməməlidir')
+    const touchesEdge = (l: { strokes: { a: Vec; b: Vec }[]; width: number }) => {
+      const s0 = l.strokes[0]!
+      return Math.max(s0.a.x, s0.b.x) > l.width - 1
+    }
+    notOk(touchesEdge(seg), 'parça kətanın kənarına çatmamalıdır')
+    ok(touchesEdge(ray), 'şüa kətanın kənarına çatmalıdır')
   },
 
   'labels are real svg text, and their content is escaped'() {
@@ -151,6 +236,152 @@ export const renderSuite = suite('render', {
     })
     ok(svg.length > 0, 'boş qayıtdı')
     ok(/not renderable/.test(svg), 'səbəb yazılmayıb')
+  },
+
+  // ---- the polish pass: text, clearance, proportion ----
+
+  // A backslash on a diagram is not a degraded label, it is a wrong one: the
+  // reader sees a word where the question put a variable, and nothing about
+  // the picture says the renderer failed rather than the extraction.
+  'no backslash survives into rendered text'() {
+    const svg = renderFigItem({
+      ...TRIANGLE,
+      points: [
+        { id: 'A', x: 40, y: 200, label: '\\alpha', dot: true },
+        { id: 'B', x: 280, y: 200, label: '30^\\circ', dot: true },
+        { id: 'C', x: 160, y: 40, label: '\\widehat{ABC}', dot: true },
+      ],
+      angles: [{ at: ['A', 'C', 'B'], label: '2\\beta' }],
+    })
+    const texts = [...svg.matchAll(/<text[^>]*>([\s\S]*?)<\/text>/g)].map((m) => m[1]!)
+    ok(texts.length >= 4, `gözlənilən 4 etiket, tapılan ${texts.length}`)
+    for (const t of texts) notOk(t.includes('\\'), `etiketdə backslash qaldı: ${t}`)
+    ok(svg.includes('α'), 'alpha unicode-a çevrilməyib')
+    ok(svg.includes('β'), 'beta unicode-a çevrilməyib')
+    ok(svg.includes('30°'), 'dərəcə işarəsi yaranmayıb')
+  },
+
+  'the tex mapper covers the vocabulary figures actually use'() {
+    eq(texToUnicode('\\alpha'), 'α')
+    eq(texToUnicode('30^\\circ'), '30°')
+    eq(texToUnicode('30^{\\circ}'), '30°')
+    eq(texToUnicode('\\angle ABC'), '∠ ABC')
+    eq(texToUnicode('$x_1$'), 'x₁')
+    eq(texToUnicode('\\frac{a}{2}'), 'a/2')
+    // Unknown commands lose the backslash rather than keeping it: wrong but
+    // legible beats a rendering-failure glyph on the page.
+    eq(texToUnicode('\\wibble'), 'wibble')
+    notOk(texToUnicode('\\a\\b\\c{}').includes('\\'))
+  },
+
+  // The failure this pass exists for: q10's 30° sat directly on the ray it
+  // described, and q9's labels sat on each other.
+  'every label keeps its clearance from every stroke and every other label'() {
+    for (const fig of [TRIANGLE, BISECTOR, CROWDED]) {
+      const layout = layoutGeometry(fig)
+      for (const box of layout.labels) {
+        for (const stroke of layout.strokes) {
+          const d = boxSegDistance(box, stroke)
+          ok(
+            d >= CLEARANCE - 0.01,
+            `etiket ${JSON.stringify(box)} xəttə ${d.toFixed(1)}px yaxındır`,
+          )
+        }
+      }
+      for (let i = 0; i < layout.labels.length; i++) {
+        for (let j = i + 1; j < layout.labels.length; j++) {
+          const d = boxDistance(layout.labels[i]!, layout.labels[j]!)
+          ok(d >= CLEARANCE - 0.01, `iki etiket ${d.toFixed(1)}px aralıdır`)
+        }
+      }
+    }
+  },
+
+  'labels stay inside the canvas'() {
+    const layout = layoutGeometry(CROWDED)
+    for (const b of layout.labels) {
+      ok(b.x >= 0 && b.y >= 0, `etiket kətandan kənarda: ${JSON.stringify(b)}`)
+      ok(
+        b.x + b.w <= layout.width && b.y + b.h <= layout.height,
+        `etiket kətandan daşır: ${JSON.stringify(b)}`,
+      )
+    }
+  },
+
+  // The model draws on whatever scale it likes. A figure specified in a 40px
+  // corner has no room for its own labels, and one specified across 4000 units
+  // must not overflow.
+  'the point cloud is fitted to the canvas whatever scale it arrives on'() {
+    const tiny = layoutGeometry({
+      ...TRIANGLE,
+      points: [
+        { id: 'A', x: 0, y: 0, label: 'A', dot: true },
+        { id: 'B', x: 6, y: 0, label: 'B', dot: true },
+        { id: 'C', x: 3, y: 5, label: 'C', dot: true },
+      ],
+    })
+    const huge = layoutGeometry({
+      ...TRIANGLE,
+      points: [
+        { id: 'A', x: 0, y: 0, label: 'A', dot: true },
+        { id: 'B', x: 4000, y: 0, label: 'B', dot: true },
+        { id: 'C', x: 2000, y: 3000, label: 'C', dot: true },
+      ],
+    })
+    for (const layout of [tiny, huge]) {
+      const xs = layout.strokes.flatMap((s) => [s.a.x, s.b.x])
+      const ys = layout.strokes.flatMap((s) => [s.a.y, s.b.y])
+      const spanX = Math.max(...xs) - Math.min(...xs)
+      const spanY = Math.max(...ys) - Math.min(...ys)
+      ok(spanX > layout.width * 0.4, `en çox dar: ${spanX} / ${layout.width}`)
+      ok(spanY > layout.height * 0.3, `hündürlük çox dar: ${spanY} / ${layout.height}`)
+      ok(Math.max(...xs) <= layout.width + 0.5, 'kətandan daşır')
+    }
+  },
+
+  // q9's α arc came out larger than the angle it annotated, because the radius
+  // was a constant. It has to be a fraction of the shorter arm.
+  'arc radius scales with the figure rather than being a fixed pixel size'() {
+    const radiusOf = (svg: string) => {
+      const m = /A ([0-9.]+) [0-9.]+ 0 0 [01]/.exec(svg)
+      return m ? Number(m[1]) : NaN
+    }
+    const small = radiusOf(
+      renderFigItem({
+        kind: 'geometry',
+        width: 120,
+        height: 90,
+        points: [
+          { id: 'A', x: 0, y: 60 },
+          { id: 'B', x: 60, y: 60 },
+          { id: 'C', x: 30, y: 0 },
+        ],
+        lines: [
+          { from: 'B', to: 'A' },
+          { from: 'B', to: 'C' },
+        ],
+        angles: [{ at: ['A', 'B', 'C'], arcs: 1 }],
+      }),
+    )
+    const large = radiusOf(
+      renderFigItem({
+        kind: 'geometry',
+        width: 600,
+        height: 450,
+        points: [
+          { id: 'A', x: 0, y: 60 },
+          { id: 'B', x: 60, y: 60 },
+          { id: 'C', x: 30, y: 0 },
+        ],
+        lines: [
+          { from: 'B', to: 'A' },
+          { from: 'B', to: 'C' },
+        ],
+        angles: [{ at: ['A', 'B', 'C'], arcs: 1 }],
+      }),
+    )
+    ok(Number.isFinite(small) && Number.isFinite(large), 'qövs tapılmadı')
+    ok(large > small * 1.5, `qövs miqyaslanmır: ${small} → ${large}`)
   },
 
   // ---- the wire → figure → lint path for the new kind ----
