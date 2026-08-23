@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.worker.tsbuildinfo",
+    // Same nodenext spelling as tsconfig.node.json: the alias has to name a
+    // real file, because the worker resolves @/… through eval/hooks.mjs at
+    // runtime rather than through a bundler.
+    "paths": {
+      "@/*": ["./src/*.ts", "./src/*/index.ts", "./src/*"]
+    },
+    "target": "es2023",
+    "lib": ["ES2023", "DOM"],
+    "types": ["node"],
+    "skipLibCheck": true,
+
+    "module": "nodenext",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+
+    /* Linting */
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    // Node strips the types itself — no enums, no parameter properties, or the
+    // worker stops being runnable without a build step.
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["worker"]
+}
