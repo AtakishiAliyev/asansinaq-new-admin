@@ -319,24 +319,52 @@ export function renderVenn(
   const placer = new LabelPlacer(strokes, { x: 0, y: 0, w, h })
   const labels: string[] = []
 
-  const put = (fragment: { svg: string; width: number; height: number }, cx: number, cy: number) => {
-    const centred: Box = {
-      x: cx - fragment.width / 2,
-      y: cy - fragment.height / 2,
+  /**
+   * Place a label near an anchor, optionally confined to a region.
+   *
+   * A region's contents must stay INSIDE that region — a "2" that has drifted
+   * out of A−B and into A∩B is not a badly placed label, it is a wrong answer.
+   * So candidates are generated in a small spiral and filtered by membership
+   * before the clearance placer sees them; only if none of them is inside does
+   * it fall back to the raw anchor.
+   */
+  const put = (
+    fragment: { svg: string; width: number; height: number },
+    cx: number,
+    cy: number,
+    inside?: (x: number, y: number) => boolean,
+  ) => {
+    const box = (x: number, y: number): Box => ({
+      x: x - fragment.width / 2,
+      y: y - fragment.height / 2,
       w: fragment.width,
       h: fragment.height,
+    })
+    const offsets: [number, number][] = [[0, 0]]
+    for (const r of [7, 13, 20, 28]) {
+      for (let i = 0; i < 8; i++) {
+        const t = (i / 8) * Math.PI * 2
+        offsets.push([Math.cos(t) * r, Math.sin(t) * r * 0.75])
+      }
     }
-    // Region contents belong at the anchor. Nudge outward only if the anchor
-    // is unusable — a label that has wandered out of its own region is worse
-    // than one sitting close to a stroke.
-    const { box } = placer.place([
-      centred,
-      { ...centred, y: centred.y - 10 },
-      { ...centred, y: centred.y + 10 },
-      { ...centred, x: centred.x - 12 },
-      { ...centred, x: centred.x + 12 },
-    ])
-    labels.push(tag('g', { transform: `translate(${num(box.x)} ${num(box.y)})` }, fragment.svg))
+    let candidates = offsets.map(([dx, dy]) => box(cx + dx, cy + dy))
+    if (inside) {
+      // The whole box has to be in the region, not just its centre: a label
+      // whose corner pokes through the boundary reads as belonging to both.
+      const kept = candidates.filter((b) =>
+        [
+          [b.x, b.y],
+          [b.x + b.w, b.y],
+          [b.x, b.y + b.h],
+          [b.x + b.w, b.y + b.h],
+        ].every(([x, y]) => inside(x!, y!)),
+      )
+      if (kept.length) candidates = kept
+    }
+    const placed = placer.place(candidates)
+    labels.push(
+      tag('g', { transform: `translate(${num(placed.box.x)} ${num(placed.box.y)})` }, fragment.svg),
+    )
   }
 
   for (const shape of fig.shapes) {
@@ -347,15 +375,16 @@ export function renderVenn(
 
   for (const region of fig.regionLabels ?? []) {
     let at = region.at
-    if (!at) {
-      try {
-        at = regionAnchor(parseSetExpr(region.expr), w, h, shapeById) ?? undefined
-      } catch {
-        at = undefined
-      }
+    let member: ((x: number, y: number) => boolean) | undefined
+    try {
+      const ast = parseSetExpr(region.expr)
+      member = (x, y) => pointInRegion(ast, x, y, shapeById)
+      if (!at) at = regionAnchor(ast, w, h, shapeById) ?? undefined
+    } catch {
+      member = undefined
     }
     if (!at) continue
-    put(tex(region.tex, LABEL_SIZE), at[0], at[1])
+    put(tex(region.tex, LABEL_SIZE), at[0], at[1], member)
   }
 
   if (fig.universe?.label) {

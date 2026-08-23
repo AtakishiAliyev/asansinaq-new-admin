@@ -338,17 +338,25 @@ function placeAngleLabel(
   // cross an arm.
   const outer = base + Math.max(0, arcs - 1) * clamp(base * 0.18, 3, 6)
 
-  const candidates: Box[] = []
-  for (const extra of [10, 16, 24, 34, 46]) {
-    candidates.push(boxAlong(vertex, bisector, outer + extra, fragment.width, fragment.height))
-  }
-  // Only if the bisector is hopeless: nudged either side of it, still outside.
-  for (const rotate of [0.5, -0.5, 0.9, -0.9]) {
-    const dir = unit({
-      x: bisector.x * Math.cos(rotate) - bisector.y * Math.sin(rotate),
-      y: bisector.x * Math.sin(rotate) + bisector.y * Math.cos(rotate),
+  const rotated = (angleRad: number) =>
+    unit({
+      x: bisector.x * Math.cos(angleRad) - bisector.y * Math.sin(angleRad),
+      y: bisector.x * Math.sin(angleRad) + bisector.y * Math.cos(angleRad),
     })
-    candidates.push(boxAlong(vertex, dir, outer + 16, fragment.width, fragment.height))
+
+  // Ordered by DISTANCE first, direction second. Trying every bisector offset
+  // before any rotated one pushes a crowded label far up the bisector, where it
+  // is clear of everything and no longer obviously belongs to its angle — an
+  // angle label 46px out reads as a stray number. A small sideways nudge keeps
+  // it near the arc it annotates, which is what a reader looks for.
+  const candidates: Box[] = []
+  for (const extra of [10, 15, 21, 28, 38]) {
+    candidates.push(boxAlong(vertex, bisector, outer + extra, fragment.width, fragment.height))
+    for (const rotate of [0.45, -0.45, 0.85, -0.85]) {
+      candidates.push(
+        boxAlong(vertex, rotated(rotate), outer + extra, fragment.width, fragment.height),
+      )
+    }
   }
 
   const { box } = placer.place(candidates)
