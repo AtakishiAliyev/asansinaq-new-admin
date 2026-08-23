@@ -35,6 +35,32 @@ const RED = '\x1b[31m'
 const DIM = '\x1b[2m'
 const OFF = '\x1b[0m'
 
+// Every case is offline arithmetic, so anything still running after this is
+// parked forever, not slow. Without the guard a single never-settling await
+// hangs the whole run, and a hang is indistinguishable from a long one — which
+// is worse than a failure, because nothing names the case.
+const CASE_TIMEOUT_MS = 5_000
+
+async function runCase(fn: () => void | Promise<void>): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      (async () => fn())(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () =>
+            reject(
+              new Error(`${CASE_TIMEOUT_MS} ms içində bitmədi — bitməyən gözləmə var`),
+            ),
+          CASE_TIMEOUT_MS,
+        )
+      }),
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 let passed = 0
 const failures: { suite: string; name: string; message: string }[] = []
 
@@ -43,7 +69,11 @@ for (const s of SUITES) {
   const lines: string[] = []
   for (const c of s.cases) {
     try {
-      c.fn()
+      // Awaited, not just called: an async case returns a promise the moment it
+      // hits its first await, and an un-awaited one is counted as passed before
+      // a single assertion has run. A rejection then surfaces as an unhandled
+      // rejection that kills the whole run instead of naming the case.
+      await runCase(c.fn)
       passed++
       lines.push(`  ${GREEN}✓${OFF} ${DIM}${c.name}${OFF}`)
     } catch (error) {

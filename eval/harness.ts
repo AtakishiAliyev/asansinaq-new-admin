@@ -3,7 +3,10 @@
 // change unchecked — so the harness is a dependency-free file rather than an
 // argument about which framework to adopt.
 
-export type Check = () => void
+// A case may be async. Spelling that out matters: `() => void` also accepts an
+// async function, so a runner that forgets to await one still typechecks and
+// still reports it green — the assertion inside simply never runs.
+export type Check = () => void | Promise<void>
 
 export interface Suite {
   name: string

@@ -8,6 +8,17 @@ import {
 } from '@/features/questions/lib/rate-gate'
 import { eq, ok, suite } from '../harness.ts'
 
+// resetRateGate deliberately KEEPS inFlight and waiting — zeroing them while
+// real calls are outstanding would over-admit, so it is not a test reset. A
+// case that acquires must therefore hand every slot back itself, or it leaves
+// the lane full and the next case waits on it forever.
+async function drain(lane: 'text' | 'image', held: number): Promise<void> {
+  for (let i = 0; i < held; i++) releaseSlot(lane)
+  await Promise.resolve()
+  eq(gateStatus()[lane].inFlight, 0, `${lane} zolağı boşalmadı`)
+  eq(gateStatus()[lane].waiting, 0, `${lane} zolağında gözləyən qaldı`)
+}
+
 // Measured on one book: gpt-image averaged 42 s with a few calls in flight and
 // 91 s with a dozen, a third of them crossing 100 s against a 140 s abort. The
 // image lane exists so pressure on the text models cannot drag images past
@@ -22,11 +33,16 @@ export const rateGateSuite = suite('rate-gate', {
     eq(s.text.inFlight, 8)
     // A fourth image must wait while the text lane still has room.
     let granted = false
-    void acquireSlot('image').then(() => (granted = true))
+    const pending = acquireSlot('image').then(() => (granted = true))
     await Promise.resolve()
     eq(granted, false)
     eq(s.text.inFlight < s.text.ceiling, true)
-    resetRateGate()
+    // Let the parked waiter in before draining, so the lane ends at zero with
+    // nothing still queued behind it.
+    releaseSlot('image')
+    await pending
+    await drain('image', 3)
+    await drain('text', 8)
   },
 
   async 'a lane that is refused slows only itself'() {
@@ -62,6 +78,6 @@ export const rateGateSuite = suite('rate-gate', {
     releaseSlot('image')
     await pending
     eq(granted, true)
-    resetRateGate()
+    await drain('image', 3)
   },
 })
