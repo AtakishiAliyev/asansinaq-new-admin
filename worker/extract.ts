@@ -113,9 +113,28 @@ export async function applyResult(
   // Before lint, not after: an option that declared a picture and has not been
   // given one yet is an `option_empty` error, so linting first would flag every
   // picture option on a question that is about to be complete.
-  if (crop) await attachOptionImages(db, row, crop, question.options)
+  const cut = crop
+    ? await attachOptionImages(db, row, crop, question.options)
+    : { produced: 0, failed: 0 }
 
   const flags = lintQuestion(question, row.q_no)
+
+  // A cut option is a FALLBACK, not the target state. It is a rectangle of the
+  // scanned page, so it carries whatever the page carried — the source
+  // watermark, a neighbouring option's edge, the paper's own greying. The
+  // target is a figure the DSL can express and re-render clean.
+  //
+  // Warning rather than error, because the question is usable and a reviewer
+  // can accept it. But warning is enough to keep auto-approve away from it,
+  // which is the point: nothing should reach the bank carrying someone else's
+  // watermark without a person having looked.
+  if (cut.produced) {
+    flags.push({
+      level: 'warning',
+      code: 'option_image_cropped',
+      message: `${cut.produced} variant şəkli mənbədən kəsilib (su nişanı daşıya bilər) — DSL fiquru deyil, baxılmalıdır`,
+    })
+  }
 
   const answer = answerFor(context, row.test_no, row.q_no)
   if (!answer) {

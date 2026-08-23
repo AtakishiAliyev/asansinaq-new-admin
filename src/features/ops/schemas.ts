@@ -12,7 +12,13 @@ export const opSummarySchema = z.array(
   z.object({
     op: z.string(),
     calls: z.coerce.number(),
+    /** Calls our own ops_cache answered, so no model ran at all. */
     cached: z.coerce.number(),
+    /** Prompt tokens across the calls that DID reach a model. */
+    prompt_tokens: z.coerce.number(),
+    /** Of those, the ones the provider served from its prompt cache. A wholly
+     *  different mechanism from `cached` above, and the reason both are here. */
+    cache_read_tokens: z.coerce.number(),
     cost: z.coerce.number(),
     ms_p50: z.coerce.number().nullable(),
   }),

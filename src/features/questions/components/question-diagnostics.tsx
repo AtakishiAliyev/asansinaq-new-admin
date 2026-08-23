@@ -18,6 +18,8 @@ const FLAG_HINTS: Record<string, string> = {
   option_boxes_failed: 'variantların yerini tapan addım uğursuz oldu',
   option_image_no_box: 'variant şəkil kimi işarələnib, amma yeri göstərilməyib',
   option_empty: 'variantın nə mətni, nə şəkli var',
+  option_image_cropped:
+    'variant şəkilləri mənbədən kəsilib — su nişanı daşıya bilər, DSL fiquru deyil',
   option_duplicate: 'iki variant eynidir — biri səhv oxunub',
   option_labels: 'variant hərfləri A–E deyil',
   option_latex: 'variant LaTeX-i render olunmur',

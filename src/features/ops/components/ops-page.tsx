@@ -117,7 +117,18 @@ function OpBreakdown({ summary }: { summary: OpSummary }) {
         <TableRow>
           <TableHead>Əməliyyat</TableHead>
           <TableHead className="text-right">Çağırış</TableHead>
-          <TableHead className="text-right">Keşdən</TableHead>
+          <TableHead
+            className="text-right"
+            title="Modelə heç çatmayan çağırışlar — eyni crop üçün saxlanmış nəticə"
+          >
+            Keşdən
+          </TableHead>
+          <TableHead
+            className="text-right"
+            title="Modelə çatan çağırışlarda provayderin öz keşindən gələn prompt token faizi. Toplu (batch) işlərdə 100%-dən xeyli aşağı olması normaldır; yalnız sıfır problemdir."
+          >
+            Prompt keşi
+          </TableHead>
           <TableHead className="text-right">Median</TableHead>
           <TableHead className="text-right">Xərc</TableHead>
         </TableRow>
@@ -129,6 +140,11 @@ function OpBreakdown({ summary }: { summary: OpSummary }) {
             <TableCell className="text-right tabular-nums">{s.calls}</TableCell>
             <TableCell className="text-right tabular-nums">
               {s.calls ? `${Math.round((s.cached / s.calls) * 100)}%` : '—'}
+            </TableCell>
+            <TableCell className="text-right tabular-nums">
+              {s.prompt_tokens
+                ? `${Math.round((s.cache_read_tokens / s.prompt_tokens) * 100)}%`
+                : '—'}
             </TableCell>
             <TableCell className="text-right tabular-nums">
               {s.ms_p50 === null ? '—' : `${(s.ms_p50 / 1000).toFixed(1)}s`}
