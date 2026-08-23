@@ -116,8 +116,15 @@ describe that state say so. Delete this note when the last milestone lands.
   expires and every row it held is paid for twice. It restores every row it
   touches and makes no model call.
 - `npm run worker` — the batch worker. Needs `.env` loaded
-  (`set -a; . ./.env; set +a`) for the service-role and Anthropic keys. Spends
-  real money: it claims queued questions and submits them to the Batches API.
+  (`set -a; . ./.env; set +a`) for the service-role and Anthropic keys, plus the
+  worker's own variables (see `worker/config.ts`, which is their source of
+  truth). Spends real money: it claims queued questions and submits them to the
+  Batches API.
+- `npm run worker -- --dry-run` — pre-flight for the above. Reads, builds the
+  request it WOULD submit, prices it with `countTokens`, and exits. Claims
+  nothing, submits nothing, writes nothing — safe against a live queue. Run it
+  before every real start: it is the difference between finding a missing crop
+  or a wrong model id now and finding it after a few hundred paid questions.
 - `npm run typecheck` — TS check (a hook runs this automatically after edits)
 - `npm run lint` / `npm run lint:fix` — oxlint
 - `npm run format` — Prettier write
