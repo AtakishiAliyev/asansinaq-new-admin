@@ -171,7 +171,14 @@ export const optionBandsSuite = suite('option-bands', {
     for (const [x0, x1] of cols) fill(pix, x0, 380, x1, 520, BLACK)
     for (const [x0, x1] of cols.slice(0, 2)) fill(pix, x0 + 130, 600, x1 + 130, 740, BLACK)
 
-    const result = localizeOptionBoxes(pix, 5)
+    const gridHint: Box[] = [
+      [470, 100, 650, 300],
+      [470, 360, 650, 570],
+      [470, 630, 650, 840],
+      [750, 240, 930, 440],
+      [750, 500, 930, 700],
+    ]
+    const result = localizeOptionBoxes(pix, 5, gridHint)
     ok(result.ok, 'three across then two is five options')
     if (!result.ok) return
     eq(result.boxes.length, 5, 'one box per cell')
@@ -182,11 +189,43 @@ export const optionBandsSuite = suite('option-bands', {
     ok(result.boxes[1]![1] > result.boxes[0]![1], 'B is to the right of A')
   },
 
-  'a cell count that overshoots the option count is a refusal'() {
+  // A row that cannot be cut into as many pieces as the hint claims is a
+  // refusal: merging by rank always reaches the count when there are enough
+  // runs, so too few runs means the layout was misread.
+  'a row that cannot supply its options is a refusal'() {
     const pix = blank(900, 800)
-    for (let i = 0; i < 4; i++) fill(pix, 90 + i * 200, 400, 230 + i * 200, 520, BLACK)
-    const result = localizeOptionBoxes(pix, 3)
-    ok(!result.ok, 'four cells cannot be three options')
+    fill(pix, 90, 400, 230, 520, BLACK) // one blob where three options are claimed
+    const result = localizeOptionBoxes(pix, 3, [
+      [470, 100, 650, 300],
+      [470, 360, 650, 570],
+      [470, 630, 650, 840],
+    ])
+    ok(!result.ok, 'one run cannot become three options')
+  },
+
+  // The gaps between the three circles of ONE option are narrower than the
+  // gutters between options, but not by any margin a fixed threshold survives
+  // across books — so the count comes from the hint and only the ordering of
+  // the gaps has to hold.
+  'circles inside one option do not split it'() {
+    const pix = blank(900, 700)
+    fill(pix, 100, 60, 800, 300, BLACK)
+    const rows: [number, number][] = [[380, 430], [450, 500], [520, 570], [590, 640]]
+    for (const [top, bottom] of rows) {
+      // Three well-separated circles per option, as the live page prints them.
+      for (const x of [180, 280, 380]) fill(pix, x, top, x + 50, bottom, RED)
+    }
+    const result = localizeOptionBoxes(
+      pix,
+      4,
+      rows.map(([t, b]) => [
+        Math.round((t / 700) * 1000), 190, Math.round((b / 700) * 1000), 480,
+      ]) as Box[],
+    )
+    ok(result.ok, 'four rows of three circles are four options')
+    if (!result.ok) return
+    eq(result.boxes.length, 4, 'not twelve')
+    ok(result.boxes[0]![3] - result.boxes[0]![1] > 200, 'each box spans all three circles')
   },
 
   'a crop with no content at all is a refusal'() {

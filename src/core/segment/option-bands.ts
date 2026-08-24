@@ -107,78 +107,121 @@ function extentOf(pix: Pixels, band: Band): { left: number; right: number } | nu
   return right < left ? null : { left, right }
 }
 
+
 /**
- * Drop the "A)" labels from a band's cells.
+ * Drop a narrow, isolated blob at the left edge — the "A)" label.
  *
- * The label is its own cell once the row is split on gutters, and it must go or
- * every option row reports twice as many cells as it has options — which the
- * exact-count check then correctly refuses, on a page that is perfectly
- * readable.
- *
- * Narrowness is judged against the OTHER cells in the same band rather than
- * against an absolute width, so it works for a column (label, picture) and for
- * a grid (label, picture, label, picture, label, picture) without knowing which
- * it is looking at. When every cell is narrow — five thin options in a row —
- * the median is narrow too and nothing is dropped.
+ * Only when it is BOTH narrow and clearly separated. A label glued to its
+ * picture is left alone: including the letter is untidy, and cutting the
+ * picture is a lost option.
  */
-function dropLabelCells(
-  cells: { left: number; right: number }[],
-): { left: number; right: number }[] {
-  if (cells.length < 2) return cells
-  const widths = cells.map((c) => c.right - c.left + 1).sort((a, b) => a - b)
-  const median = widths[Math.floor(widths.length / 2)]!
-  const kept = cells.filter((c) => c.right - c.left + 1 >= median * 0.4)
-  // Never return nothing: if the rule would empty the band, it has misread the
-  // layout and the raw cells are the safer answer.
-  return kept.length ? kept : cells
+function trimLabel(pix: Pixels, band: Band, left: number, right: number): number {
+  const runs = columnRunsRaw(pix, band, left, right)
+  if (runs.length < 2) return left
+  const first = runs[0]!
+  const span = right - left + 1
+  const narrow = first.right - first.left + 1 <= span * 0.18
+  const separated = runs[1]!.left - first.right >= span * 0.03
+  return narrow && separated ? runs[1]!.left : left
 }
 
-/** Occupied column runs inside a band, split on white gutters. */
-function cellsInBand(
+function columnRunsRaw(
   pix: Pixels,
   band: Band,
   left: number,
   right: number,
-  maxGutter: number,
 ): { left: number; right: number }[] {
-  const occupied: boolean[] = []
-  for (let x = left; x <= right; x++) {
-    let on = false
-    for (let y = band.top; y <= band.bottom && !on; y++) {
-      if (isContent(pix.data, (y * pix.width + x) * 4)) on = true
-    }
-    occupied.push(on)
-  }
-  const cells: { left: number; right: number }[] = []
+  const runs: { left: number; right: number }[] = []
   let start = -1
-  for (let i = 0; i <= occupied.length; i++) {
-    const on = occupied[i] === true
-    if (on && start < 0) start = i
+  for (let x = left; x <= right + 1; x++) {
+    let on = false
+    if (x <= right) {
+      for (let y = band.top; y <= band.bottom && !on; y++) {
+        if (isContent(pix.data, (y * pix.width + x) * 4)) on = true
+      }
+    }
+    if (on && start < 0) start = x
     if (!on && start >= 0) {
-      const previous = cells[cells.length - 1]
-      // Only a wide gutter separates two options. Narrow white inside a
-      // pictogram — the hole in a ring, the gap between two shapes — must not
-      // split one option into several.
-      if (previous && left + start - previous.right - 1 <= maxGutter) previous.right = left + i - 1
-      else cells.push({ left: left + start, right: left + i - 1 })
+      runs.push({ left: start, right: x - 1 })
       start = -1
     }
   }
-  return cells
+  return runs
+}
+
+/**
+ * How the model laid the options out: how many rows, and how many per row.
+ *
+ * Structure is the half the model gets right. It knows a page shows five
+ * options stacked, or three across and then two, even when every coordinate it
+ * gives is 200 units too high — so the shape comes from the hint and only the
+ * positions come from the pixels. Without a hint the only safe assumption is a
+ * single column.
+ */
+function rowsFromHint(hint: Box[] | undefined, expected: number): number[] {
+  if (!hint?.length) return new Array(expected).fill(1)
+  const sorted = [...hint].sort((a, b) => a[0] - b[0])
+  const rows: number[] = []
+  let previous: Box | null = null
+  for (const box of sorted) {
+    // Same row when the boxes overlap vertically by most of their height. Two
+    // options side by side share a row; the next row starts below.
+    const overlaps =
+      previous !== null &&
+      Math.min(previous[2], box[2]) - Math.max(previous[0], box[0]) >
+        (box[2] - box[0]) * 0.5
+    if (overlaps) rows[rows.length - 1]!++
+    else rows.push(1)
+    previous = box
+  }
+  return rows
+}
+
+const columnRuns = columnRunsRaw
+
+/**
+ * Merge column runs down to exactly `count` groups, closing the narrowest gaps
+ * first.
+ *
+ * The gaps inside one option — between the three circles of an answer — are
+ * narrower than the gutters between options, but not by a margin any fixed
+ * threshold survives across books. Merging by rank rather than by threshold
+ * only needs the ordering to hold, and it uses the count the model supplied
+ * instead of inventing one.
+ */
+function mergeToCount(
+  runs: { left: number; right: number }[],
+  count: number,
+): { left: number; right: number }[] | null {
+  if (runs.length < count) return null
+  const groups = runs.map((r) => ({ ...r }))
+  while (groups.length > count) {
+    let best = 0
+    let bestGap = Infinity
+    for (let i = 1; i < groups.length; i++) {
+      const gap = groups[i]!.left - groups[i - 1]!.right
+      if (gap < bestGap) {
+        bestGap = gap
+        best = i
+      }
+    }
+    groups[best - 1]!.right = groups[best]!.right
+    groups.splice(best, 1)
+  }
+  return groups
 }
 
 /**
  * Snap the option boxes to the pixels.
  *
- * `hint` is the model's own boxes, used ONLY to decide where to start looking —
- * everything at or below the top of the highest hint, with generous slack —
- * because the model reliably knows the options come after the figure even when
- * it is wrong about the rows. Pass nothing to search the whole crop.
+ * `hint` is the model's own boxes. Its SHAPE is trusted — how many rows and how
+ * many options per row — and its coordinates are used only to decide where to
+ * start looking. Everything about where the options actually sit comes from the
+ * pixels.
  *
- * Options are laid out either as a column (five rows) or as a grid (three
- * across, then two), so bands are split into cells and the cells are returned
- * in reading order. Getting this wrong in the tolerant direction is the whole
- * danger, so the count must come out exactly right or nothing is returned.
+ * It refuses rather than guesses. A cut nothing measured is a cut nobody has
+ * checked, and a confidently wrong box deletes an option that the book printed
+ * without leaving any trace that it did.
  */
 export function localizeOptionBoxes(
   pix: Pixels,
@@ -187,7 +230,12 @@ export function localizeOptionBoxes(
   options: LocalizeOptions = {},
 ): LocalizeResult {
   if (expected <= 0) return { ok: false, reason: 'no picture options to place', bands: [] }
-  const { pad, maxGutter } = { ...DEFAULTS, ...options }
+  const { pad } = { ...DEFAULTS, ...options }
+
+  const perRow = rowsFromHint(hint, expected)
+  if (perRow.reduce((a, b) => a + b, 0) !== expected) {
+    return { ok: false, reason: 'the hint does not add up to the option count', bands: [] }
+  }
 
   // Generous slack: the model was 200 units too high on the case this was built
   // for, so a tight floor would exclude the very rows being looked for.
@@ -195,64 +243,56 @@ export function localizeOptionBoxes(
     ? Math.max(0, Math.round(((Math.min(...hint.map((b) => b[0])) - 150) / 1000) * pix.height))
     : 0
 
-  const all = contentBands(pix, options)
-  const below = all.filter((b) => b.bottom >= floor)
-  if (!below.length) {
-    return { ok: false, reason: 'no content found below the figure', bands: [] }
-  }
-
-  const gutterPx = Math.max(2, Math.round(maxGutter * pix.width))
-  const padPx = Math.round(pad * pix.height)
-
-  // Bottom-most bands first: the options are the last thing on a question crop,
-  // and anything above them — a trailing stem line, an inline heading like
-  // "A = ? ; B = ? ; C = ?" — is not an option.
-  const collected: { band: Band; cell: { left: number; right: number } }[] = []
-  const used: Band[] = []
-  for (let i = below.length - 1; i >= 0 && collected.length < expected; i--) {
-    const band = below[i]!
-    const extent = extentOf(pix, band)
-    if (!extent) continue
-    const cells = dropLabelCells(cellsInBand(pix, band, extent.left, extent.right, gutterPx))
-    if (!cells.length) continue
-    if (collected.length + cells.length > expected) {
-      return {
-        ok: false,
-        reason: `bands hold ${collected.length + cells.length} cell(s), need exactly ${expected}`,
-        bands: [band, ...used],
-      }
-    }
-    // Reading order within the band, and bands are being walked upwards.
-    collected.unshift(...cells.map((cell) => ({ band, cell })))
-    used.unshift(band)
-  }
-
-  if (collected.length !== expected) {
+  const bands = contentBands(pix, options).filter((b) => b.bottom >= floor)
+  if (bands.length < perRow.length) {
     return {
       ok: false,
-      reason: `found ${collected.length} option cell(s) below the figure, need ${expected}`,
-      bands: used,
+      reason: `found ${bands.length} content band(s) below the figure, need ${perRow.length} option row(s)`,
+      bands,
     }
   }
 
-  // One column or one grid, not an accident: option cells are near enough the
-  // same size as each other. Wildly uneven cells mean some other layout, and a
-  // guess there is a confidently wrong cut.
-  const heights = used.map((b) => b.bottom - b.top + 1)
+  // The options are the bottom-most content, so the last N bands are the option
+  // rows and anything above them is stem, figure or an inline heading.
+  const chosen = bands.slice(bands.length - perRow.length)
+
+  const heights = chosen.map((b) => b.bottom - b.top + 1)
   if (Math.max(...heights) > Math.min(...heights) * 2.5) {
     return {
       ok: false,
       reason: `option rows are too uneven to trust (${Math.min(...heights)}px to ${Math.max(...heights)}px)`,
-      bands: used,
+      bands: chosen,
     }
   }
 
+  const padY = Math.round(pad * pix.height)
   const padX = Math.round(pad * pix.width)
-  const boxes: Box[] = collected.map(({ band, cell }) => [
-    Math.round((Math.max(0, band.top - padPx) / pix.height) * 1000),
-    Math.round((Math.max(0, cell.left - padX) / pix.width) * 1000),
-    Math.round((Math.min(pix.height - 1, band.bottom + padPx) / pix.height) * 1000),
-    Math.round((Math.min(pix.width - 1, cell.right + padX) / pix.width) * 1000),
-  ])
-  return { ok: true, boxes, bands: used }
+  const boxes: Box[] = []
+  for (const [index, band] of chosen.entries()) {
+    const extent = extentOf(pix, band)
+    if (!extent) return { ok: false, reason: 'a band held no content', bands: chosen }
+    const count = perRow[index]!
+    // A single-option row keeps its whole width, minus the "A)" label. A row
+    // holding several options is cut at its widest gutters.
+    const cells =
+      count === 1
+        ? [{ left: trimLabel(pix, band, extent.left, extent.right), right: extent.right }]
+        : mergeToCount(columnRuns(pix, band, extent.left, extent.right), count)
+    if (!cells) {
+      return {
+        ok: false,
+        reason: `row ${index + 1} cannot be split into ${count} option(s)`,
+        bands: chosen,
+      }
+    }
+    for (const cell of cells) {
+      boxes.push([
+        Math.round((Math.max(0, band.top - padY) / pix.height) * 1000),
+        Math.round((Math.max(0, cell.left - padX) / pix.width) * 1000),
+        Math.round((Math.min(pix.height - 1, band.bottom + padY) / pix.height) * 1000),
+        Math.round((Math.min(pix.width - 1, cell.right + padX) / pix.width) * 1000),
+      ])
+    }
+  }
+  return { ok: true, boxes, bands: chosen }
 }

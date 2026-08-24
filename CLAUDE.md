@@ -42,6 +42,15 @@ what each stage needs.
   tool schema sit in the cached prefix; the crop image is sent exactly once per
   call. Batch pricing is half of synchronous, which is why nothing paid runs
   synchronously.
+- **Where the model is asked WHAT, not WHERE.** Positions inside a crop are
+  measured, not requested: `core/segment/option-bands.ts` finds the option rows
+  from an ink-and-colour profile and snaps the boxes to them, using the model's
+  own boxes only as a hint about where to start looking. The model kept placing
+  five options 200 units of the 0-1000 grid above where they were printed, and
+  two prompt iterations did not move them onto the rows. The localizer refuses
+  rather than guesses — a cell count that does not match the option count is a
+  flag, because a confidently wrong box deletes an option and nothing downstream
+  can tell that from an option the book never printed.
 - **Extraction is ONE structured call per question.** A forced `tool_use` with a
   strict schema returns stem, options, figure spec, category and confidence
   together. No repair round-trip in the extract wave, no separate option-box
@@ -49,15 +58,36 @@ what each stage needs.
   block placed AFTER the stable prefix with its own `cache_control` breakpoint —
   a batch is per-book, so within a run the tree caches too, and a book change
   invalidates only that block instead of the whole prompt.
-- **Figures are vector only, and there is no image lane at all.** `core/figures`
-  emits SVG as a string for every kind — no DOM, no React — so the review screen
-  and the worker draw from one implementation. Marks that carry meaning (equal
-  ticks, parallel chevrons, right-angle squares, congruent arcs) are DATA on the
-  figure, not strokes a model happened to draw: a mark that is a field can be
-  linted, compared and re-rendered, and one buried in `raw_svg` can only be
-  looked at. A figure the vector kinds cannot express routes to review. Image
+- **Figures are DSL-first, cleaned-crop as the fallback, and there is no image
+  lane at all.** `core/figures` emits SVG as a string for every kind — no DOM, no
+  React — so the review screen and the worker draw from one implementation. Marks
+  that carry meaning (equal ticks, parallel chevrons, right-angle squares,
+  congruent arcs) are DATA on the figure, not strokes a model happened to draw: a
+  mark that is a field can be linted, compared, edited on the review screen and
+  re-rendered, and one buried in `raw_svg` can only be looked at. Image
   generation is gone entirely — no automated path, no manual fallback, no
   provider key — and re-adding one is a decision, not a configuration change.
+
+  **Where a kind expresses the figure, the kind wins.** That lane is lintable,
+  editable and deeply verifiable, and nothing else is.
+
+  **Where no kind expresses it, the fallback is a CLEANED REGION OF THE ORIGINAL
+  CROP, not a free-drawn `raw_svg`.** A model asked to draw something it cannot
+  express does not fail loudly — it writes an apology into the drawing, and one
+  live row came back as a single line of text reading "text description not
+  possible, look at the original image". Cutting the region costs nothing,
+  cannot hallucinate, and shows the reader the real figure. `core/segment/
+  image-clean.ts` removes the watermark and the bleed-through while keeping
+  saturated pixels, because in these books the colour IS the question and both
+  naive thresholds measured at removing 100% of it. The cut is not lintable and
+  not editable, so it always lands in review — honest, and strictly better than a
+  drawing of an apology.
+
+  This is recorded as the direction, NOT switched on as a default: `raw_svg`
+  still exists and clean-crop-for-everything has not been proven on a book whose
+  watermark is a coloured logo, which is the case where keeping saturated pixels
+  is structurally weakest. That probe runs when such a book is imported
+  (`npm run probe:dewatermark`).
 - **Verification is a second batch wave.** The worker renders the produced
   question and compares it against the original crop in one Sonnet call, then
   writes a diff and a confidence. Low confidence lands in the existing review
@@ -114,6 +144,19 @@ place, and it is scheduled for removal after M6 along with
 
 - `npm run dev` — dev server
 - `npm run eval` — pipeline-core regression suite (free, offline; see `eval/README.md`)
+- `npm run sample:kinds` / `npm run sample:corruptions` — regenerate the
+  committed review pages under `samples/`. Free and offline. Regenerate rather
+  than hand-edit: the first figure-kinds page went stale invisibly, still
+  claiming marks are carried as data while drawing a congruence arc that was
+  byte-identical to a bare label anchor.
+- `npm run sample:verify` — the same for the live verification wave, written to
+  `local/samples/` because every card embeds a book crop.
+- `npm run probe:dewatermark` — before/after for the crop cleaner over real
+  crops, written to `local/samples/`. Free and offline. Run it on any newly
+  imported book whose watermark is a COLOURED LOGO: keeping saturated pixels is
+  what preserves the colour these questions turn on, and it is also what would
+  keep a coloured logo, so that case decides how far the cleaned-crop lane can
+  go.
 - `npm run smoke:request` — validates the extraction request against the real
   Anthropic API with `countTokens`, which is free and bills nothing. Manual, and
   outside the gate because it needs the network. Run it after any change to the
