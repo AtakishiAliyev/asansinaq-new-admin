@@ -192,9 +192,17 @@ const columnRuns = columnRunsRaw
 function mergeToCount(
   runs: { left: number; right: number }[],
   count: number,
+  minRunWidth: number,
 ): { left: number; right: number }[] | null {
-  if (runs.length < count) return null
-  const groups = runs.map((r) => ({ ...r }))
+  // Page edges, scanner specks and the tail of a rule line all show up as runs
+  // one or two pixels wide. Merging by rank happily keeps one as a whole group,
+  // which is how a five-option row came back with a cell seven units across:
+  // the option was there, and a speck at the margin took its place in the
+  // count. They are dropped before anything is merged.
+  const real = runs.filter((r) => r.right - r.left + 1 >= minRunWidth)
+  const usable = real.length >= count ? real : runs
+  if (usable.length < count) return null
+  const groups = usable.map((r) => ({ ...r }))
   while (groups.length > count) {
     let best = 0
     let bestGap = Infinity
@@ -277,12 +285,29 @@ export function localizeOptionBoxes(
     const cells =
       count === 1
         ? [{ left: trimLabel(pix, band, extent.left, extent.right), right: extent.right }]
-        : mergeToCount(columnRuns(pix, band, extent.left, extent.right), count)
+        : mergeToCount(
+            columnRuns(pix, band, extent.left, extent.right),
+            count,
+            Math.max(2, Math.round(pix.width * 0.01)),
+          )
     if (!cells) {
       return {
         ok: false,
         reason: `row ${index + 1} cannot be split into ${count} option(s)`,
         bands: chosen,
+      }
+    }
+    // Options in one row are printed at comparable widths. A cell far narrower
+    // than its neighbours means the split landed between the wrong runs, and a
+    // narrow cell is exactly how an option gets silently replaced by a margin.
+    if (cells.length > 1) {
+      const widths = cells.map((c) => c.right - c.left + 1)
+      if (Math.min(...widths) < Math.max(...widths) * 0.25) {
+        return {
+          ok: false,
+          reason: `row ${index + 1} split into uneven options (${Math.min(...widths)}px to ${Math.max(...widths)}px)`,
+          bands: chosen,
+        }
       }
     }
     for (const cell of cells) {

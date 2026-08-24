@@ -228,6 +228,32 @@ export const optionBandsSuite = suite('option-bands', {
     ok(result.boxes[0]![3] - result.boxes[0]![1] > 200, 'each box spans all three circles')
   },
 
+  // The live grids came back with cells 7 and 12 units wide: a speck at the
+  // page margin survived as its own run and took an option's place in the
+  // count. The option was printed; the cut replaced it with the margin.
+  'a speck at the margin does not take an option\u2019s place'() {
+    const pix = blank(900, 800)
+    fill(pix, 100, 60, 800, 300, BLACK) // the figure
+    fill(pix, 2, 400, 4, 520, BLACK) // a 3px speck at the left edge
+    const cols: [number, number][] = [
+      [90, 270],
+      [330, 510],
+      [570, 750],
+    ]
+    for (const [x0, x1] of cols) fill(pix, x0, 400, x1, 520, BLACK)
+
+    const result = localizeOptionBoxes(pix, 3, [
+      [490, 100, 650, 300],
+      [490, 360, 650, 570],
+      [490, 630, 650, 840],
+    ])
+    ok(result.ok, 'three options are still three options')
+    if (!result.ok) return
+    for (const box of result.boxes) {
+      ok(box[3] - box[1] > 100, `every option is a real width, not a speck (${box[3] - box[1]})`)
+    }
+  },
+
   'a crop with no content at all is a refusal'() {
     const result = localizeOptionBoxes(blank(400, 300), 5)
     ok(!result.ok, 'nothing to place')
