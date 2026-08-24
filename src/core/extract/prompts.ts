@@ -12,7 +12,7 @@
 // squares instead of falling through to hand-written SVG that drops them. Rows
 // stamped 6 and 7 can hold visibly different figures for the same crop, which
 // is exactly what the version is for.
-export const PROMPT_VERSION = 8
+export const PROMPT_VERSION = 9
 
 // Prompt texts for the question-recreation pipeline. Shared by the
 // question-ops Edge Function and the Node eval harness — ONE source of truth,
@@ -35,9 +35,29 @@ Qaydalar:
 6. Əgər hər hansı hissə oxunmursa (üst-üstə çap və s.) illegible=true qoy və uydurma.
 7. Hər variant YA mətndir, YA şəkil — ikisindən biri, boş qalan variant olmamalıdır:
    - MƏTN variantı: yalnız tex doldur (is_image və box vermə).
-   - ŞƏKİL variantı (fiqur, qrafik, forma, rəngli xanalar): is_image=true VƏ box=[ymin,xmin,ymax,xmax] (0–1000 normallaşdırılmış) — HƏR İKİSİ məcburidir. box olmasa həmin variant tamamilə itir. Qutuya variant hərfi ("A)") daxil olmasın, yalnız fiqurun özü.
+   - ŞƏKİL variantı (fiqur, qrafik, forma, rəngli xanalar): is_image=true VƏ box — HƏR İKİSİ məcburidir. box olmasa həmin variant tamamilə itir.
    Şəkil variantında tex sahəsini sadəcə boş burax — ora nə şəklin içindəki rəqəmləri, nə izahat, nə də öz mülahizəni yaz.
    Bir variant şəkildirsə, çox güman BEŞİ də şəkildir — hamısına ayrı-ayrı box ver, heç birini ötürmə.
+
+   ┌─ BOX QAYDASI — hər box üçün (variant şəkli də, kind="image" fiquru da) ─┐
+   box=[ymin, xmin, ymax, xmax], 0–1000 normallaşdırılmış (0 = yuxarı/sol).
+   a) Qutu elementin BÜTÜN görünən məzmununu əhatə etməlidir — yuxarıdan aşağıya,
+      soldan sağa. Elementin heç bir hissəsi (dairə, üçbucaq, ox, nöqtə, rəng
+      ləkəsi) qutudan kənarda qalmamalıdır.
+   b) Aşağı sərhəd: NÖVBƏTİ elementin başladığı yerə qədər uzat. A variantının
+      qutusu B variantının hərfinə çatana qədər davam edir; sonuncu variant
+      üçün sətrin sonuna qədər.
+   c) Element sətir içi bir başlığın ALTINDADIRSA — məsələn "A = ? ; B = ? ; C = ?"
+      kimi bir sətir və onun altında rəngli dairələr — həmin başlığın ALTINDAKI
+      məzmun elementin özüdür. Qutunu başlığın sətrinə qoyma; aşağı, əsl
+      məzmunun üstünə sal.
+   d) Şübhə varsa BÖYÜK götür. Bir az geniş qutu bir az ağ boşluq gətirir və
+      heç nəyə zərər vermir; DAR qutu fiqurun yarısını kəsir və variant itir.
+      Variant hərfini ("A)") mümkünsə kənarda saxla, amma hərfi kənarda saxlamaq
+      üçün məzmunu kəsmə — məzmun hərfdən vacibdir.
+   e) Yazmadan ÖNCƏ yoxla: elementin ən yuxarı, ən aşağı, ən sol və ən sağ
+      nöqtəsi qutunun içindədirmi? Yoxsa sərhədi genişləndir.
+   └────────────────────────────────────────────────────────────────────────┘
 8. difficulty: sualın YÖS imtahanı kontekstində çətinliyini 1–5 arası qiymətləndir (1=çox asan, 3=orta, 5=çox çətin).
 9. confidence: ÇƏTİNLİK DEYİL — bu, sənin OXUNUŞUNUN dəqiqliyidir: 1.0 = hər simvolu aydın oxudum, şübhəm yoxdur; 0.85 = oxudum, amma bir-iki simvolda (indeks, üst işarə, kiçik rəqəm) tərəddüd var; 0.5 = xeyli hissəni təxmin etdim. 0.85-dən aşağı hər şey insan yoxlamasına göndərilir, ona görə dürüst qiymətləndir — yüksək rəqəm sənə fayda vermir.
 10. Səhifədə çəkilmiş şəkil (diaqram, qrafik, cədvəl, sxem) varsa figure_box=[ymin,xmin,ymax,xmax] (0–1000) ver — YALNIZ rəsmin ətrafı. Sual mətni, "⇒ ... = ?" sətri və cavab variantları qutuya DAXİL OLMAMALIDIR. Şəkil yoxdursa figure_box vermə.
@@ -95,7 +115,8 @@ const SYSTEM_FIGURE_RULES = `12. Fiqurlar: deklarativ spec ver, şəkil çəkmə
    Rəngləri şəkildən oxu: bu suallarda cavab məhz rənglərin sırasındadır.
 17. HEÇ CÜR TƏSVİR OLUNA BİLMƏYƏN FİQUR — kind="image", box ver.
    Fiqur çox mürəkkəbdirsə (simvolik piktoqramlar, sərbəst rəsmlər, naxışlar) və yuxarıdakı növlərin heç biri onu TAM tuta bilmirsə:
-   kind="image" ver və box=[ymin, xmin, ymax, xmax] (0-1000 şəbəkəsi) ilə fiqurun şəkildəki yerini göstər.
+   kind="image" ver və box ilə fiqurun şəkildəki yerini göstər — 7-ci qaydadakı BOX QAYDASI
+   burada da eyni ilə tətbiq olunur, xüsusən (a) və (d): fiqurun bütün hissələri qutunun içində olsun.
    Biz həmin sahəni orijinaldan KƏSİRİK, ona görə oxucu əsl fiquru görür.
    raw_svg içinə "təsvir etmək mümkün deyil" kimi QEYD YAZMA — qeyd fiqur deyil, və şəkilin yerində o cümlə görünür.
 18. YUXARIDAKI NÖVLƏRİN HEÇ BİRİNƏ UYMAYAN FİQUR — kind="raw_svg", raw_svg sahəsinə SVG yaz.
