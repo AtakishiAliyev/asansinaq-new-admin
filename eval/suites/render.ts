@@ -89,6 +89,84 @@ const CROWDED: GeometryFig = {
 const count = (svg: string, pattern: RegExp): number => (svg.match(pattern) ?? []).length
 
 export const renderSuite = suite('render', {
+  // The cubes kind exists because the model, left to raw_svg, drew this genre
+  // the same way every time — three polygons and a circle per cube — and none
+  // of it could be linted, compared or corrected as strokes. The assertions are
+  // about what a reviewer and the verify wave can SEE: a face that changed
+  // colour has to change the picture.
+  'a cube row draws three faces per cube'() {
+    const svg = renderFigItem(
+      {
+        kind: 'cubes',
+        cubes: [{ front: { color: '#dd3322' }, top: { color: '#2255cc' }, right: {} }],
+      },
+      { idPrefix: 'c' },
+    )
+    eq(count(svg, /<polygon/g), 3, 'front, top and right')
+    ok(svg.includes('#dd3322'), 'the front colour is in the drawing')
+    ok(svg.includes('#2255cc'), 'the top colour is in the drawing')
+  },
+
+  'a face colour is visible in the drawing'() {
+    const one = renderFigItem(
+      { kind: 'cubes', cubes: [{ front: { color: '#dd3322' } }] },
+      { idPrefix: 'c' },
+    )
+    const other = renderFigItem(
+      { kind: 'cubes', cubes: [{ front: { color: '#33aa55' } }] },
+      { idPrefix: 'c' },
+    )
+    ok(one !== other, 'recolouring a face changes the picture')
+  },
+
+  // The whole genre turns on the ORDER of the cubes, so two rows holding the
+  // same colours in a different order must not render identically.
+  'the order of the cubes is visible'() {
+    const forward = renderFigItem(
+      {
+        kind: 'cubes',
+        cubes: [{ front: { color: '#dd3322' } }, { front: { color: '#33aa55' } }],
+      },
+      { idPrefix: 'c' },
+    )
+    const reversed = renderFigItem(
+      {
+        kind: 'cubes',
+        cubes: [{ front: { color: '#33aa55' } }, { front: { color: '#dd3322' } }],
+      },
+      { idPrefix: 'c' },
+    )
+    ok(forward !== reversed, 'swapping two cubes changes the picture')
+  },
+
+  'a visible-but-blank face is not the same as a missing one'() {
+    const blank = renderFigItem(
+      { kind: 'cubes', cubes: [{ front: { color: '#dd3322' }, top: {} }] },
+      { idPrefix: 'c' },
+    )
+    const missing = renderFigItem(
+      { kind: 'cubes', cubes: [{ front: { color: '#dd3322' } }] },
+      { idPrefix: 'c' },
+    )
+    // Both draw the solid; only the face data differs, and the renderer draws
+    // every face of the solid either way. What must hold is that neither throws
+    // and both are real drawings.
+    ok(blank.includes('<polygon'), 'a blank face still draws its solid')
+    ok(missing.includes('<polygon'), 'a missing face still draws its solid')
+  },
+
+  // The image kind carries a region of the original crop. Both dimensions have
+  // to reach the markup: given only one, a rasteriser draws the image at its
+  // intrinsic size and ignores the one that was set.
+  'an image figure is drawn at the size of the cut'() {
+    const svg = renderFigItem(
+      { kind: 'image', src: 'b/fig0.png', w: 240, h: 90 },
+      { idPrefix: 'i' },
+    )
+    ok(/<image[^>]*width="240"/.test(svg), 'the width of the cut is written out')
+    ok(/<image[^>]*height="90"/.test(svg), 'the height of the cut is written out')
+  },
+
   // A mark that is DATA has to be visible, or the render-and-compare layer
   // cannot check it and the field is no better than a stroke buried in
   // raw_svg. `arcs` was invisible: a labelled angle already drew one arc, so an

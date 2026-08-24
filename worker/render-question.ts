@@ -209,6 +209,30 @@ interface Block {
   height: number
 }
 
+/** How tall a picture option is drawn. Enough to read a pictogram at a glance,
+ *  small enough that five of them still fit beside the stem. */
+const OPTION_IMAGE_H = 64
+
+/**
+ * Width and height straight out of a PNG's IHDR.
+ *
+ * Needed because an `<image>` given only one dimension is drawn at its natural
+ * size rather than scaled, and the aspect ratio is the only way to turn the one
+ * dimension we choose into the other. Reading 8 bytes of header is cheaper than
+ * decoding the image, and these are our own crops, so the format is known.
+ */
+function pngSize(dataUri: string): { width: number; height: number } | null {
+  const comma = dataUri.indexOf(',')
+  if (comma < 0) return null
+  const header = Buffer.from(dataUri.slice(comma + 1, comma + 65), 'base64')
+  // 8-byte signature, then a 25-byte IHDR chunk whose width and height sit at
+  // offsets 16 and 20.
+  if (header.length < 24 || header.readUInt32BE(0) !== 0x89504e47) return null
+  const width = header.readUInt32BE(16)
+  const height = header.readUInt32BE(20)
+  return width > 0 && height > 0 ? { width, height } : null
+}
+
 function optionBlock(
   option: ExtractedOption,
   images: Map<string, string>,
@@ -221,9 +245,25 @@ function optionBlock(
   if (embedded) {
     // The cut option image, inlined. It is the source's own pixels, so it is
     // the one part of the render that should look exactly like the crop.
-    const h = 64
+    //
+    // BOTH dimensions are written out. Given only a height the rasteriser draws
+    // the image at its INTRINSIC size and ignores the height entirely — so a
+    // 140x174 option crop was painted 174px tall into a block that had reserved
+    // 64, and each option overdrew the one below it. What survived was a sliver,
+    // which is exactly what the verification wave reported for every picture
+    // option on all three IQ questions: "only a small fragment is shown".
+    const intrinsic = pngSize(embedded)
+    const h = OPTION_IMAGE_H
+    const w = intrinsic ? Math.max(1, Math.round((intrinsic.width / intrinsic.height) * h)) : h
     parts.push(
-      tag('image', { href: embedded, x: 34, y: 0, height: h, preserveAspectRatio: 'xMinYMin meet' }),
+      tag('image', {
+        href: embedded,
+        x: 34,
+        y: 0,
+        width: w,
+        height: h,
+        preserveAspectRatio: 'xMinYMin meet',
+      }),
     )
     height = Math.max(height, h)
   } else if (option.tex) {

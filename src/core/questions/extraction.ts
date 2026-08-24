@@ -7,8 +7,10 @@
 // responseSchema moved to core/extract/schemas.ts
 
 import { sanitizeSvg, svgNodeCount } from '@/core/figures/svg-safe'
+import { COLOR_HEX } from '@/core/figures/figspec'
 import type {
   ColorToken,
+  CubeFace,
   Curve,
   CurveDef,
   FigItem,
@@ -192,6 +194,34 @@ function clampMark(value: unknown): 1 | 2 | 3 {
   return (n >= 3 ? 3 : n <= 1 ? 1 : 2) as 1 | 2 | 3
 }
 
+const colorish = (value: unknown): string | undefined => {
+  const text = typeof value === 'string' ? value.trim() : ''
+  return /^#[0-9a-fA-F]{3,8}$/.test(text) || text in COLOR_HEX ? text : undefined
+}
+
+function wireFace(value: unknown): CubeFace | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const face = value as Record<string, unknown>
+  const color = colorish(face.color)
+  const dot = colorish(face.dot)
+  const label = typeof face.label === 'string' && face.label.trim() ? face.label.trim() : undefined
+  // A face object with nothing in it says the face is visible and blank, which
+  // is a real state — but only when the model actually sent the object.
+  return color || dot || label ? { ...(color ? { color } : {}), ...(dot ? { dot } : {}), ...(label ? { label } : {}) } : {}
+}
+
+/** `[ymin, xmin, ymax, xmax]` on a 0-1000 grid, or nothing. */
+function wireBox(value: unknown): [number, number, number, number] | null {
+  if (!Array.isArray(value) || value.length !== 4) return null
+  const nums = value.map((n) => Math.round(Number(n)))
+  if (nums.some((n) => !Number.isFinite(n) || n < 0 || n > 1000)) return null
+  const [ymin, xmin, ymax, xmax] = nums as [number, number, number, number]
+  // A zero-area or inverted box would cut nothing; better to have no figure
+  // than an empty one that looks like a successful cut.
+  if (ymax <= ymin || xmax <= xmin) return null
+  return [ymin, xmin, ymax, xmax]
+}
+
 function wireFigure(w: Record<string, unknown>): FigItem | null {
   const kind = w.kind as string
   switch (kind) {
@@ -205,6 +235,38 @@ function wireFigure(w: Record<string, unknown>): FigItem | null {
         kind: 'raw_svg',
         node,
         ...(dropped.length ? { dropped } : {}),
+        ...(w.note ? { note: String(w.note) } : {}),
+      }
+    }
+    case 'cubes': {
+      const cubes = ((w.cubes as Record<string, unknown>[]) ?? [])
+        .map((c) => ({
+          ...(wireFace(c.front) ? { front: wireFace(c.front) } : {}),
+          ...(wireFace(c.top) ? { top: wireFace(c.top) } : {}),
+          ...(wireFace(c.right) ? { right: wireFace(c.right) } : {}),
+        }))
+        // A cube with no visible face is not a cube, and an empty row is not a
+        // figure — both mean the model picked the kind and then had nothing to
+        // put in it, which must not read as a successfully structured figure.
+        .filter((c) => c.front || c.top || c.right)
+      if (!cubes.length) return null
+      return {
+        kind: 'cubes',
+        cubes,
+        ...(Number(w.size) > 0 ? { size: Number(w.size) } : {}),
+      }
+    }
+    case 'image': {
+      const box = wireBox(w.box)
+      // No box means no pixels to cut, and an image figure with neither src nor
+      // box would render as an empty frame. Dropped, so the row reports as
+      // having no figure rather than as having a blank one.
+      if (!box) return null
+      return {
+        kind: 'image',
+        // Filled in by the worker once the region is cut and stored.
+        src: '',
+        box,
         ...(w.note ? { note: String(w.note) } : {}),
       }
     }

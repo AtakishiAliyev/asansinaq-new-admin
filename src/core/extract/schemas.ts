@@ -21,12 +21,23 @@ const tick = {
   required: ['at', 'tex'],
 }
 
+const cubeFace = {
+  type: 'object',
+  description:
+    'one visible face of a cube: its fill colour, a coloured spot on it, or a letter written on it. Omit the face entirely if it is not visible.',
+  properties: {
+    color: { type: 'string', description: 'face fill as a #rrggbb hex, or omitted when the face is blank' },
+    dot: { type: 'string', description: 'a coloured spot drawn on the face, as a #rrggbb hex' },
+    label: { type: 'string', description: 'a letter or short label written on the face, e.g. A' },
+  },
+}
+
 const figureObject = {
   type: 'object',
   properties: {
     kind: {
       type: 'string',
-      enum: ['geometry', 'function_graph', 'venn', 'division_scheme', 'vertical_arithmetic', 'table', 'number_line', 'raw_svg'],
+      enum: ['geometry', 'function_graph', 'venn', 'division_scheme', 'vertical_arithmetic', 'table', 'number_line', 'cubes', 'image', 'raw_svg'],
     },
     // function_graph
     panels: {
@@ -234,13 +245,35 @@ const figureObject = {
         ticks: { type: 'array', items: tick },
       },
     },
+    // cubes — the isometric cube row, a genre of its own in the IQ sections.
+    cubes: {
+      type: 'array',
+      description:
+        'for kind=cubes: the cubes left to right, each with the faces the isometric view shows. Only faces that are actually visible.',
+      items: {
+        type: 'object',
+        properties: {
+          front: cubeFace,
+          top: cubeFace,
+          right: cubeFace,
+        },
+      },
+    },
+    // image — the honest escape when the figure cannot be drawn at all.
+    box: {
+      type: 'array',
+      description:
+        'for kind=image: where the figure sits in the picture, as [ymin, xmin, ymax, xmax] on a 0-1000 grid. We cut that region out of the original, so the reader sees the real figure.',
+      items: { type: 'integer' },
+    },
     // raw_svg — the escape hatch, for a diagram none of the kinds above can
-    // express. Geometry constructions live here: rays, marked angles,
-    // labelled points.
+    // express. Note that geometry constructions do NOT belong here any more:
+    // rays, marked angles and labelled points are the `geometry` kind, where
+    // the marks are data that can be linted and compared.
     raw_svg: {
       type: 'string',
       description:
-        'complete <svg> markup with a viewBox, under 3000 characters, drawn to match the original: only shapes, lines, paths, text and markers, integer coordinates. No script, no images, no external references, no styles.',
+        'complete <svg> markup with a viewBox, under 3000 characters, drawn to match the original: only shapes, lines, paths, text and markers, integer coordinates. No script, no images, no external references, no styles. NEVER write a note or an apology as text inside it — if the figure cannot be drawn, use kind=image with a box instead.',
     },
     note: T.str,
   },

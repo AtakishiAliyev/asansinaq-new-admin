@@ -12,7 +12,7 @@
 // squares instead of falling through to hand-written SVG that drops them. Rows
 // stamped 6 and 7 can hold visibly different figures for the same crop, which
 // is exactly what the version is for.
-export const PROMPT_VERSION = 7
+export const PROMPT_VERSION = 8
 
 // Prompt texts for the question-recreation pipeline. Shared by the
 // question-ops Edge Function and the Node eval harness — ONE source of truth,
@@ -87,8 +87,19 @@ const SYSTEM_FIGURE_RULES = `12. Fiqurlar: deklarativ spec ver, şəkil çəkmə
      angles[].arcs: 1-3 — bərabər bucaq qövsü. EYNİ say = həmin bucaqlar bərabərdir; tənbölən (bisektris) məhz bununla bildirilir.
    angles: at=[qol, TƏPƏ, qol] — təpə ORTADA. label = çap olunmuş ölçü ("30°", "x", "2\\alpha").
    Ölçüləri şəkildən oxu. İşarəsiz verilən tənbölən və ya paralellik sualı həll oluna bilməyən başqa suala çevrilir.
-16. YUXARIDAKI NÖVLƏRİN HEÇ BİRİNƏ UYMAYAN FİQUR — kind="raw_svg", raw_svg sahəsinə SVG yaz.
-   Həndəsə şəkilləri bura düşür: bucaqlı şüalar, üçbucaq/dördbucaq qurumları, işarələnmiş bucaqlar, paralel oxlar, adlandırılmış nöqtələr.
+16. İZOMETRİK KUBLAR (rəngli üzlü kublar sırası) — kind="cubes".
+   Bu növ raw_svg-dən ÜSTÜNDÜR: kublar çəkirsənsə raw_svg YOX, cubes ver.
+   cubes: soldan sağa hər kub {front, top, right} — YALNIZ göründüyü üzlər. Görünməyən üzü UYDURMA.
+   Hər üz: {color:"#rrggbb"} üzün rəngi, {dot:"#rrggbb"} üzdəki rəngli nöqtə, {label:"A"} üzdə yazılmış hərf.
+   Üz görünür amma boşdursa, boş obyekt ver — üzü tamamilə buraxmaq "görünmür" deməkdir, bu isə başqa fiqurdur.
+   Rəngləri şəkildən oxu: bu suallarda cavab məhz rənglərin sırasındadır.
+17. HEÇ CÜR TƏSVİR OLUNA BİLMƏYƏN FİQUR — kind="image", box ver.
+   Fiqur çox mürəkkəbdirsə (simvolik piktoqramlar, sərbəst rəsmlər, naxışlar) və yuxarıdakı növlərin heç biri onu TAM tuta bilmirsə:
+   kind="image" ver və box=[ymin, xmin, ymax, xmax] (0-1000 şəbəkəsi) ilə fiqurun şəkildəki yerini göstər.
+   Biz həmin sahəni orijinaldan KƏSİRİK, ona görə oxucu əsl fiquru görür.
+   raw_svg içinə "təsvir etmək mümkün deyil" kimi QEYD YAZMA — qeyd fiqur deyil, və şəkilin yerində o cümlə görünür.
+18. YUXARIDAKI NÖVLƏRİN HEÇ BİRİNƏ UYMAYAN FİQUR — kind="raw_svg", raw_svg sahəsinə SVG yaz.
+   DİQQƏT: həndəsə şəkilləri buraya DÜŞMÜR — onlar 15-ci qayda (geometry), kublar 16-cı (cubes), təsvir oluna bilməyənlər 17-ci (image).
    Sual şəklə istinad edirsə və uyğun struktur növ yoxdursa, figures-i BOŞ BURAXMA — raw_svg ver.
    Qaydalar: viewBox MÜTLƏQ olsun (məs. viewBox="0 0 400 300"); yalnız path, line, polyline, polygon, rect, circle, ellipse, text, tspan, g, defs, marker;
    stroke="currentColor" fill="none" istifadə et ki, şəkil hər fonda oxunsun; nöqtə adlarını (A, B, C, D, E, F) və dərəcələri (30°, 50°, 130°) text ilə yaz;

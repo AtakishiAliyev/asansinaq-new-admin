@@ -236,15 +236,74 @@ export interface GeometryFig {
   regions?: { points: string[]; color?: ColorToken; opacity?: number }[]
 }
 
+// ---- Isometric cubes ----
+
+/**
+ * A row of cubes drawn in the usual isometric three-face view.
+ *
+ * Its own kind because it is a whole genre of IQ question — cubes coloured by
+ * a rule, with the last one partly hidden or lettered — and because the model
+ * draws it the same way every time when left to raw_svg: three polygons per
+ * cube and a circle on each visible face. Written out as strokes, none of that
+ * can be linted, compared or corrected; a face colour that came back wrong is
+ * indistinguishable from one the model chose to draw slightly differently.
+ * As data it is three fields and a reviewer can fix it in a dropdown.
+ *
+ * Only the three faces an isometric view can show are modelled. A question
+ * about a hidden face asks about something not drawn, which is the point of
+ * the question and not something the figure should invent.
+ */
+export interface CubeFace {
+  /** Face fill. Absent means the face is drawn empty. */
+  color?: ColorToken | string
+  /** A letter or short label written on the face — the "A = ?" cubes. */
+  label?: string
+  /** A coloured spot on the face, which is how these puzzles usually mark. */
+  dot?: ColorToken | string
+}
+
+export interface Cube {
+  front?: CubeFace
+  top?: CubeFace
+  right?: CubeFace
+}
+
+export interface CubesFig {
+  kind: 'cubes'
+  cubes: Cube[]
+  /** Edge length in plane units. The renderer picks a sane default. */
+  size?: number
+  /** Gap between cubes, as a fraction of size. */
+  gap?: number
+}
+
 // ---- Escape hatch ----
 
-// AI-regenerated raster figure (image-generation fallback lane). Not editable,
-// not lintable — must always pass the side-by-side human review; the reviewer
-// is the only guard against subtle detail drift (a label sliding one region).
-// `src` is a storage path or a data URL.
+/**
+ * A region of the ORIGINAL crop, carried through as pixels.
+ *
+ * This is what an inexpressible figure should become. Left with only raw_svg,
+ * a model faced with a figure it cannot draw does not fail loudly — it writes
+ * an apology INTO the drawing. One live row came back as a single `<text>`
+ * reading "text description not possible, look at the original image", which
+ * renders as that sentence where the figure should be, verifies as a
+ * catastrophic mismatch, and tells a reviewer nothing they could act on.
+ *
+ * Cutting the region out of the crop costs nothing, cannot hallucinate, and is
+ * the source's own pixels — the same reasoning that already applies to picture
+ * options. It is not editable and not lintable, so it always lands in review;
+ * that is honest, and strictly better than a drawing of an apology.
+ *
+ * `src` is a storage path, filled in by the worker after it cuts `box`.
+ * `w`/`h` are the natural size of the cut, so it can be drawn undistorted.
+ */
 export interface ImageFig {
   kind: 'image'
   src: string
+  /** Where it sits in the crop: `[ymin, xmin, ymax, xmax]` on a 0-1000 grid. */
+  box?: [number, number, number, number]
+  w?: number
+  h?: number
   note?: string
 }
 
@@ -263,6 +322,7 @@ export interface RawSvgFig {
 export type FigItem =
   | RawSvgFig
   | GeometryFig
+  | CubesFig
   | FunctionGraphFig
   | VennFig
   | DivisionScheme

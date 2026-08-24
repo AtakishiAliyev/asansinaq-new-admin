@@ -17,7 +17,7 @@ import { buildRowPayload } from '@/core/questions/row-payload'
 import type { Db, QuestionRow } from './db.ts'
 import { answerFor, type BookContext } from './book-context.ts'
 import { modelFor } from './models.ts'
-import { attachOptionImages } from './option-images.ts'
+import { attachFigureImages, attachOptionImages } from './option-images.ts'
 
 /** A verdict a reviewer reached outranks anything produced here. */
 const REVIEWED = new Set(['approved', 'rejected'])
@@ -100,6 +100,9 @@ export async function applyResult(
   const cut = crop
     ? await attachOptionImages(db, row, crop, question.options)
     : { produced: 0, failed: 0 }
+  // Same reasoning, for a figure that declared itself a region rather than a
+  // drawing. Before the payload is built, so the cut path is on the row.
+  if (crop) await attachFigureImages(db, row, crop, question)
 
   // The rules live in core because the review screen writes this same row after
   // a single re-run, and two copies of them would drift.

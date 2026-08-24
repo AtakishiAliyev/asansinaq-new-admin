@@ -23,6 +23,7 @@
 import type { FigItem, FigureDoc } from '@/core/figures/figspec'
 import { toMarkup } from '@/core/figures/svg-safe'
 import { layoutGeometry } from '@/core/figures/render-geometry'
+import { renderCubes } from '@/core/figures/render-cubes'
 import { renderVenn } from '@/core/figures/render-venn'
 import { renderFunctionGraph } from '@/core/figures/render-graph'
 import {
@@ -80,19 +81,29 @@ export function renderFigItem(item: FigItem, options: RenderOptions = {}): strin
       return renderVerticalArithmetic(item, tex)
     case 'number_line':
       return renderNumberLine(item, tex)
-    case 'image':
-      // A stored raster from the old image-generation lane. Nothing produces
-      // these any more, but rows that already hold one must still render.
+    case 'cubes':
+      return renderCubes(item, tex)
+    case 'image': {
+      // A region cut out of the original crop, for a figure no vector kind can
+      // express. Drawn at the natural size of the cut when we know it: forcing
+      // a fixed box would stretch it, and a stretched copy of the source is a
+      // difference the verification wave would report against the source it
+      // was cut from.
+      const w = item.w && item.w > 0 ? item.w : 420
+      const h = item.h && item.h > 0 ? item.h : 300
       return tag(
         'svg',
         {
           xmlns: 'http://www.w3.org/2000/svg',
-          viewBox: '0 0 420 300',
-          width: 420,
-          height: 300,
+          viewBox: `0 0 ${num(w)} ${num(h)}`,
+          width: w,
+          height: h,
         },
-        tag('image', { href: item.src, x: 0, y: 0, width: 420, height: 300 }),
+        // Both dimensions, always: given one, a rasteriser draws the image at
+        // its intrinsic size and silently ignores the dimension that was set.
+        tag('image', { href: item.src, x: 0, y: 0, width: w, height: h }),
       )
+    }
     case 'raw_svg':
       // Already sanitized at the extraction boundary; this only re-serialises
       // the tree we chose to keep.

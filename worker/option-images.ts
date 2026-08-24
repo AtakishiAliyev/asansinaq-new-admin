@@ -15,12 +15,18 @@
 // Geometry matches src/features/questions/lib/image.ts exactly, so the browser
 // and the worker cut the same pixels from the same box.
 import { createCanvas, loadImage } from '@napi-rs/canvas'
-import type { ExtractedOption } from '@/core/questions/extraction'
+import type { ExtractedOption, ExtractedQuestion } from '@/core/questions/extraction'
+import type { ImageFig } from '@/core/figures/figspec'
 import type { Db, QuestionRow } from './db.ts'
 
 /** Where crops and generated images live, by convention shared with the UI. */
 export function optionImagePath(row: QuestionRow, label: string): string {
   return `${row.book_id}/p${row.page_number}_c${row.col}_q${row.q_no}_opt${label}.png`
+}
+
+/** Same convention, for a figure the vector kinds could not express. */
+export function figureImagePath(row: QuestionRow, index: number): string {
+  return `${row.book_id}/p${row.page_number}_c${row.col}_q${row.q_no}_fig${index}.png`
 }
 
 /**
@@ -91,6 +97,68 @@ export async function attachOptionImages(
       failed++
       console.warn(
         `[q${row.id}] option ${option.label} could not be cut: ` +
+          `${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+  }
+  return { produced, failed }
+}
+
+/**
+ * Cuts out any figure that declared itself a region of the crop.
+ *
+ * The counterpart to the option cropper, and it exists for the same reason:
+ * some figures cannot be drawn from a description, and the pixels are already
+ * in our hands. Without it a model facing an inexpressible figure does not fail
+ * loudly — it writes an apology into the drawing, which renders as a sentence
+ * where the figure should be.
+ *
+ * Mutates in place; the caller writes the same document to the row.
+ */
+export async function attachFigureImages(
+  db: Db,
+  row: QuestionRow,
+  crop: { image: string; mime: string },
+  question: ExtractedQuestion,
+): Promise<{ produced: number; failed: number }> {
+  const wanted = (question.figures?.items ?? [])
+    .map((item, index) => ({ item, index }))
+    .filter(
+      (entry): entry is { item: ImageFig; index: number } =>
+        entry.item.kind === 'image' && !!entry.item.box && !entry.item.src,
+    )
+  if (!wanted.length) return { produced: 0, failed: 0 }
+
+  const source = await loadImage(Buffer.from(crop.image, 'base64'))
+  let produced = 0
+  let failed = 0
+
+  for (const { item, index } of wanted) {
+    try {
+      const { sx, sy, sw, sh } = toRect(item.box!, source.width, source.height)
+      const canvas = createCanvas(sw, sh)
+      const ctx = canvas.getContext('2d')
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, sw, sh)
+      ctx.drawImage(source, sx, sy, sw, sh, 0, 0, sw, sh)
+
+      const path = figureImagePath(row, index)
+      const { error } = await db.storage
+        .from('question-crops')
+        .upload(path, canvas.toBuffer('image/png'), {
+          upsert: true,
+          contentType: 'image/png',
+        })
+      if (error) throw new Error(error.message)
+      item.src = path
+      // Recorded so the renderer can draw it undistorted without loading it.
+      item.w = sw
+      item.h = sh
+      produced++
+    } catch (error) {
+      failed++
+      console.warn(
+        `[q${row.id}] figure ${index} could not be cut: ` +
           `${error instanceof Error ? error.message : String(error)}`,
       )
     }
