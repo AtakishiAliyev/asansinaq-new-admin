@@ -179,6 +179,38 @@ const adaptiveColor =
     return out
   }
 
+/**
+ * The same colour-preserving test, plus an absolute floor on what may become
+ * ink.
+ *
+ * Needed because "remove the watermark" and "turn the watermark into ink" both
+ * score as removal on a pale-pixel count. On the logo pages the local-contrast
+ * test promoted the darker EDGES of the logo script to solid black — a pale
+ * wash reads as background to a reader and to a model, and a solid black arc
+ * reads as a drawn stroke, which on a Venn diagram is the content itself.
+ *
+ * The two populations are far apart: real print on these scans sits at
+ * luminance 0-19 and the wash at 200-239, with only anti-aliasing between. So a
+ * pixel must be BOTH darker than its neighbourhood and darker than print
+ * plausibly is. The cost is that a genuinely light-grey printed element would
+ * be dropped; in these books print is black.
+ */
+const adaptiveColorFloor =
+  (window: number, margin: number, keepSat: number, ceiling: number): Cleaner =>
+  (pix) => {
+    const out = clone(pix)
+    const mean = localMean(pix, window)
+    for (let p = 0; p < pix.width * pix.height; p++) {
+      const i = p * 4
+      out.data[i + 3] = 255
+      const lum = lumAt(pix.data, i)
+      if (satAt(pix.data, i) >= keepSat && lum < 245) continue
+      const v = lum < mean[p]! - margin && lum < ceiling ? 0 : 255
+      out.data[i] = out.data[i + 1] = out.data[i + 2] = v
+    }
+    return out
+  }
+
 const VARIANTS: { name: string; note: string; run: Cleaner }[] = [
   {
     name: 'global otsu',
@@ -195,6 +227,13 @@ const VARIANTS: { name: string; note: string; run: Cleaner }[] = [
     note: 'Same test, but a saturated pixel is left alone — the colour is the question.',
     run: adaptiveColor(61, 12, 0.28),
   },
+  {
+    name: '+ ink floor (lum < 150) — SHIPPED',
+    note:
+      'Colour kept, and nothing lighter than real print may become ink — the logo edges ' +
+      'stop being promoted to black strokes. This is what core/segment/image-clean.ts now does.',
+    run: adaptiveColorFloor(61, 12, 0.28, 150),
+  },
 ]
 
 interface Target {
@@ -210,6 +249,16 @@ const TARGETS: Target[] = [
   { path: '24/p9_c0_q32.png', source: 'Golden Group IQ', watermark: 'grey repeated text ("GOLDEN GROUP")' },
   { path: '24/p9_c1_q35.png', source: 'Golden Group IQ', watermark: 'grey repeated text ("GOLDEN GROUP")' },
   { path: '22/p7_c1_q4.png', source: 'Soru Bankası 2025 A', watermark: 'text-only page, for a control' },
+  {
+    path: '22/p302_c1_q11.png',
+    source: 'Saveh oca (p302, test 4, №11)',
+    watermark: 'coloured logo over a shaded Venn — the case saturation-keeping is weakest on',
+  },
+  {
+    path: '22/p302_c1_q12.png',
+    source: 'Saveh oca (p302, test 4, №12)',
+    watermark: 'coloured logo over a shaded Venn — the case saturation-keeping is weakest on',
+  },
 ]
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -240,6 +289,55 @@ const inkRatio = (pix: Pix): number => {
   return dark / n
 }
 
+const lightness = (d: Uint8ClampedArray, i: number): number =>
+  (Math.max(d[i]!, d[i + 1]!, d[i + 2]!) + Math.min(d[i]!, d[i + 1]!, d[i + 2]!)) / 510
+
+/**
+ * The two things that have to be told apart on a logo-watermarked page, counted
+ * separately.
+ *
+ * A single "colour %" cannot answer the question, because the watermark is
+ * coloured too — it would rise when the cleaner fails and rise when it
+ * succeeds. `content` counts strongly saturated pixels, which on these pages is
+ * the shaded region the question is ABOUT; `wash` counts the pale tint the logo
+ * is printed in. A working cleaner keeps the first and removes the second.
+ */
+/**
+ * Ink that was not there before.
+ *
+ * The measurement this page was missing. A pale-pixel count says a watermark is
+ * gone whether it was erased or turned black, because a promoted pixel simply
+ * moves into the ink bucket and becomes indistinguishable from print. Counting
+ * pixels that are black NOW and were pale BEFORE names the difference, and it
+ * is the number that matters: invented strokes on a diagram are worse than the
+ * faint marks they replaced.
+ */
+function fakeInk(before: Pix, after: Pix): number {
+  let promoted = 0
+  const n = before.width * before.height
+  for (let p = 0; p < n; p++) {
+    const i = p * 4
+    if (lumAt(after.data, i) >= 128) continue
+    if (satAt(before.data, i) >= 0.35) continue
+    if (lumAt(before.data, i) >= 190) promoted++
+  }
+  return promoted / n
+}
+
+function contentAndWash(pix: Pix): { content: number; wash: number } {
+  let content = 0
+  let wash = 0
+  const n = pix.width * pix.height
+  for (let p = 0; p < n; p++) {
+    const i = p * 4
+    const s = satAt(pix.data, i)
+    const l = lightness(pix.data, i)
+    if (s >= 0.5 && l < 0.9) content++
+    else if (s >= 0.06 && s < 0.3 && l >= 0.82) wash++
+  }
+  return { content: content / n, wash: wash / n }
+}
+
 const cards: string[] = []
 for (const target of TARGETS) {
   const { data: blob } = await db.storage.from('question-crops').download(target.path)
@@ -251,16 +349,31 @@ for (const target of TARGETS) {
   const pix = toPix(image)
   const originalInk = inkRatio(pix)
 
+  const base = contentAndWash(pix)
+  const pct = (v: number) => `${(v * 100).toFixed(2)}%`
+  const rows = [
+    `<tr><th>orijinal</th><td>${pct(originalInk)}</td><td>${pct(base.content)}</td><td>${pct(base.wash)}</td><td>—</td><td>—</td><td>—</td></tr>`,
+  ]
   const panels = [
-    `<figure><figcaption>orijinal · ink ${(originalInk * 100).toFixed(1)}%</figcaption><img src="${toDataUri(pix)}" alt=""></figure>`,
+    `<figure><figcaption>orijinal</figcaption><img src="${toDataUri(pix)}" alt=""></figure>`,
   ]
   for (const variant of VARIANTS) {
     const started = process.hrtime.bigint()
     const cleaned = variant.run(pix)
     const ms = Number(process.hrtime.bigint() - started) / 1e6
-    const ink = inkRatio(cleaned)
+    const after = contentAndWash(cleaned)
+    const invented = fakeInk(pix, cleaned)
+    const kept = base.content > 0 ? after.content / base.content : 1
+    const left = base.wash > 0 ? after.wash / base.wash : 0
+    rows.push(
+      `<tr><th>${esc(variant.name)}</th><td>${pct(inkRatio(cleaned))}</td><td>${pct(after.content)}</td>` +
+        `<td>${pct(after.wash)}</td>` +
+        `<td class="${kept > 0.9 ? 'good' : 'bad'}">${(kept * 100).toFixed(0)}%</td>` +
+        `<td class="${left < 0.1 ? 'good' : 'bad'}">${(left * 100).toFixed(0)}%</td>` +
+        `<td class="${invented < 0.001 ? 'good' : 'bad'}">${pct(invented)}</td></tr>`,
+    )
     panels.push(
-      `<figure><figcaption>${esc(variant.name)} · ink ${(ink * 100).toFixed(1)}% · ${ms.toFixed(0)}ms` +
+      `<figure><figcaption>${esc(variant.name)} · ${ms.toFixed(0)}ms` +
         `<br><span class="sub">${esc(variant.note)}</span></figcaption>` +
         `<img src="${toDataUri(cleaned)}" alt=""></figure>`,
     )
@@ -271,6 +384,11 @@ for (const target of TARGETS) {
   <h2>${esc(target.source)} <code>${esc(target.path)}</code></h2>
   <p class="wm">watermark: ${esc(target.watermark)} · ${image.width}×${image.height}px</p>
   <div class="grid">${panels.join('')}</div>
+  <table>
+    <thead><tr><th></th><th>ink</th><th>content colour</th><th>pale wash</th>
+      <th>content kept</th><th>wash left</th><th>invented ink</th></tr></thead>
+    <tbody>${rows.join('')}</tbody>
+  </table>
 </section>`)
   console.log(`${target.path} — ${image.width}x${image.height}, ink ${(originalInk * 100).toFixed(1)}%`)
 }
@@ -293,13 +411,30 @@ const html = `<!doctype html>
   figcaption { font-size: 11px; color: #888; margin-bottom: 6px; min-height: 3.2em; }
   .sub { color: #aaa; }
   img { width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+  table { border-collapse: collapse; margin-top: 14px; font-size: 12px; width: 100%; }
+  th, td { border: 1px solid var(--line); padding: 4px 8px; text-align: right; }
+  thead th { color: #888; font-weight: 500; }
+  tbody th { text-align: left; font-weight: 500; }
+  td.good { color: #128335; }
+  td.bad { color: #d33436; font-weight: 600; }
 </style>
 <h1>De-watermark feasibility</h1>
 <p class="lede">Pure image processing — no model call. The question is whether the watermark and the
 bleed-through can be removed without eating the strokes. If they can, then for clean-ish books the
 source crop could BE the figure, with the vector DSL reserved for the books where cleaning fails.
 <strong>“ink %” is the share of pixels darker than mid-grey</strong>: a cleaner that drops far below the
-original has eaten the drawing, not just the watermark. Nothing here changes figure policy.</p>
+original has eaten the drawing, not just the watermark.
+<br><br>
+On a logo-watermarked page a single colour count answers nothing, because the watermark is coloured too —
+it would rise whether the cleaner worked or failed. So colour is counted twice: <strong>content colour</strong>
+is strongly saturated pixels, which on these pages is the shaded region the question is about, and
+<strong>pale wash</strong> is the light tint the logo is printed in. A working cleaner keeps the first
+column near 100% and drives the second near 0%.
+<br><br>
+<strong>“invented ink”</strong> is the column that matters most and the one this page originally lacked:
+pixels that are black NOW and were pale BEFORE. Erasing a watermark and turning it into a stroke both
+read as removal on a pale-pixel count, because a promoted pixel just moves into the ink bucket. On a Venn
+diagram an invented stroke is worse than the faint mark it replaced. Nothing here changes figure policy.</p>
 ${cards.join('\n')}
 `
 

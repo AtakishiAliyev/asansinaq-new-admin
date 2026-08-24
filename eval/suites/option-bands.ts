@@ -11,7 +11,13 @@ import {
   localizeOptionBoxes,
   type Box,
 } from '@/core/segment/option-bands'
-import { cleanCrop, colourRatio, inkRatio, type Pixels } from '@/core/segment/image-clean'
+import {
+  cleanCrop,
+  colourRatio,
+  inkRatio,
+  inventedInk,
+  type Pixels,
+} from '@/core/segment/image-clean'
 import { eq, ok, suite } from '../harness.ts'
 
 function blank(width: number, height: number): Pixels {
@@ -299,6 +305,29 @@ export const imageCleanSuite = suite('image-clean', {
       if (v > 10 && v < 245) grey++
     }
     eq(grey, 0, 'nothing is left at an in-between level')
+  },
+
+  // The failure the pale-pixel count could not see, and which shipped: the
+  // local-contrast test alone promoted the darker edges of a watermark to solid
+  // black on all eight real crops, 0.4% to 3.8% of the page. On a diagram an
+  // invented stroke is worse than the faint mark it replaced.
+  'a watermark is never turned into ink'() {
+    const pix = blank(400, 300)
+    // A wash with a darker core, like the edge of a logo's script.
+    fill(pix, 40, 40, 360, 120, [232, 232, 232])
+    fill(pix, 60, 60, 340, 100, [196, 196, 196])
+    const cleaned = cleanCrop(pix)
+    eq(Math.round(inventedInk(pix, cleaned) * 10000), 0, 'nothing pale became black')
+    eq(inkRatio(cleaned), 0, 'and the page holds no ink at all')
+  },
+
+  'real print is still ink'() {
+    const pix = blank(400, 300)
+    fill(pix, 40, 40, 360, 120, [232, 232, 232]) // wash over the top of it
+    fill(pix, 100, 60, 300, 80, [15, 15, 15]) // a printed stroke
+    const cleaned = cleanCrop(pix)
+    ok(inkRatio(cleaned) > 0.02, 'the stroke survived the floor')
+    eq(Math.round(inventedInk(pix, cleaned) * 10000), 0, 'and the wash did not join it')
   },
 
   'strokes survive cleaning'() {

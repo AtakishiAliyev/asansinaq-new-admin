@@ -43,9 +43,28 @@ export interface CleanOptions {
   margin?: number
   /** At or above this saturation a pixel is deliberate colour and is kept. */
   keepSaturation?: number
+  /**
+   * Nothing lighter than this may become ink, however much it stands out from
+   * its neighbourhood.
+   *
+   * Without it "remove the watermark" and "turn the watermark into ink" score
+   * identically on any count of pale pixels, because a promoted pixel simply
+   * moves into the ink bucket. Measured over eight real crops, the local
+   * contrast test alone promoted 0.4% to 3.8% of every page to solid black —
+   * the darker edges of a logo becoming strokes on a Venn diagram, which is
+   * worse than the faint marks they replaced. Real print on these scans sits at
+   * luminance 0-19 and the washes at 200-239, so the floor has a wide margin to
+   * land in.
+   */
+  inkCeiling?: number
 }
 
-const DEFAULTS: Required<CleanOptions> = { window: 61, margin: 12, keepSaturation: 0.28 }
+const DEFAULTS: Required<CleanOptions> = {
+  window: 61,
+  margin: 12,
+  keepSaturation: 0.28,
+  inkCeiling: 150,
+}
 
 /**
  * Mean luminance over the window around every pixel, via a summed-area table.
@@ -96,7 +115,7 @@ function localMean(pix: Pixels, window: number): Float64Array {
  * original alongside the cleaned copy.
  */
 export function cleanCrop(pix: Pixels, options: CleanOptions = {}): Pixels {
-  const { window, margin, keepSaturation } = { ...DEFAULTS, ...options }
+  const { window, margin, keepSaturation, inkCeiling } = { ...DEFAULTS, ...options }
   const out = new Uint8ClampedArray(pix.data)
   const mean = localMean(pix, window)
   const n = pix.width * pix.height
@@ -107,7 +126,9 @@ export function cleanCrop(pix: Pixels, options: CleanOptions = {}): Pixels {
     // Deliberate colour is content by definition here: the palette is the
     // question, not decoration.
     if (saturation(pix.data, i) >= keepSaturation && lum < 245) continue
-    const v = lum < mean[p]! - margin ? 0 : 255
+    // Both tests: darker than its surroundings AND as dark as print actually
+    // is. The first alone invents strokes out of a watermark's own shading.
+    const v = lum < mean[p]! - margin && lum < inkCeiling ? 0 : 255
     out[i] = out[i + 1] = out[i + 2] = v
   }
   return { data: out, width: pix.width, height: pix.height }
@@ -120,6 +141,25 @@ export function inkRatio(pix: Pixels): number {
   const n = pix.width * pix.height
   for (let p = 0; p < n; p++) if (luminance(pix.data, p * 4) < 128) dark++
   return dark / n
+}
+
+/**
+ * Ink that was not in the original.
+ *
+ * The measurement that catches a cleaner turning a watermark into a drawing.
+ * Any count of pale pixels reports that case as success, because the promoted
+ * pixels leave the pale bucket exactly as they would if they had been erased.
+ */
+export function inventedInk(before: Pixels, after: Pixels): number {
+  let promoted = 0
+  const n = before.width * before.height
+  for (let p = 0; p < n; p++) {
+    const i = p * 4
+    if (luminance(after.data, i) >= 128) continue
+    if (saturation(before.data, i) >= 0.35) continue
+    if (luminance(before.data, i) >= 190) promoted++
+  }
+  return promoted / n
 }
 
 /** Share of pixels carrying deliberate colour. */
