@@ -26,3 +26,19 @@ has the file on their own machine either way.
 When a comparison needs real crops to be worth anything, produce both: the
 side-by-side under `local/samples/`, and a synthetic equivalent here that shows
 the same rendering behaviour with fixtures nobody owns.
+
+## What is here
+
+- `YYYY-MM-DD-figure-kinds.html` — every figspec kind rendered from `core`,
+  produced when the renderers moved out of React.
+- `YYYY-MM-DD-verify-corruptions.html` — `npm run sample:corruptions`. Each
+  fixture question beside the same question with one deliberate corruption, the
+  same damage `scripts/verify-smoke.ts` injects. It is the page to look at
+  before trusting a verification score: a difference a reader cannot find here
+  is one the model is unlikely to find either, and that is a fact about the
+  renderer rather than about the model. Two renderer defects were found exactly
+  that way — a congruence arc that drew identically whether or not it was there,
+  and maths that painted white-on-white in a dark page.
+
+The live counterpart, `npm run sample:verify`, writes to `local/samples/`
+because every card embeds a crop from a commercial book.
