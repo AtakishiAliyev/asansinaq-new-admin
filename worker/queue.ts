@@ -131,7 +131,16 @@ export async function requeue(db: Db, ids: number[]): Promise<void> {
   if (!ids.length) return
   const { error } = await db
     .from('questions')
-    .update({ queued_at: new Date().toISOString() })
+    .update({
+      queued_at: new Date().toISOString(),
+      // `attempts` is the TRANSIENT-failure budget — three claims and the row
+      // is given up on. A repair is not a retry: it is deliberate new work,
+      // already capped by `repair_round`. Spending one budget on the other
+      // strands the row at attempts=3, where nothing can claim it and nothing
+      // can verify it, and the worker spins on it until someone kills the
+      // process. Two budgets, two counters.
+      attempts: 0,
+    })
     .in('id', ids)
   if (error) throw new Error(`rows could not be re-queued: ${error.message}`)
 }

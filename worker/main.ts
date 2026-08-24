@@ -556,13 +556,32 @@ while (!stopping) {
   if (stopping) break
   const outstanding = (await inFlight(db).catch(() => [])).length
   const queued = await nextQueuedBook(db).catch(() => null)
-  const { count: unverified } = await db
+  // Counted the way `verifyPass` selects, not just "unverified": a row that is
+  // queued is waiting to be re-extracted, and the verify wave deliberately
+  // leaves it alone. Counting it as work stopped the loop from ever finishing
+  // while nothing could act on it — a row stranded at attempts=3 is claimable
+  // by nobody and verifiable by nobody, and the worker span on it silently for
+  // forty minutes before anyone noticed the log had gone quiet.
+  const { count: verifiable } = await db
     .from('questions')
     .select('id', { count: 'exact', head: true })
     .eq('status', 'structured')
     .is('verified_at', null)
-  if (!outstanding && queued === null && !unverified) {
-    log('queue empty and nothing in flight — stopping')
+    .is('queued_at', null)
+  if (!outstanding && queued === null && !verifiable) {
+    // Anything left is neither in flight, nor claimable, nor verifiable. That
+    // is a stranded row rather than an empty queue, and saying so is the
+    // difference between a worker that finished and a worker that gave up.
+    const { count: stranded } = await db
+      .from('questions')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'structured')
+      .is('verified_at', null)
+    if (stranded) {
+      log(`${stranded} row(s) are queued but unclaimable — stopping rather than spinning`)
+    } else {
+      log('queue empty and nothing in flight — stopping')
+    }
     break
   }
   await new Promise((resolve) => setTimeout(resolve, POLL_MS))
