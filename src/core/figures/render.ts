@@ -35,7 +35,7 @@ import {
 import { esc, hex, num, plainTextRenderer, tag, type TexRenderer } from '@/core/figures/svg-emit'
 
 export { esc, num, tag, plainTextRenderer, type TexRenderer }
-export { layoutGeometry } from '@/core/figures/render-geometry'
+export { geometryFit, layoutGeometry } from '@/core/figures/render-geometry'
 export { texToUnicode } from '@/core/figures/tex-unicode'
 export { CLEARANCE } from '@/core/figures/layout'
 

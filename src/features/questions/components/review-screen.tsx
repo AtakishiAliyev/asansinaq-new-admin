@@ -12,11 +12,13 @@ import { Spinner } from '@/components/ui/spinner'
 import { useCategories } from '@/features/taxonomy'
 import {
   useApproveQuestion,
+  useEditFigures,
   useEditQuestion,
   useRejectQuestion,
   useSignedUrls,
   type QuestionListItem,
 } from '@/features/questions/api/questions'
+import { FigureEditorDialog } from '@/features/questions/components/figure-editor/figure-editor-dialog'
 import { QuestionEditForm } from '@/features/questions/components/question-edit-form'
 import {
   FlagBadges,
@@ -24,7 +26,12 @@ import {
 } from '@/features/questions/components/question-diagnostics'
 import { ReviewActions } from '@/features/questions/components/review-actions'
 import { ReviewPanes } from '@/features/questions/components/review-panes'
-import { imagePathsOf, parseFlags } from '@/features/questions/lib/row'
+import {
+  imagePathsOf,
+  parseFigures,
+  parseFlags,
+  parseOptions,
+} from '@/features/questions/lib/row'
 
 /** Neighbours pre-signed with the current item so arrows do not blank a pane. */
 const WINDOW_BEHIND = 1
@@ -57,12 +64,20 @@ export function ReviewScreen({
   onRestructure: (item: QuestionListItem) => void
 }) {
   const item = index >= 0 ? items[index] : undefined
+  const figureDoc = parseFigures(item?.figures)
+  // Only a geometry item is editable as data: it is the kind whose points,
+  // edges and marks the editor understands. The first one, because a question
+  // carrying two geometry figures has not been seen and guessing at a picker
+  // for it would be UI nobody asked for.
+  const figureIndex = figureDoc?.items.findIndex((f) => f.kind === 'geometry') ?? -1
   const contentRef = useRef<HTMLDivElement>(null)
   const categories = useCategories(subjectId)
   const approve = useApproveQuestion()
   const reject = useRejectQuestion()
   const edit = useEditQuestion()
+  const editFigures = useEditFigures()
   const [editing, setEditing] = useState(false)
+  const [editingFigure, setEditingFigure] = useState(false)
   const [categoryId, setCategoryId] = useState<number | null>(null)
   const [difficulty, setDifficulty] = useState<number | null>(null)
   const [answer, setAnswer] = useState<string | null>(null)
@@ -168,6 +183,7 @@ export function ReviewScreen({
       else if (key === 'a' || key === 'Enter') handleApprove()
       else if (key === 'd') handleReject()
       else if (key === 'e') setEditing(true)
+      else if (key === 'f' && figureIndex >= 0) setEditingFigure(true)
       else return
       e.preventDefault()
     }
@@ -261,9 +277,11 @@ export function ReviewScreen({
           // with no printed stem, and a failed read the operator wanted to type
           // in by hand.
           canEdit={item.status !== 'cropped'}
+          canEditFigure={figureIndex >= 0}
           isApproving={approve.isPending}
           onRestructure={() => onRestructure(item)}
           onEdit={() => setEditing(true)}
+          onEditFigure={() => setEditingFigure(true)}
           onReject={handleReject}
           onApprove={handleApprove}
         />
@@ -299,8 +317,8 @@ export function ReviewScreen({
             <ChevronLeft />
           </Button>
           <span className="text-muted-foreground text-xs">
-            A = təsdiq · D = rədd · E = redaktə · Shift+A…E = cavab · 1–5 =
-            çətinlik · ← → keçid
+            A = təsdiq · D = rədd · E = redaktə · F = fiqur · Shift+A…E = cavab ·
+            1–5 = çətinlik · ← → keçid
           </span>
           <Button
             variant="outline"
@@ -318,6 +336,30 @@ export function ReviewScreen({
             <ChevronRight />
           </Button>
         </div>
+
+        {editingFigure ? (
+          <FigureEditorDialog
+            open
+            onOpenChange={setEditingFigure}
+            doc={figureDoc}
+            itemIndex={figureIndex}
+            question={{ stem: item.stem, options: parseOptions(item.options) }}
+            qNo={item.q_no}
+            isPending={editFigures.isPending}
+            onSave={(figures) =>
+              editFigures.mutate(
+                {
+                  id: item.id,
+                  figures,
+                  question: { stem: item.stem, options: parseOptions(item.options) },
+                  qNo: item.q_no,
+                  flags: parseFlags(item.flags),
+                },
+                { onSuccess: () => setEditingFigure(false) },
+              )
+            }
+          />
+        ) : null}
 
         {editing ? (
           <QuestionEditForm

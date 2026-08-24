@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Check, Pencil, RefreshCw, X } from 'lucide-react'
+import { Check, Pencil, RefreshCw, Shapes, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -135,9 +135,11 @@ export function ReviewActions({
   busy,
   canApprove,
   canEdit,
+  canEditFigure,
   isApproving,
   onRestructure,
   onEdit,
+  onEditFigure,
   onReject,
   onApprove,
 }: {
@@ -154,9 +156,12 @@ export function ReviewActions({
   busy: boolean
   canApprove: boolean
   canEdit: boolean
+  /** A geometry figure is present, so its data can be edited directly. */
+  canEditFigure: boolean
   isApproving: boolean
   onRestructure: () => void
   onEdit: () => void
+  onEditFigure: () => void
   onReject: () => void
   onApprove: () => void
 }) {
@@ -195,6 +200,24 @@ export function ReviewActions({
         <Button variant="outline" size="sm" onClick={onEdit} disabled={busy || !canEdit}>
           <Pencil data-icon="inline-start" />
           Redaktə (E)
+        </Button>
+        {/* Beside "yenidən çıxar" on purpose. A re-run is the expensive,
+            unaimable option and this is the cheap, exact one, so a reviewer
+            looking at a figure that is one field wrong should see both and
+            reach for this. */}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onEditFigure}
+          disabled={busy || !canEditFigure}
+          title={
+            canEditFigure
+              ? 'Fiqurun məlumatını redaktə et (F)'
+              : 'Redaktə olunan həndəsi fiqur yoxdur'
+          }
+        >
+          <Shapes data-icon="inline-start" />
+          Fiqur (F)
         </Button>
         <Button
           variant="outline"

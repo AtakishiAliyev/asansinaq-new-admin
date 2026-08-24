@@ -134,6 +134,49 @@ function lintFigureRefs(q: ExtractedQuestion): Flag[] {
   return flags
 }
 
+/**
+ * Every code `lintQuestion` can produce.
+ *
+ * Needed because flags on a row come from two places: this function, and the
+ * pipeline around it (a missing answer, a cut option, a verification verdict).
+ * Anything re-running the lint after an edit has to replace the first set and
+ * keep the second, and the only way to do that exactly is to know which codes
+ * belong to whom. Guessing means either losing a flag the reviewer still needs
+ * or leaving a stale one that describes a figure that no longer exists.
+ *
+ * A new code added below and not listed here would survive as a stale flag
+ * forever, so `eval/suites/lint.ts` asserts the two stay in step.
+ */
+export const LINT_CODES = new Set([
+  'clipped',
+  'curve_invalid',
+  'empty_stem',
+  'figure_angle_not_marked',
+  'figure_missing_referenced_angle',
+  'figure_missing_referenced_segment',
+  'foreign',
+  'geo_coincident_points',
+  'geo_degenerate_angle',
+  'geo_empty',
+  'geo_right_angle_with_arcs',
+  'geo_ticks_on_ray',
+  'illegible',
+  'low_confidence',
+  'missing_figure',
+  'number_mismatch',
+  'option_count',
+  'option_labels',
+  'option_latex',
+  'point_off_curve',
+  'raster_figure',
+  'raw_svg',
+  'stem_latex',
+  'venn_empty',
+  'venn_parse',
+  'venn_unknown_set',
+  'watermark_leak',
+])
+
 export function lintQuestion(q: ExtractedQuestion, expectedNumber?: number): Flag[] {
   const flags: Flag[] = []
   const add = (level: Flag['level'], code: string, message: string) => flags.push({ level, code, message })

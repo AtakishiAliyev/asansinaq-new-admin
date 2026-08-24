@@ -7,7 +7,10 @@ import {
   questionRowSchema,
   type QuestionRow,
 } from '@/features/questions/schemas'
-import { imagePathsOf } from '@/features/questions/lib/row'
+import { imagePathsOf, type RowOption } from '@/features/questions/lib/row'
+import type { FigureDoc } from '@/core/figures/figspec'
+import type { ExtractedQuestion } from '@/core/questions/extraction'
+import { LINT_CODES, lintQuestion, type Flag } from '@/core/questions/lint'
 
 const SELECT = '*, books(title)'
 
@@ -254,6 +257,68 @@ export function useEditQuestion() {
       if (error) throw error
     },
     () => 'Dəyişikliklər saxlanıldı',
+  )
+}
+
+export interface EditFiguresInput {
+  id: number
+  figures: FigureDoc
+  /** The row as it stands, so the lint sees the whole question, not the figure. */
+  question: { stem: string | null; options: RowOption[] }
+  qNo: number | null
+  /** Flags currently on the row, so the ones the lint does not own survive. */
+  flags: Flag[]
+}
+
+/**
+ * Saves an edited figure and re-runs the lint over the result.
+ *
+ * Three things have to happen together or the row ends up describing a figure
+ * that is no longer there.
+ *
+ * The lint is re-run through the SAME `lintQuestion` the worker uses, because a
+ * second copy of the rules in the browser is a copy that drifts — and a
+ * reviewer would be fixing flags against rules the pipeline no longer applies.
+ * Only the codes the lint owns are replaced; a missing answer or a verification
+ * note is not the lint's to clear.
+ *
+ * The machine verdict is dropped. It was reached against the old figure, so
+ * leaving `verified` set would mark a hand-edited row as machine-confirmed —
+ * exactly the claim the verification wave exists to make honestly. Clearing
+ * `verified_at` also puts the row back in front of the wave, so the next worker
+ * run checks the human's fix rather than taking it on trust.
+ */
+export function useEditFigures() {
+  return useQuestionMutation<EditFiguresInput>(
+    async (input) => {
+      const question: ExtractedQuestion = {
+        numberSeen: input.qNo ?? 0,
+        stem: input.question.stem ?? '',
+        options: input.question.options as unknown as ExtractedQuestion['options'],
+        figures: input.figures,
+        illegible: false,
+        clipped: false,
+        foreign: false,
+        confidence: 1,
+        warnings: [],
+      }
+      const kept = input.flags.filter((f) => !LINT_CODES.has(f.code))
+      const flags = [...kept, ...lintQuestion(question, input.qNo ?? undefined)]
+
+      const { error } = await supabase
+        .from('questions')
+        .update({
+          figures: input.figures as never,
+          flags: flags as never,
+          verified: false,
+          verified_at: null,
+          verify_confidence: null,
+          verify_diff: null,
+        })
+        .eq('id', input.id)
+      if (error) throw error
+    },
+    () => 'Fiqur saxlanıldı',
   )
 }
 

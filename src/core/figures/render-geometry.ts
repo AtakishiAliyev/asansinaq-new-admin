@@ -72,14 +72,27 @@ interface DrawnLine {
   drawn: Seg
 }
 
+/**
+ * The same fit `layoutGeometry` uses, exposed on its own.
+ *
+ * The review editor overlays drag handles on the rendered figure, and a handle
+ * has to sit exactly where the point was drawn. Recomputing "roughly the cloud
+ * bounds" in the editor puts every handle a few pixels off — worse near the
+ * edges, where the margin the fit reserves for labels lives — so the reviewer
+ * drags a point and it lands somewhere else. One fit, used by both.
+ */
+export function geometryFit(fig: GeometryFig) {
+  return fitPoints(
+    fig.points.map((p) => ({ x: p.x, y: p.y })),
+    { width: fig.width || 320, height: fig.height || 240 },
+  )
+}
+
 export function layoutGeometry(
   fig: GeometryFig,
   tex: TexRenderer = plainTextRenderer,
 ): GeometryLayout {
-  const fit = fitPoints(
-    fig.points.map((p) => ({ x: p.x, y: p.y })),
-    { width: fig.width || 320, height: fig.height || 240 },
-  )
+  const fit = geometryFit(fig)
   const canvas: Box = { x: 0, y: 0, w: fit.width, h: fit.height }
   const at = new Map<string, Vec>()
   for (const p of fig.points) at.set(p.id, fit.to({ x: p.x, y: p.y }))
