@@ -285,6 +285,26 @@ function optionBlock(
   return { svg: parts.join(''), height }
 }
 
+/**
+ * A figure, scaled down if it is wider than the page.
+ *
+ * Nesting an SVG inside another does NOT scale it: the inner drawing keeps its
+ * own coordinates and whatever runs past the page edge is simply not painted.
+ * Six isometric cubes came to 768px on a 620px page, so the sixth — the one
+ * carrying the A/B/C faces the question asks about — was cut off entirely, and
+ * the verification wave correctly reported a five-cube figure that cannot be
+ * solved. Nothing in the figure itself was wrong.
+ */
+function fitBlock(figure: { body: string; width: number; height: number }, available: number): Block {
+  const height = figure.height || 120
+  if (!figure.width || figure.width <= available) return { svg: figure.body, height }
+  const k = available / figure.width
+  return {
+    svg: tag('g', { transform: `scale(${num(k)})` }, figure.body),
+    height: Math.ceil(height * k),
+  }
+}
+
 /** Pull an `<svg …>` fragment out of its wrapper so it can be nested. */
 function inner(svg: string): { body: string; width: number; height: number } {
   const width = Number(/\bwidth="([\d.]+)"/.exec(svg)?.[1] ?? 0)
@@ -317,9 +337,18 @@ export function renderQuestion(
     blocks.push({ svg: rendered.svg, height: rendered.height })
   }
 
+  const available = WIDTH - PAD * 2
   for (const [index, item] of (question.figures?.items ?? []).entries()) {
-    const figure = inner(renderFigItem(item, { idPrefix: `v-${index}`, tex: mathjaxRenderer }))
-    blocks.push({ svg: figure.body, height: figure.height || 120 })
+    // An `image` figure carries a STORAGE PATH, and a rasteriser cannot fetch
+    // one. Left unresolved the figure renders as nothing at all, which is
+    // exactly what the verification wave reported for both IQ questions that
+    // used the kind: "the main figure is completely absent".
+    const resolved =
+      item.kind === 'image' && !item.src.startsWith('data:')
+        ? { ...item, src: optionImages.get(item.src) ?? item.src }
+        : item
+    const figure = inner(renderFigItem(resolved, { idPrefix: `v-${index}`, tex: mathjaxRenderer }))
+    blocks.push(fitBlock(figure, available))
   }
 
   for (const option of question.options) {
@@ -366,14 +395,24 @@ export function renderQuestion(
   return { svg, png: Buffer.from(png), width: WIDTH, height }
 }
 
-/** The option images a question needs, as data URIs, fetched once. */
+/**
+ * Every stored image a question needs, as data URIs, fetched once.
+ *
+ * Both the picture options AND any `image` figure. Figures were the omission:
+ * they were cut and stored correctly and then never fetched back, so the page
+ * referred to a path a rasteriser has no way to resolve and drew nothing where
+ * the figure should have been.
+ */
 export async function fetchOptionImages(
   db: Db,
   question: ExtractedQuestion,
 ): Promise<Map<string, string>> {
   const images = new Map<string, string>()
-  for (const option of question.options) {
-    const path = option.image
+  const paths = [
+    ...question.options.map((o) => o.image),
+    ...(question.figures?.items ?? []).map((i) => (i.kind === 'image' ? i.src : undefined)),
+  ]
+  for (const path of paths) {
     if (!path || images.has(path) || path.startsWith('data:')) continue
     const { data } = await db.storage.from('question-crops').download(path)
     if (!data) continue

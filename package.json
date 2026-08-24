@@ -15,6 +15,7 @@
     "smoke:queue": "node --disable-warning=ExperimentalWarning scripts/queue-smoke.ts",
     "smoke:verify": "node --import ./eval/loader.mjs --disable-warning=ExperimentalWarning scripts/verify-smoke.ts",
     "sample:verify": "node --import ./eval/loader.mjs --disable-warning=ExperimentalWarning scripts/verify-sample.ts",
+    "sample:kinds": "node --import ./eval/loader.mjs --disable-warning=ExperimentalWarning scripts/figure-kinds-sample.ts",
     "sample:corruptions": "node --import ./eval/loader.mjs --disable-warning=ExperimentalWarning scripts/corruption-sample.ts",
     "smoke:request": "node --import ./eval/loader.mjs --disable-warning=ExperimentalWarning scripts/request-smoke.ts",
     "worker": "node --import ./eval/loader.mjs --disable-warning=ExperimentalWarning worker/main.ts",
