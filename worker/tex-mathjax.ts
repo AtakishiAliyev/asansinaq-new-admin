@@ -55,6 +55,31 @@ const EX_PER_EM = 0.45
 
 const cache = new Map<string, { svg: string; width: number; height: number }>()
 
+/**
+ * Symbols the source writes literally and TeX has no glyph for.
+ *
+ * Figure labels arrive as the book prints them — `30°`, not `30^\circ` — and
+ * MathJax renders an unknown character as a tofu-ish mark, so a correct label
+ * came out as `30˜`. That is a difference the verification wave will report,
+ * and it would be our difference rather than the extraction's.
+ */
+function texify(tex: string): string {
+  return tex
+    .replace(/°/g, '^\\circ ')
+    .replace(/′/g, "'")
+    .replace(/″/g, "''")
+    .replace(/×/g, '\\times ')
+    .replace(/÷/g, '\\div ')
+    .replace(/≤/g, '\\leq ')
+    .replace(/≥/g, '\\geq ')
+    .replace(/≠/g, '\\neq ')
+    .replace(/∥/g, '\\parallel ')
+    .replace(/⊥/g, '\\perp ')
+    .replace(/√/g, '\\sqrt ')
+    .replace(/π/g, '\\pi ')
+    .replace(/∞/g, '\\infty ')
+}
+
 export const mathjaxRenderer: TexRenderer = (tex, fontSize) => {
   const key = `${fontSize}::${tex}`
   const hit = cache.get(key)
@@ -62,7 +87,7 @@ export const mathjaxRenderer: TexRenderer = (tex, fontSize) => {
 
   let rendered: { svg: string; width: number; height: number }
   try {
-    const node = document.convert(tex, { display: false })
+    const node = document.convert(texify(tex), { display: false })
     const raw = adaptor.innerHTML(node)
     const widthEx = Number(/width="([\d.]+)ex"/.exec(raw)?.[1] ?? 0)
     const heightEx = Number(/height="([\d.]+)ex"/.exec(raw)?.[1] ?? 0)

@@ -6,6 +6,10 @@
 // Free: it reads rows the wave has already ruled on and renders them locally.
 // No model call, nothing written to the database.
 //
+// Output goes to `local/`, which is gitignored, because every card embeds a crop
+// from a commercial book. `sample:corruptions` is the committed companion that
+// shows the same comparison on fixtures nobody owns.
+//
 // It exists because the wave's output is three columns in a table — a boolean,
 // a number and a JSON diff — and none of those answer the only question a
 // reviewer actually has, which is whether the picture we produced says what the
@@ -32,9 +36,11 @@ const argv = process.argv.slice(2)
 const onlyIds = argv.includes('--ids')
   ? (argv[argv.indexOf('--ids') + 1] ?? '').split(',').map(Number).filter(Boolean)
   : null
+// Under local/, not samples/: every card embeds a crop from a commercial book.
+// The committed, book-free companion is `npm run sample:corruptions`.
 const out = argv.includes('--out')
   ? (argv[argv.indexOf('--out') + 1] ?? '')
-  : `samples/${new Date().toISOString().slice(0, 10)}-verify-wave.html`
+  : `local/samples/${new Date().toISOString().slice(0, 10)}-verify-wave.html`
 
 const base = db
   .from('questions')

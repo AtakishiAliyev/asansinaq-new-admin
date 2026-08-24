@@ -164,6 +164,11 @@ export function layoutGeometry(
       height: fit.height,
       fill: 'none',
       stroke: 'none',
+      // Math labels come back from MathJax as `fill="currentColor"`. Without a
+      // colour pinned on the root that resolves against whatever page the SVG
+      // is dropped into — black in a light one, invisible white-on-white in a
+      // dark one. A figure has to look the same everywhere it is opened.
+      color: hex('ink'),
     },
     body.join('') + labels.join(''),
   )
@@ -293,6 +298,20 @@ function drawAngle(angle: GeoAngle, at: Map<string, Vec>): string[] {
     )
   }
 
+  // Two different things wear an arc, and they must not look the same.
+  //
+  // An explicit `arcs` count is a CONGRUENCE mark: it claims this angle equals
+  // every other angle carrying the same count, and it is usually the whole
+  // premise of the question. A labelled angle with no count gets an arc too,
+  // but only to show which angle the label belongs to.
+  //
+  // Drawn identically, an explicit `arcs: 1` was byte-for-byte the same picture
+  // as a bare labelled angle — so deleting the congruence claim changed nothing
+  // on screen, and the render-and-compare layer could not possibly catch it.
+  // A mark that is data has to be visible, or it is no better than a stroke
+  // buried in raw_svg. So a congruence mark carries the standard hatch tick
+  // across its arcs; the label's anchor arc does not.
+  const marked = typeof angle.arcs === 'number' && angle.arcs > 0
   const arcs = angle.arcs ?? (angle.right ? 0 : angle.label ? 1 : 0)
   const base = arcRadius(angle, vertex, a, b)
   for (let i = 0; i < arcs; i++) {
@@ -310,6 +329,29 @@ function drawAngle(angle: GeoAngle, at: Map<string, Vec>): string[] {
         fill: 'none',
       }),
     )
+  }
+
+  if (marked) {
+    // One tick through the middle of the arc bundle, perpendicular to it.
+    const outer = base + Math.max(0, arcs - 1) * clamp(base * 0.18, 3, 6)
+    const mid = unit(add(u1, u2))
+    // Degenerate only if the arms are exactly opposite, where there is no
+    // inside to mark.
+    if (mid.x !== 0 || mid.y !== 0) {
+      const half = clamp(base * 0.16, 2.5, 4.5)
+      const centre = add(vertex, scale(mid, (base + outer) / 2))
+      const across = perp(mid)
+      out.push(
+        tag('line', {
+          x1: num(centre.x - across.x * half),
+          y1: num(centre.y - across.y * half),
+          x2: num(centre.x + across.x * half),
+          y2: num(centre.y + across.y * half),
+          stroke,
+          'stroke-width': 1.4,
+        }),
+      )
+    }
   }
   return out
 }

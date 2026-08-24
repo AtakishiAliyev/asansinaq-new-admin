@@ -30,6 +30,51 @@ interface Piece {
   height: number
   /** A space may be broken here; a math island may not be split. */
   breakable: boolean
+  /** Prose only. Adjacent prose on one line is drawn as a single `<text>`, so
+   *  the renderer's own metrics decide the spacing instead of our estimate. */
+  text?: string
+}
+
+const textRun = (text: string, fontSize: number): string =>
+  tag(
+    'text',
+    {
+      x: 0,
+      y: Math.round(fontSize * 0.8),
+      'font-size': fontSize,
+      'font-family': 'DejaVu Sans, Arial, sans-serif',
+      fill: '#1A1A1A',
+      // Without this the renderer collapses the leading space of a run, and
+      // every line after a math island starts flush against it.
+      'xml:space': 'preserve',
+    },
+    esc(text),
+  )
+
+/**
+ * Roughly how wide a string is, with no font metrics to hand.
+ *
+ * A flat 0.5em per character was close enough to wrap on and badly wrong to
+ * POSITION on: capitals, digits and parentheses are far wider than that, so a
+ * word starting after `m(AOC)` began before the previous one had finished and
+ * the render read `m(AOC)neçə`. The verification wave then reported the stem as
+ * different from the original — correctly, since it was — and the defect was
+ * ours rather than the extraction's.
+ *
+ * Positioning no longer depends on this (adjacent prose is drawn as one run and
+ * spaced by the renderer), so it only has to be good enough to choose wrap
+ * points.
+ */
+function measure(text: string, fontSize: number): number {
+  let ems = 0
+  for (const ch of text) {
+    if (ch === ' ') ems += 0.28
+    else if (/[iljItf.,;:'`|!]/.test(ch)) ems += 0.3
+    else if (/[A-ZĞÜŞİÖÇ0-9()[\]{}@%&]/.test(ch)) ems += 0.62
+    else if (/[mwMW]/.test(ch)) ems += 0.85
+    else ems += 0.5
+  }
+  return Math.ceil(ems * fontSize)
 }
 
 /** Prose words and `$…$` islands, each measured. */
@@ -47,20 +92,11 @@ function pieces(text: string, fontSize: number): Piece[] {
     for (const word of part.split(/(\s+)/)) {
       if (word === '') continue
       out.push({
-        svg: tag(
-          'text',
-          {
-            x: 0,
-            y: Math.round(fontSize * 0.8),
-            'font-size': fontSize,
-            'font-family': 'DejaVu Sans, Arial, sans-serif',
-            fill: '#1A1A1A',
-          },
-          esc(word),
-        ),
-        width: Math.ceil([...word].length * fontSize * 0.5),
+        svg: textRun(word, fontSize),
+        width: measure(word, fontSize),
         height: Math.ceil(fontSize * 1.2),
         breakable: /^\s+$/.test(word),
+        text: word,
       })
     }
   }
@@ -109,7 +145,10 @@ function paragraph(
     if (!row.length) continue
     const tallest = Math.max(...row.map((p) => p.height), lineHeight)
     let cursor = 0
-    for (const piece of row) {
+    // Consecutive prose is emitted as ONE <text>, so the renderer's own metrics
+    // set the spacing between words. Drawing each word at an estimated offset
+    // is what made words collide.
+    for (const piece of coalesce(row, fontSize)) {
       body.push(
         tag(
           'g',
@@ -124,9 +163,36 @@ function paragraph(
   return { svg: body.join(''), height: Math.max(y, lineHeight) }
 }
 
+/** Merge neighbouring prose pieces into one drawn run. */
+function coalesce(row: Piece[], fontSize: number): Piece[] {
+  const out: Piece[] = []
+  for (const piece of row) {
+    const previous = out[out.length - 1]
+    if (piece.text !== undefined && previous?.text !== undefined) {
+      const text = previous.text + piece.text
+      out[out.length - 1] = {
+        ...previous,
+        text,
+        svg: textRun(text, fontSize),
+        width: measure(text, fontSize),
+        height: Math.max(previous.height, piece.height),
+      }
+      continue
+    }
+    out.push(piece)
+  }
+  // A trailing space at the end of a line would push the next island right.
+  const last = out[out.length - 1]
+  if (last?.text !== undefined && /\s$/.test(last.text)) {
+    const text = last.text.replace(/\s+$/, '')
+    out[out.length - 1] = { ...last, text, svg: textRun(text, fontSize), width: measure(text, fontSize) }
+  }
+  return out
+}
+
 /** A single unwrapped run, for short things like an option label. */
 function inlineLine(text: string, fontSize: number): { svg: string; width: number; height: number } {
-  const laid = pieces(text, fontSize)
+  const laid = coalesce(pieces(text, fontSize), fontSize)
   let x = 0
   const body: string[] = []
   let height = Math.ceil(fontSize * 1.2)
@@ -239,6 +305,12 @@ export function renderQuestion(
       viewBox: `0 0 ${WIDTH} ${height}`,
       width: WIDTH,
       height,
+      // MathJax emits its glyphs as `fill="currentColor"`, which resolves from
+      // the HOST's CSS `color` — so the same SVG is black text in one page and
+      // invisible white-on-white in another. Pinning it here makes the document
+      // self-contained, which is what both the rasteriser and a reviewer
+      // opening it in a dark-themed page need.
+      color: '#1A1A1A',
     },
     tag('rect', { x: 0, y: 0, width: WIDTH, height, fill: '#ffffff' }) + body.join(''),
   )

@@ -89,6 +89,37 @@ const CROWDED: GeometryFig = {
 const count = (svg: string, pattern: RegExp): number => (svg.match(pattern) ?? []).length
 
 export const renderSuite = suite('render', {
+  // A mark that is DATA has to be visible, or the render-and-compare layer
+  // cannot check it and the field is no better than a stroke buried in
+  // raw_svg. `arcs` was invisible: a labelled angle already drew one arc, so an
+  // explicit `arcs: 1` — the claim that two angles are CONGRUENT, usually the
+  // whole premise of the question — produced a byte-identical picture to a bare
+  // label. Deleting the congruence claim changed nothing on screen, which is
+  // why the corrupted-fixture harness could not catch its removal.
+  'a congruence arc is visible as more than a label anchor'() {
+    const marked = renderFigItem(BISECTOR, { idPrefix: 'a' })
+    const unmarked = renderFigItem(
+      {
+        ...BISECTOR,
+        angles: (BISECTOR.angles ?? []).map(({ arcs: _arcs, ...rest }) => rest),
+      },
+      { idPrefix: 'a' },
+    )
+    ok(marked !== unmarked, 'removing every arcs count changes the drawing')
+  },
+
+  'the number of congruence arcs is visible'() {
+    const one = renderFigItem(BISECTOR, { idPrefix: 'a' })
+    const two = renderFigItem(
+      {
+        ...BISECTOR,
+        angles: (BISECTOR.angles ?? []).map((a) => ({ ...a, arcs: 2 })),
+      },
+      { idPrefix: 'a' },
+    )
+    ok(one !== two, 'one arc and two arcs are different pictures')
+  },
+
   'a figure renders to a self-contained svg with no browser'() {
     const svg = renderFigItem(TRIANGLE)
     ok(svg.startsWith('<svg '), `svg ilə başlamır: ${svg.slice(0, 40)}`)
