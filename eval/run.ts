@@ -11,6 +11,7 @@ import { figureRefsSuite } from './suites/figure-refs.ts'
 import { geometryEditSuite } from './suites/geometry-edit.ts'
 import { figuresSuite } from './suites/figures.ts'
 import { lintSuite } from './suites/lint.ts'
+import { imageCleanSuite, optionBandsSuite } from './suites/option-bands.ts'
 import { pageRangeSuite } from './suites/page-range.ts'
 import { renderSuite } from './suites/render.ts'
 import { segmenterSuite } from './suites/segmenter.ts'
@@ -29,6 +30,8 @@ const SUITES: Suite[] = [
   anthropicRequestSuite,
   workerCacheSuite,
   geometryEditSuite,
+  imageCleanSuite,
+  optionBandsSuite,
   classifySuite,
   answerKeySuite,
   compareSuite,

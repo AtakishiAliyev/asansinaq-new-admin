@@ -17,6 +17,9 @@
 import { createCanvas, loadImage } from '@napi-rs/canvas'
 import type { ExtractedOption, ExtractedQuestion } from '@/core/questions/extraction'
 import type { ImageFig } from '@/core/figures/figspec'
+import type { Flag } from '@/core/questions/lint'
+import { cleanCrop, type Pixels } from '@/core/segment/image-clean'
+import { localizeOptionBoxes, type Box } from '@/core/segment/option-bands'
 import type { Db, QuestionRow } from './db.ts'
 
 /** Where crops and generated images live, by convention shared with the UI. */
@@ -28,6 +31,16 @@ export function optionImagePath(row: QuestionRow, label: string): string {
 export function figureImagePath(row: QuestionRow, index: number): string {
   return `${row.book_id}/p${row.page_number}_c${row.col}_q${row.q_no}_fig${index}.png`
 }
+
+/**
+ * The uncleaned twin of a cut, stored beside it.
+ *
+ * Cleaning is a set of thresholds, and thresholds get retuned. Keeping the raw
+ * cut means a retune is a pure image job over what is already in the bucket —
+ * no re-extraction, no model call, no new boxes — which is the difference
+ * between trying a better cleaner and paying to read every crop again.
+ */
+const rawTwin = (path: string): string => path.replace(/\.png$/, '.raw.png')
 
 /**
  * `[ymin, xmin, ymax, xmax]` on a 0-1000 grid → pixels on this image.
@@ -58,39 +71,112 @@ function toRect(
  * reports it as empty — the honest state — rather than the question silently
  * losing an option.
  */
+/** The whole crop as raw pixels, for measuring and for cleaning. */
+async function pixelsOf(crop: { image: string }): Promise<{
+  pix: Pixels
+  image: Awaited<ReturnType<typeof loadImage>>
+}> {
+  const image = await loadImage(Buffer.from(crop.image, 'base64'))
+  const canvas = createCanvas(image.width, image.height)
+  const ctx = canvas.getContext('2d')
+  ctx.drawImage(image, 0, 0)
+  const raw = ctx.getImageData(0, 0, image.width, image.height)
+  return { pix: { data: raw.data, width: image.width, height: image.height }, image }
+}
+
+/** Cut one region, clean it, and store both copies. Returns the stored path. */
+async function cutAndStore(
+  db: Db,
+  source: Awaited<ReturnType<typeof loadImage>>,
+  box: Box,
+  path: string,
+): Promise<void> {
+  const { sx, sy, sw, sh } = toRect(box, source.width, source.height)
+  const canvas = createCanvas(sw, sh)
+  const ctx = canvas.getContext('2d')
+  // Painted white first: a JPEG source has no alpha, but a PNG region can, and
+  // an option rendered on a transparent ground disappears against a dark
+  // review screen.
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, sw, sh)
+  ctx.drawImage(source, sx, sy, sw, sh, 0, 0, sw, sh)
+
+  const raw = ctx.getImageData(0, 0, sw, sh)
+  const rawBuffer = canvas.toBuffer('image/png')
+
+  const cleaned = cleanCrop({ data: raw.data, width: sw, height: sh })
+  const outCanvas = createCanvas(sw, sh)
+  const outCtx = outCanvas.getContext('2d')
+  const outData = outCtx.createImageData(sw, sh)
+  outData.data.set(cleaned.data)
+  outCtx.putImageData(outData, 0, 0)
+
+  for (const [target, buffer] of [
+    [path, outCanvas.toBuffer('image/png')],
+    [rawTwin(path), rawBuffer],
+  ] as const) {
+    const { error } = await db.storage
+      .from('question-crops')
+      .upload(target, buffer, { upsert: true, contentType: 'image/png' })
+    if (error) throw new Error(error.message)
+  }
+}
+
 export async function attachOptionImages(
   db: Db,
   row: QuestionRow,
   crop: { image: string; mime: string },
   options: ExtractedOption[],
-): Promise<{ produced: number; failed: number }> {
-  const wanted = options.filter((o) => o.isImage && o.box && !o.image)
-  if (!wanted.length) return { produced: 0, failed: 0 }
+): Promise<{ produced: number; failed: number; flags: Flag[] }> {
+  const wanted = options.filter((o) => o.isImage && !o.image)
+  if (!wanted.length) return { produced: 0, failed: 0, flags: [] }
 
-  const source = await loadImage(Buffer.from(crop.image, 'base64'))
+  const { pix, image: source } = await pixelsOf(crop)
+  const flags: Flag[] = []
+
+  // The model's boxes are a HINT about where to look. It says which options are
+  // pictures and in what order, which it is good at, and where they sit, which
+  // it is measurably bad at — on one live page its five boxes spanned 355-680
+  // while the rows were at 552-999, so the first cut was blank paper.
+  const hint = wanted.map((o) => o.box).filter((b): b is Box => !!b)
+  const located = localizeOptionBoxes(pix, wanted.length, hint.length ? hint : undefined)
+
+  if (located.ok) {
+    for (const [index, option] of wanted.entries()) option.box = located.boxes[index]!
+  } else {
+    // Refused, not guessed. Falling back to the model's boxes is right — they
+    // are sometimes correct — but the row is flagged either way, because a cut
+    // nothing measured is a cut nobody has checked.
+    flags.push({
+      level: 'warning',
+      code: 'option_boxes_unverified',
+      message: `Variant şəkillərinin yeri ölçülə bilmədi (${located.reason}) — kəsimləri gözlə yoxlayın`,
+    })
+    if (hint.length !== wanted.length) {
+      return {
+        produced: 0,
+        failed: wanted.length,
+        flags: [
+          {
+            level: 'error',
+            code: 'option_boxes_missing',
+            message: 'Variant şəkilləri üçün nə ölçülmüş, nə də modelin verdiyi qutu var',
+          },
+        ],
+      }
+    }
+  }
+
   let produced = 0
   let failed = 0
-
   for (const option of wanted) {
+    if (!option.box) {
+      failed++
+      continue
+    }
     try {
-      const { sx, sy, sw, sh } = toRect(option.box!, source.width, source.height)
-      const canvas = createCanvas(sw, sh)
-      const ctx = canvas.getContext('2d')
-      // Painted white first: a JPEG source has no alpha, but a PNG region can,
-      // and an option rendered on a transparent ground disappears against a
-      // dark review screen.
-      ctx.fillStyle = '#ffffff'
-      ctx.fillRect(0, 0, sw, sh)
-      ctx.drawImage(source, sx, sy, sw, sh, 0, 0, sw, sh)
-
       const path = optionImagePath(row, option.label)
-      const { error } = await db.storage
-        .from('question-crops')
-        .upload(path, canvas.toBuffer('image/png'), {
-          upsert: true,
-          contentType: 'image/png',
-        })
-      if (error) throw new Error(error.message)
+      await cutAndStore(db, source, option.box, path)
       option.image = path
       produced++
     } catch (error) {
@@ -101,7 +187,7 @@ export async function attachOptionImages(
       )
     }
   }
-  return { produced, failed }
+  return { produced, failed, flags }
 }
 
 /**
@@ -135,21 +221,9 @@ export async function attachFigureImages(
 
   for (const { item, index } of wanted) {
     try {
-      const { sx, sy, sw, sh } = toRect(item.box!, source.width, source.height)
-      const canvas = createCanvas(sw, sh)
-      const ctx = canvas.getContext('2d')
-      ctx.fillStyle = '#ffffff'
-      ctx.fillRect(0, 0, sw, sh)
-      ctx.drawImage(source, sx, sy, sw, sh, 0, 0, sw, sh)
-
+      const { sw, sh } = toRect(item.box!, source.width, source.height)
       const path = figureImagePath(row, index)
-      const { error } = await db.storage
-        .from('question-crops')
-        .upload(path, canvas.toBuffer('image/png'), {
-          upsert: true,
-          contentType: 'image/png',
-        })
-      if (error) throw new Error(error.message)
+      await cutAndStore(db, source, item.box!, path)
       item.src = path
       // Recorded so the renderer can draw it undistorted without loading it.
       item.w = sw

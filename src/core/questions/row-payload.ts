@@ -34,6 +34,13 @@ export interface RowContext {
   categoryIds: number[]
   /** How many option images were cut from the source crop, if any. */
   croppedOptionImages?: number
+  /**
+   * Findings from the cut itself — for instance that the option positions could
+   * not be measured and the model's own boxes were used unchecked. They arrive
+   * here rather than being written separately so a single row UPDATE carries
+   * every flag the read produced.
+   */
+  cutFlags?: Flag[]
   model: string
   promptVersion: number
 }
@@ -87,6 +94,8 @@ export function buildRowPayload(
   // a neighbour's edge. Warning rather than error, because the question is
   // usable and a reviewer can accept it; but warning is enough to keep
   // auto-approve away, which is the point.
+  if (context.cutFlags?.length) flags.push(...context.cutFlags)
+
   if (context.croppedOptionImages) {
     flags.push({
       level: 'warning',

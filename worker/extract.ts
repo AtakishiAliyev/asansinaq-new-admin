@@ -99,7 +99,7 @@ export async function applyResult(
   // a question that is about to be complete.
   const cut = crop
     ? await attachOptionImages(db, row, crop, question.options)
-    : { produced: 0, failed: 0 }
+    : { produced: 0, failed: 0, flags: [] }
   // Same reasoning, for a figure that declared itself a region rather than a
   // drawing. Before the payload is built, so the cut path is on the row.
   if (crop) await attachFigureImages(db, row, crop, question)
@@ -114,6 +114,7 @@ export async function applyResult(
     answerKeysRead: context.answerKeysRead,
     categoryIds: context.categories.map((c) => c.id),
     croppedOptionImages: cut.produced,
+    cutFlags: cut.flags,
     model: modelFor(row.figure_kind !== 'none' ? 'figure' : 'text'),
     promptVersion: PROMPT_VERSION,
   })
