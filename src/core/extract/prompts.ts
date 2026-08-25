@@ -12,7 +12,7 @@
 // squares instead of falling through to hand-written SVG that drops them. Rows
 // stamped 6 and 7 can hold visibly different figures for the same crop, which
 // is exactly what the version is for.
-export const PROMPT_VERSION = 9
+export const PROMPT_VERSION = 10
 
 // Prompt texts for the question-recreation pipeline. Shared by the
 // question-ops Edge Function and the Node eval harness — ONE source of truth,
@@ -113,22 +113,15 @@ const SYSTEM_FIGURE_RULES = `12. Fiqurlar: deklarativ spec ver, şəkil çəkmə
    Hər üz: {color:"#rrggbb"} üzün rəngi, {dot:"#rrggbb"} üzdəki rəngli nöqtə, {label:"A"} üzdə yazılmış hərf.
    Üz görünür amma boşdursa, boş obyekt ver — üzü tamamilə buraxmaq "görünmür" deməkdir, bu isə başqa fiqurdur.
    Rəngləri şəkildən oxu: bu suallarda cavab məhz rənglərin sırasındadır.
-17. HEÇ CÜR TƏSVİR OLUNA BİLMƏYƏN FİQUR — kind="image", box ver.
-   Fiqur çox mürəkkəbdirsə (simvolik piktoqramlar, sərbəst rəsmlər, naxışlar) və yuxarıdakı növlərin heç biri onu TAM tuta bilmirsə:
+17. YUXARIDAKI NÖVLƏRDƏN HEÇ BİRİ FİQURU TAM TUTMURSA — kind="image", box ver. BAŞQA VARİANT YOXDUR.
+   Simvolik piktoqramlar, sərbəst rəsmlər, naxışlar, mürəkkəb sxemlər — hamısı bura.
    kind="image" ver və box ilə fiqurun şəkildəki yerini göstər — 7-ci qaydadakı BOX QAYDASI
    burada da eyni ilə tətbiq olunur, xüsusən (a) və (d): fiqurun bütün hissələri qutunun içində olsun.
-   Biz həmin sahəni orijinaldan KƏSİRİK, ona görə oxucu əsl fiquru görür.
+   Biz həmin sahəni orijinaldan KƏSİR və su nişanından TƏMİZLƏYİRİK, ona görə oxucu əsl fiquru görür.
+   ÖZÜN SVG ÇƏKMƏ. Çəkə bilmədiyin fiquru təsvir etməyə çalışmaq, izahat və ya "təsvir etmək mümkün deyil"
+   kimi qeyd yazmaq QADAĞANDIR — belə qeyd fiqurun yerində cümlə kimi görünür. Şübhə varsa kind="image".
    raw_svg içinə "təsvir etmək mümkün deyil" kimi QEYD YAZMA — qeyd fiqur deyil, və şəkilin yerində o cümlə görünür.
-18. YUXARIDAKI NÖVLƏRİN HEÇ BİRİNƏ UYMAYAN FİQUR — kind="raw_svg", raw_svg sahəsinə SVG yaz.
-   DİQQƏT: həndəsə şəkilləri buraya DÜŞMÜR — onlar 15-ci qayda (geometry), kublar 16-cı (cubes), təsvir oluna bilməyənlər 17-ci (image).
-   Sual şəklə istinad edirsə və uyğun struktur növ yoxdursa, figures-i BOŞ BURAXMA — raw_svg ver.
-   Qaydalar: viewBox MÜTLƏQ olsun (məs. viewBox="0 0 400 300"); yalnız path, line, polyline, polygon, rect, circle, ellipse, text, tspan, g, defs, marker;
-   stroke="currentColor" fill="none" istifadə et ki, şəkil hər fonda oxunsun; nöqtə adlarını (A, B, C, D, E, F) və dərəcələri (30°, 50°, 130°) text ilə yaz;
-   ox ucu lazımdırsa defs içində marker təyin et və marker-end="url(#ox)" ver.
-   QADAĞAN: script, style, image, use, foreignObject, xarici href/xlink, on* atributları — bunlar silinir və fiqur rədd edilə bilər.
-   Ölçüləri şəkildən oxu, təxmin etmə: bucaq böyüklükləri və nöqtələrin sırası orijinalla eyni olmalıdır.
-   QISA SAXLA: SVG 3000 simvoldan çox olmasın. Sadə primitivlər işlət (line, polyline, circle, text), uzun path əyriləri və artıq dəqiqlik vermə —
-   koordinatları tam ədəd yaz. Məqsəd şəklin OXUNAN və ÖLÇÜ-DOĞRU təkrarıdır, bədii dəqiqlik deyil.`
+`
 
 
 // The raster lane's replacement for rules 9-11: the figure arrives from the

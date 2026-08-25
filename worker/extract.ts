@@ -12,6 +12,7 @@ import {
   type AnthropicRequest,
 } from '@/core/extract/request-anthropic'
 import { wireToQuestion } from '@/core/questions/extraction'
+import type { StoredVersion } from '@/core/questions/repair-guard'
 import type { Flag } from '@/core/questions/lint'
 import { buildRowPayload } from '@/core/questions/row-payload'
 import type { Db, QuestionRow } from './db.ts'
@@ -119,9 +120,28 @@ export async function applyResult(
     promptVersion: PROMPT_VERSION,
   })
 
+  // On a repair round the version being replaced is parked, because whether the
+  // replacement is an improvement cannot be known until the wave has ruled on
+  // it. Without this a worse second read silently overwrites a better first one
+  // and takes the evidence with it.
+  const parked: StoredVersion | null =
+    row.repair_round > 0
+      ? {
+          stem: row.stem,
+          options: row.options,
+          figures: row.figures,
+          verify_confidence: row.verify_confidence,
+          verify_diff: row.verify_diff,
+          verified: row.verified === true,
+        }
+      : null
+
   const { error } = await db
     .from('questions')
-    .update(payload.update as never)
+    .update({
+      ...(payload.update as Record<string, unknown>),
+      ...(parked ? { prev_version: parked as never } : {}),
+    } as never)
     .eq('id', row.id)
   if (error) throw new Error(`row ${row.id} not written: ${error.message}`)
   return { status: payload.status, flags: payload.flags }

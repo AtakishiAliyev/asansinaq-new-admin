@@ -83,15 +83,36 @@ what each stage needs.
   not editable, so it always lands in review — honest, and strictly better than a
   drawing of an apology.
 
-  This is recorded as the direction, NOT switched on as a default: `raw_svg`
-  still exists and clean-crop-for-everything has not been proven on a book whose
-  watermark is a coloured logo, which is the case where keeping saturated pixels
-  is structurally weakest. That probe runs when such a book is imported
-  (`npm run probe:dewatermark`).
+  **This is the policy, not a direction.** `raw_svg` is gone from the automated
+  lane — it is not in the extraction schema and not offered in the prompt, so a
+  figure no kind expresses becomes a cleaned cut and nothing else. The type and
+  the renderer stay so rows written before the change still open.
+
+  The cleaner is `adaptive local contrast + saturation kept + an absolute ink
+  floor`, and all three parts are load bearing. Measured over eight real crops:
+  dropping the saturation rule removes 100% of the colour, and dropping the ink
+  floor promotes 0.4%–3.8% of every page to solid black — a watermark turned
+  into strokes, which on a Venn diagram is worse than the marks it replaced.
+  Both failures score as success on any count of pale pixels, so
+  `inventedInk()` exists and the probe reports it.
+
+  **The untested class is a TRULY SATURATED logo.** What has been proven is a
+  pale wash of a warm hue over saturated content — the two separate by
+  saturation with a wide margin. A logo printed at content-level saturation
+  would defeat the keep-saturated rule by construction, and no such book has
+  been seen. That case is theoretical, not cleared. `npm run probe:dewatermark`
+  is the gate: run it on any new book whose watermark looks strongly coloured,
+  BEFORE trusting the cut lane on it.
 - **Verification is a second batch wave.** The worker renders the produced
   question and compares it against the original crop in one Sonnet call, then
   writes a diff and a confidence. Low confidence lands in the existing review
-  queue. At most 2 repair iterations.
+  queue. At most 2 repair iterations, and a repair KEEPS THE BEST version rather
+  than the last: the version a repair replaces is parked in
+  `questions.prev_version` until the wave has scored its replacement, and a
+  repair that scores worse is rolled back with a `repair_rejected` flag. Whether
+  a re-read is an improvement cannot be known at extraction time, and before
+  this the row could end up worse than before the repair with the evidence
+  overwritten in the same update.
 - **The browser orchestrates exactly one thing: a single-question interactive
   re-run** from the review screen. That is what the `question-ops` Edge Function
   is still for — that, answer-key parsing and page detection, which stay

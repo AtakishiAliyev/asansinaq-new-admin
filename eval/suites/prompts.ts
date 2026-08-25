@@ -109,7 +109,7 @@ export const promptsSuite = suite('prompts', {
   },
 
   'each assembled prompt is one unbroken list of rules'() {
-    deepEq(numbering(EXTRACT_SYSTEM), sequence(18), 'DSL lane')
+    deepEq(numbering(EXTRACT_SYSTEM), sequence(17), 'DSL lane')
     deepEq(numbering(EXTRACT_SYSTEM_RASTER), sequence(12), 'raster lane')
   },
 

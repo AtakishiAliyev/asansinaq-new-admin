@@ -795,14 +795,22 @@ export const renderSuite = suite('render', {
   // The kind exists to take work AWAY from raw_svg, so the prompt has to
   // prefer it. If this drifts, geometry silently stops being used and the
   // marks start disappearing again.
-  'geometry is offered before the raw_svg escape hatch'() {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+  // DSL-first, cleaned crop as the terminal fallback. The structured kinds are
+  // offered before the cut because they are the ones that can be linted,
+  // edited and compared; the cut is honest but inert.
+  'the structured kinds are offered before the cut-from-crop fallback'() {
     return import('@/core/extract/prompts').then(({ EXTRACT_SYSTEM }) => {
       const geo = EXTRACT_SYSTEM.indexOf('kind="geometry"')
-      const raw = EXTRACT_SYSTEM.indexOf('kind="raw_svg"')
+      const cubes = EXTRACT_SYSTEM.indexOf('kind="cubes"')
+      // The LAST mention: the box rule names kind="image" in passing long
+      // before the fallback rule itself.
+      const image = EXTRACT_SYSTEM.lastIndexOf('kind="image"')
       ok(geo !== -1, 'geometry qaydası yoxdur')
-      ok(raw !== -1, 'raw_svg qaydası yoxdur')
-      ok(geo < raw, 'geometry raw_svg-dən sonra gəlir')
+      ok(cubes !== -1, 'cubes qaydası yoxdur')
+      ok(image !== -1, 'image qaydası yoxdur')
+      ok(geo < image && cubes < image, 'strukturlu növlər kəsimdən sonra gəlir')
+      // And the free-drawn hatch is gone from the automated lane entirely.
+      ok(!EXTRACT_SYSTEM.includes('kind="raw_svg"'), 'raw_svg hələ də təklif olunur')
     })
   },
 })

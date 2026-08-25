@@ -13,6 +13,7 @@ import { figuresSuite } from './suites/figures.ts'
 import { lintSuite } from './suites/lint.ts'
 import { imageCleanSuite, optionBandsSuite } from './suites/option-bands.ts'
 import { pageRangeSuite } from './suites/page-range.ts'
+import { repairGuardSuite } from './suites/repair-guard.ts'
 import { renderSuite } from './suites/render.ts'
 import { segmenterSuite } from './suites/segmenter.ts'
 import { errorsSuite } from './suites/errors.ts'
@@ -32,6 +33,7 @@ const SUITES: Suite[] = [
   geometryEditSuite,
   imageCleanSuite,
   optionBandsSuite,
+  repairGuardSuite,
   classifySuite,
   answerKeySuite,
   compareSuite,

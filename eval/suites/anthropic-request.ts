@@ -221,9 +221,17 @@ export const anthropicRequestSuite = suite('anthropic-request', {
     ).figures
     const props = figures?.items?.properties ?? {}
     ok('kind' in props, 'kind sahəsi yoxdur')
-    for (const key of ['panels', 'venn_shapes', 'raw_svg', 'table']) {
+    for (const key of ['panels', 'venn_shapes', 'cubes', 'box', 'table']) {
       ok(key in props, `${key} düz birlikdən düşüb`)
     }
+    // The automated lane no longer offers a free-drawn escape hatch. A figure
+    // no kind expresses is cut from the crop and cleaned, which cannot
+    // hallucinate; a model asked to draw what it cannot express writes an
+    // apology into the drawing instead of failing.
+    ok(!('raw_svg' in props), 'raw_svg hələ də modelə təklif olunur')
+    const kinds = (props.kind as { enum?: string[] })?.enum ?? []
+    ok(!kinds.includes('raw_svg'), 'raw_svg hələ də kind siyahısındadır')
+    ok(kinds.includes('image'), 'image son çarə kimi təklif olunmur')
   },
 
   // Folding the category in removes a whole call per question. The pipeline

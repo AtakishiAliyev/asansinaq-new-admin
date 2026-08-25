@@ -37,7 +37,7 @@ const figureObject = {
   properties: {
     kind: {
       type: 'string',
-      enum: ['geometry', 'function_graph', 'venn', 'division_scheme', 'vertical_arithmetic', 'table', 'number_line', 'cubes', 'image', 'raw_svg'],
+      enum: ['geometry', 'function_graph', 'venn', 'division_scheme', 'vertical_arithmetic', 'table', 'number_line', 'cubes', 'image'],
     },
     // function_graph
     panels: {
@@ -265,15 +265,6 @@ const figureObject = {
       description:
         'for kind=image: where the figure sits in the picture, as [ymin, xmin, ymax, xmax] on a 0-1000 grid. We cut that region out of the original, so the reader sees the real figure.',
       items: { type: 'integer' },
-    },
-    // raw_svg — the escape hatch, for a diagram none of the kinds above can
-    // express. Note that geometry constructions do NOT belong here any more:
-    // rays, marked angles and labelled points are the `geometry` kind, where
-    // the marks are data that can be linted and compared.
-    raw_svg: {
-      type: 'string',
-      description:
-        'complete <svg> markup with a viewBox, under 3000 characters, drawn to match the original: only shapes, lines, paths, text and markers, integer coordinates. No script, no images, no external references, no styles. NEVER write a note or an apology as text inside it — if the figure cannot be drawn, use kind=image with a box instead.',
     },
     note: T.str,
   },

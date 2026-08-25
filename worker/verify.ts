@@ -19,6 +19,7 @@ import {
   type Verdict,
 } from '@/core/extract/verify-request'
 import type { ExtractedQuestion } from '@/core/questions/extraction'
+import { decideRepair, parseStoredVersion } from '@/core/questions/repair-guard'
 import type { Db, QuestionRow } from './db.ts'
 import { config } from './config.ts'
 import { downloadCrop } from './extract.ts'
@@ -126,9 +127,44 @@ export async function applyVerdict(
     })
   }
 
+  // A repair round parked the version it replaced. Now that this one has been
+  // scored, the better of the two wins — and a repair that came back worse is
+  // rolled back rather than kept because it happened to be last.
+  const parked = parseStoredVersion(row.prev_version)
+  const decision = decideRepair(parked, {
+    verify_confidence: clamp01(verdict.confidence),
+    verified: verdict.matches && verdict.confidence >= LOW_CONFIDENCE,
+  })
+  if (parked && !decision.keepNew) {
+    flags.push({
+      level: 'warning',
+      code: 'repair_rejected',
+      message: `Təkrar oxunuş daha pis çıxdı, əvvəlki versiya saxlanıldı (${decision.reason})`,
+    })
+    await db
+      .from('questions')
+      .update({
+        stem: parked.stem,
+        options: parked.options as never,
+        figures: parked.figures as never,
+        verified: parked.verified,
+        verify_confidence: parked.verify_confidence,
+        verify_diff: parked.verify_diff as never,
+        verified_at: new Date().toISOString(),
+        flags: flags as never,
+        prev_version: null,
+      })
+      .eq('id', row.id)
+    // No further repair: the round that just ran produced something worse, and
+    // spending another on the same crop is how a row loops until its budget is
+    // gone.
+    return { verdict, repairing: false }
+  }
+
   await db
     .from('questions')
     .update({
+      prev_version: null,
       // `verified` drives the generated needs_attention column, so a row that
       // passes leaves the Diqqət lane without anything else being touched.
       verified: verdict.matches && verdict.confidence >= LOW_CONFIDENCE,
