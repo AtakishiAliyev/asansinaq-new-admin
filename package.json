@@ -21,6 +21,7 @@
     "sample:guard": "node --import ./eval/loader.mjs --disable-warning=ExperimentalWarning scripts/guard-calibration-sample.ts",
     "sample:corruptions": "node --import ./eval/loader.mjs --disable-warning=ExperimentalWarning scripts/corruption-sample.ts",
     "requeue": "node --import ./eval/loader.mjs --disable-warning=ExperimentalWarning scripts/requeue.ts",
+    "figure-lane": "node --import ./eval/loader.mjs --disable-warning=ExperimentalWarning scripts/figure-lane.ts",
     "smoke:answerkey": "node --import ./eval/loader.mjs --disable-warning=ExperimentalWarning scripts/answer-key-smoke.ts",
     "smoke:request": "node --import ./eval/loader.mjs --disable-warning=ExperimentalWarning scripts/request-smoke.ts",
     "worker": "node --import ./eval/loader.mjs --disable-warning=ExperimentalWarning worker/main.ts",
