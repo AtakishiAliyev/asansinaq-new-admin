@@ -315,6 +315,19 @@ export interface ImageFig {
    * else is the entire risk of the lane.
    */
   genSrc?: string
+  /**
+   * Why the guard refused a reproduction of THIS figure, when it did.
+   *
+   * On the figure rather than in `flags` because flags are per QUESTION and
+   * carry no index: a question with two image figures, one accepted and one
+   * refused, produces a single flag that cannot say which. The review screen
+   * shows the verdict beside the picture it belongs to, so it has to travel
+   * with the picture.
+   *
+   * Set only for a refusal. A figure with neither this nor `genSrc` was never
+   * offered to the lane — its book is on `cut`.
+   */
+  genRejected?: string
   note?: string
 }
 

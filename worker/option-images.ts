@@ -351,7 +351,12 @@ export async function attachFigureImages(
       // fail in any way and leave a working question behind.
       if (lane === 'gen' && cut) {
         const gen = await runGuardedGeneration(db, row, index, cut)
-        if (gen.flag) flags.push(gen.flag)
+        if (gen.flag) {
+          flags.push(gen.flag)
+          // Also on the figure, so the review screen can put the reason next to
+          // the picture it is about rather than at the bottom of the question.
+          item.genRejected = gen.flag.message
+        }
         if (gen.path) {
           // The cut stays in `src` as the source of truth; the reproduction is
           // what gets DISPLAYED, and only ever after passing the guard.
