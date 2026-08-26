@@ -23,32 +23,59 @@ const version = (over: Partial<StoredVersion> = {}): StoredVersion => ({
 })
 
 export const repairGuardSuite = suite('repair-guard', {
-  'a worse repair does not overwrite a better version'() {
-    const d = decideRepair(version({ verify_confidence: 0.9 }), {
+  'among two matches the surer one wins'() {
+    const worse = decideRepair(version({ verify_confidence: 0.9, verified: true }), {
       verify_confidence: 0.6,
       verified: true,
     })
-    eq(d.keepNew, false, 'the parked version is restored')
-    ok(d.reason.includes('0.60'), 'and the reason carries both scores')
-  },
+    eq(worse.keepNew, false, 'a less sure match does not displace a surer one')
+    ok(worse.reason.includes('0.60'), 'and the reason carries both scores')
 
-  'a better repair wins'() {
-    const d = decideRepair(version({ verify_confidence: 0.6 }), {
+    const better = decideRepair(version({ verify_confidence: 0.6, verified: true }), {
       verify_confidence: 0.95,
       verified: true,
     })
-    eq(d.keepNew, true, 'the repair stands')
+    eq(better.keepNew, true, 'a surer match stands')
+  },
+
+  // The direction bug, which shipped for one live run and fired on q464: both
+  // versions had FAILED and the guard kept the one the verifier was most
+  // certain was wrong. Among failures, confidence measures how clear the defect
+  // is, so the less certain failure is the better version to keep.
+  'among two failures the less certain one wins'() {
+    const d = decideRepair(version({ verify_confidence: 0.97, verified: false }), {
+      verify_confidence: 0.60,
+      verified: false,
+    })
+    eq(d.keepNew, true, 'the repair is the less clear failure and survives')
+
+    const back = decideRepair(version({ verify_confidence: 0.60, verified: false }), {
+      verify_confidence: 0.97,
+      verified: false,
+    })
+    eq(back.keepNew, false, 'a surer failure does not displace a vaguer one')
   },
 
   // A repair happens because the wave found a real difference. An equal score
   // means the second read is at least as good AND was produced in answer to
   // that difference, so it is the one to keep.
-  'an equal score goes to the repair'() {
-    const d = decideRepair(version({ verify_confidence: 0.8 }), {
-      verify_confidence: 0.8,
-      verified: true,
-    })
-    eq(d.keepNew, true, 'ties go to the newer read')
+  'an equal score goes to the repair, either way round'() {
+    eq(
+      decideRepair(version({ verify_confidence: 0.8, verified: true }), {
+        verify_confidence: 0.8,
+        verified: true,
+      }).keepNew,
+      true,
+      'ties among matches go to the newer read',
+    )
+    eq(
+      decideRepair(version({ verify_confidence: 0.8, verified: false }), {
+        verify_confidence: 0.8,
+        verified: false,
+      }).keepNew,
+      true,
+      'ties among failures go to the newer read too',
+    )
   },
 
   // Confidence is how sure the COMPARISON is, not how good the question is, so

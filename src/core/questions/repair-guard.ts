@@ -36,14 +36,31 @@ export interface RepairDecision {
 /**
  * Which version survives a repair round.
  *
+ * Confidence is how sure the COMPARISON is, not how good the question is, so it
+ * has to be read in the direction of the verdict:
+ *
+ *   both matched     — higher confidence is a surer match, so higher wins
+ *   both mismatched  — higher confidence is a surer FAILURE, so LOWER wins
+ *   one of each      — the match wins outright, whatever the numbers say
+ *
+ * Reading it one-directionally is the bug this replaces. It shipped for exactly
+ * one live run and fired on q464, where both versions had failed and the guard
+ * kept the one the verifier was most certain was wrong.
+ *
  * Ties go to the NEW version. A repair is prompted by a real difference the
  * wave found, and an equal score means the second read is at least as good
- * while having been produced in response to that difference. Only a strictly
- * lower score is treated as a regression.
+ * while having been produced in answer to that difference.
  *
- * A version that was never verified cannot lose: there is nothing to compare
- * it against, and refusing to store a read because its predecessor has no score
- * would strand the row.
+ * A version that was never scored cannot lose: there is nothing to compare
+ * against, and refusing a read because its predecessor has no score would
+ * strand the row.
+ *
+ * CAVEAT, recorded rather than defended against: "lower confidence wins among
+ * failures" is mildly gameable if the verifier itself weakens — a wave that
+ * grew unsure of everything would start looking like an improvement. Two things
+ * blunt it. A rejected repair ENDS the chain, so a drifting verifier cannot
+ * ratchet a row downwards round after round; and both outcomes land in review,
+ * so a human sees the result either way. It is not a self-certifying path.
  */
 export function decideRepair(
   previous: StoredVersion | null,
@@ -71,16 +88,20 @@ export function decideRepair(
   if (!previous.verified && next.verified) {
     return { keepNew: true, reason: 'the repair matches the original and the previous did not' }
   }
-  if (next.verify_confidence >= previous.verify_confidence) {
-    return {
-      keepNew: true,
-      reason: `repair scored ${next.verify_confidence.toFixed(2)} against ${previous.verify_confidence.toFixed(2)}`,
-    }
+  const shown = `${next.verify_confidence.toFixed(2)} vs ${previous.verify_confidence.toFixed(2)}`
+
+  // Both matched: the surer match is the better version.
+  if (previous.verified && next.verified) {
+    return next.verify_confidence >= previous.verify_confidence
+      ? { keepNew: true, reason: `repair is the surer match (${shown})` }
+      : { keepNew: false, reason: `the previous version was the surer match (${shown})` }
   }
-  return {
-    keepNew: false,
-    reason: `repair scored ${next.verify_confidence.toFixed(2)}, worse than ${previous.verify_confidence.toFixed(2)}`,
-  }
+
+  // Both failed: the surer FAILURE is the worse version, so the less certain
+  // one survives. A 0.97 "this differs" is a clearer defect than a 0.60 one.
+  return next.verify_confidence <= previous.verify_confidence
+    ? { keepNew: true, reason: `both differ; the repair is the less certain failure (${shown})` }
+    : { keepNew: false, reason: `both differ; the repair is the surer failure (${shown})` }
 }
 
 /** The parked version, read defensively out of a jsonb column. */
