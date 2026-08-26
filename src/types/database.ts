@@ -563,6 +563,63 @@ export type Database = {
           },
         ]
       }
+      worker_control: {
+        Row: {
+          desired_state: string
+          id: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          desired_state?: string
+          id?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          desired_state?: string
+          id?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
+      worker_heartbeat: {
+        Row: {
+          activity: string
+          budget_usd: number | null
+          last_error: string | null
+          last_error_at: string | null
+          last_seen: string
+          spend_today: number | null
+          started_at: string | null
+          state: string
+          worker_id: string
+        }
+        Insert: {
+          activity?: string
+          budget_usd?: number | null
+          last_error?: string | null
+          last_error_at?: string | null
+          last_seen?: string
+          spend_today?: number | null
+          started_at?: string | null
+          state?: string
+          worker_id: string
+        }
+        Update: {
+          activity?: string
+          budget_usd?: number | null
+          last_error?: string | null
+          last_error_at?: string | null
+          last_seen?: string
+          spend_today?: number | null
+          started_at?: string | null
+          state?: string
+          worker_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

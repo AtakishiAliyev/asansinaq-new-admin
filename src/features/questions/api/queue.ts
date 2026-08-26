@@ -15,6 +15,10 @@ export const throughputSchema = z.object({
   running: z.number(),
   /** Submitted to the provider and waiting. A subset of `running`. */
   in_batch: z.number(),
+  /** Structured, never ruled on, and not held by any stage — the verify wave's
+   *  own backlog. Looks exactly like "finished" from the outside, which is why
+   *  it is counted separately. */
+  awaiting_verify: z.number(),
   structured_hour: z.number(),
   structured_today: z.number(),
   failed_today: z.number(),

@@ -5,6 +5,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
 import { useClearQueue, useThroughput } from '@/features/questions/api/queue'
 import { PipelineSettingsDialog } from '@/features/questions/components/pipeline-settings-dialog'
+import { WorkerControlPanel } from '@/features/questions/components/worker-control-panel'
 
 function Stat({
   label,
@@ -55,6 +56,7 @@ export function QueuePanel() {
   const queued = stats.data?.queued ?? 0
   const running = stats.data?.running ?? 0
   const inBatch = stats.data?.in_batch ?? 0
+  const awaitingVerify = stats.data?.awaiting_verify ?? 0
 
   // What the operator actually needs from a job measured in days: when it ends.
   // Derived from the last hour's real throughput, so it already accounts for
@@ -64,6 +66,15 @@ export function QueuePanel() {
 
   return (
     <div className="bg-card flex flex-col gap-3 rounded-xl border p-4">
+      {/* The control plane sits above the counters because it answers the
+          question the counters raise: a queue that is not moving means one
+          thing if a worker is running and another if none is. */}
+      <WorkerControlPanel
+        queued={queued}
+        inBatch={inBatch}
+        awaitingVerify={awaitingVerify}
+      />
+      <div className="border-t pt-3" />
       <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
         <Stat label="növbədə" value={queued} tone={queued ? undefined : 'muted'} />
         <Stat label="son saat" value={stats.data?.structured_hour ?? '—'} />
@@ -78,6 +89,11 @@ export function QueuePanel() {
           label="avtomatik təsdiq"
           value={stats.data?.auto_approved_today ?? '—'}
           tone="good"
+        />
+        <Stat
+          label="yoxlamada"
+          value={awaitingVerify || '—'}
+          tone={awaitingVerify ? undefined : 'muted'}
         />
         <Stat
           label="xəta (bu gün)"

@@ -16,10 +16,19 @@ function TooltipProvider({
   )
 }
 
+// Wraps its own Provider, as current shadcn does. Radix requires one in the
+// tree and throws without it, and nothing about a tooltip suggests that the
+// caller owes it a context — the first component in this codebase to use a
+// Tooltip crashed the page it was added to, in a branch that only renders when
+// a worker is online.
 function Tooltip({
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Root>) {
-  return <TooltipPrimitive.Root data-slot="tooltip" {...props} />
+  return (
+    <TooltipProvider>
+      <TooltipPrimitive.Root data-slot="tooltip" {...props} />
+    </TooltipProvider>
+  )
 }
 
 function TooltipTrigger({

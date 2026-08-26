@@ -9,5 +9,6 @@ export const questionKeys = {
     [...questionKeys.all, 'counts', bookId] as const,
   spend: () => [...questionKeys.all, 'spend'] as const,
   throughput: () => [...questionKeys.all, 'throughput'] as const,
+  worker: () => [...questionKeys.all, 'worker'] as const,
   signed: (key: string) => [...questionKeys.all, 'signed', key] as const,
 }

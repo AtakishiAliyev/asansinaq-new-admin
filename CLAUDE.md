@@ -120,6 +120,16 @@ what each stage needs.
   and no batch work may be added to it. Category selection is folded into
   extraction rather than being its own op: the model has read the question by
   the time it could answer, so a second call re-sends the crop to learn nothing.
+- **The worker's CONTROL PLANE is in the UI; the worker is not.** The process
+  stays a daemon because its independence from any open tab is the point of the
+  batch lane — a run that dies when someone closes a window is what this
+  replaced. What the UI owns is `worker_control.desired_state`, which the worker
+  reads at the top of every pass, and `worker_heartbeat`, which it rewrites on
+  each one. A pause therefore lands BETWEEN passes: a submitted batch is already
+  paid for, and abandoning it mid-flight would spend the money and keep nothing.
+  Liveness is the AGE of the heartbeat, never a status field — a worker that
+  died cannot report that it died. Pressing Start with no daemon running writes
+  the switch and says so plainly rather than appearing to work.
 - **The work list lives in the database.** `questions.queued_at` marks work to
   do and `claimed_at`/`lease_until`/`claimed_by_worker` is a lease, so a worker
   that dies loses at most the batch in flight and a second worker adds
@@ -196,6 +206,14 @@ place, and it is scheduled for removal after M6 along with
   worker's own variables (see `worker/config.ts`, which is their source of
   truth). Spends real money: it claims queued questions and submits them to the
   Batches API.
+- `npm run worker:install` — install the worker as an always-on background
+  agent (macOS launchd): starts at login, restarts on crash, logs to
+  `local/worker.log`. **This is the operator path** — start and pause then live
+  in the UI, on the Suallar page, and no terminal is needed again.
+  `npm run worker:status` shows whether the agent is loaded and tails the log;
+  `npm run worker:uninstall` removes it. The keys are copied from `.env` INTO
+  the plist at install time, because a launchd agent gets no login shell — so
+  re-run `worker:install` after changing any of them.
 - `npm run worker -- --dry-run` — pre-flight for the above. Reads, builds the
   request it WOULD submit, prices it with `countTokens`, and exits. Claims
   nothing, submits nothing, writes nothing — safe against a live queue. Run it

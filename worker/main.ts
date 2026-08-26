@@ -15,6 +15,13 @@
 import { EMIT_QUESTION_TOOL_NAME } from '@/core/extract/tool-schema'
 import { EMIT_VERDICT_TOOL_NAME, parseVerdict } from '@/core/extract/verify-request'
 import { config } from './config.ts'
+import {
+  announceStart,
+  announceStop,
+  beat,
+  readDesiredState,
+  type DesiredState,
+} from './control.ts'
 import { db, type QuestionRow } from './db.ts'
 import { bookContext } from './book-context.ts'
 import { batchResults, batchState, submitBatch, type BatchItem } from './batch.ts'
@@ -92,6 +99,23 @@ function reportFigureKinds(): void {
     )
   }
   figureKindTally.clear()
+}
+
+/**
+ * Whether this process is the always-on daemon or a hand-run drain.
+ *
+ * The manual path stops when the queue empties, which is what makes it useful
+ * during development. The daemon must not: the operator queues work in the UI
+ * expecting it to be picked up, and a worker that exited quietly the last time
+ * the queue ran dry is indistinguishable from one that crashed.
+ */
+const DAEMON = process.argv.includes('--daemon') || process.env.WORKER_DAEMON === '1'
+
+/** What the worker is doing, as the control panel will phrase it. */
+let activity = 'starting'
+async function setActivity(text: string, state: DesiredState = 'running'): Promise<void> {
+  activity = text
+  await beat(db, { activity, state, spendToday: await spendToday(db).catch(() => undefined) })
 }
 
 let stopping = false
@@ -334,6 +358,7 @@ async function verifyPass(): Promise<number> {
   }
 
   await attachBatch(db, batchId, 'verify', live)
+  await setActivity(`batch ${batchId}: ${live.length} sual göndərildi (yoxlama)`)
   log(`batch ${batchId}: submitted ${live.length} question(s) for verification`)
   return live.length
 }
@@ -443,6 +468,7 @@ async function submitPass(): Promise<number> {
 
   // Written before anything waits on it: this is what a restart reads.
   await attachBatch(db, batchId, 'extract', submitted)
+  await setActivity(`batch ${batchId}: ${items.length} sual göndərildi (çıxarış)`)
   // The books the batch ACTUALLY holds, not the one the claim started from: the
   // fallback claim above takes rows from anywhere, so a batch that began with
   // book 22 can end up carrying three books' questions and reporting one.
@@ -545,13 +571,36 @@ if (process.argv.includes('--dry-run')) {
 
 log(`spent today: $${(await spendToday(db)).toFixed(4)} of $${config.DAILY_BUDGET_USD}`)
 
+await announceStart(db)
+
+let wasPaused = false
 while (!stopping) {
+  // Read the switch at the top of every pass. A pause therefore lands BETWEEN
+  // passes, never inside one: a batch already submitted has already been paid
+  // for, and abandoning it mid-flight would spend the money and keep nothing.
+  const desired = await readDesiredState(db)
+  if (desired === 'paused') {
+    if (!wasPaused) log('paused by the operator — waiting for the switch')
+    wasPaused = true
+    await setActivity('operator tərəfindən dayandırılıb', 'paused')
+    await new Promise((resolve) => setTimeout(resolve, POLL_MS))
+    continue
+  }
+  if (wasPaused) log('resumed by the operator')
+  wasPaused = false
+
   try {
+    await setActivity('növbə yoxlanılır')
     await pollPass()
     await submitPass()
     await verifyPass()
   } catch (error) {
     log(`pass failed: ${String(error)}`)
+    await beat(db, {
+      activity: 'xəta — növbəti dövrədə yenidən cəhd',
+      state: 'running',
+      lastError: String(error).slice(0, 400),
+    })
   }
   if (stopping) break
   const outstanding = (await inFlight(db).catch(() => [])).length
@@ -578,13 +627,20 @@ while (!stopping) {
       .eq('status', 'structured')
       .is('verified_at', null)
     if (stranded) {
-      log(`${stranded} row(s) are queued but unclaimable — stopping rather than spinning`)
+      // Said out loud either way: a stranded row is not an empty queue, and a
+      // daemon that idles over one would look like it had finished the work.
+      log(`${stranded} row(s) are queued but unclaimable — nothing can act on them`)
+      await setActivity(`${stranded} sual ilişib — heç bir mərhələ onları götürə bilmir`)
     } else {
-      log('queue empty and nothing in flight — stopping')
+      await setActivity('boşdur — yeni iş gözlənilir')
     }
-    break
+    if (!DAEMON) {
+      log(stranded ? 'stopping rather than spinning' : 'queue empty and nothing in flight — stopping')
+      break
+    }
   }
   await new Promise((resolve) => setTimeout(resolve, POLL_MS))
 }
 
+await announceStop(db, stopping ? 'signal' : 'queue empty')
 log('worker stopped')
