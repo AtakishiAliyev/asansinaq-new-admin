@@ -18,6 +18,7 @@
     "probe:dewatermark": "node --import ./eval/loader.mjs --disable-warning=ExperimentalWarning scripts/dewatermark-probe.ts",
     "sample:kinds": "node --import ./eval/loader.mjs --disable-warning=ExperimentalWarning scripts/figure-kinds-sample.ts",
     "sample:corruptions": "node --import ./eval/loader.mjs --disable-warning=ExperimentalWarning scripts/corruption-sample.ts",
+    "smoke:answerkey": "node --import ./eval/loader.mjs --disable-warning=ExperimentalWarning scripts/answer-key-smoke.ts",
     "smoke:request": "node --import ./eval/loader.mjs --disable-warning=ExperimentalWarning scripts/request-smoke.ts",
     "worker": "node --import ./eval/loader.mjs --disable-warning=ExperimentalWarning worker/main.ts",
     "clean:testdata": "node --disable-warning=ExperimentalWarning scripts/clean-testdata.ts",
