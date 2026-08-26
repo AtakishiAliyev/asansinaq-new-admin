@@ -119,10 +119,34 @@ async function setActivity(text: string, state: DesiredState = 'running'): Promi
 }
 
 let stopping = false
+/**
+ * Wakes the poll sleep early.
+ *
+ * Without it a stop waits out the full poll interval before the loop comes back
+ * round to notice — a minute of a daemon ignoring SIGTERM, which launchd
+ * answers with SIGKILL, and a killed process never records that it stopped on
+ * purpose. The sleep is interruptible so shutdown is prompt and the heartbeat
+ * gets its last word.
+ */
+let wake: (() => void) | null = null
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      wake = null
+      resolve()
+    }, ms)
+    wake = () => {
+      clearTimeout(timer)
+      wake = null
+      resolve()
+    }
+  })
+
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => {
     if (stopping) process.exit(1)
     stopping = true
+    wake?.()
     // Rows already submitted are NOT released: their batch is paid for and
     // still coming, and handing them back would let the next worker buy the
     // same answers again. They keep their handle and are adopted on restart.
@@ -583,7 +607,7 @@ while (!stopping) {
     if (!wasPaused) log('paused by the operator — waiting for the switch')
     wasPaused = true
     await setActivity('operator tərəfindən dayandırılıb', 'paused')
-    await new Promise((resolve) => setTimeout(resolve, POLL_MS))
+    await sleep(POLL_MS)
     continue
   }
   if (wasPaused) log('resumed by the operator')
@@ -639,7 +663,7 @@ while (!stopping) {
       break
     }
   }
-  await new Promise((resolve) => setTimeout(resolve, POLL_MS))
+  await sleep(POLL_MS)
 }
 
 await announceStop(db, stopping ? 'signal' : 'queue empty')

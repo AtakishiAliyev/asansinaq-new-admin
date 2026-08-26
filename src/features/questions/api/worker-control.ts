@@ -31,6 +31,7 @@ export const workerHeartbeatSchema = z.object({
   last_error: z.string().nullable(),
   last_error_at: z.string().nullable(),
   started_at: z.string().nullable(),
+  stopped_at: z.string().nullable(),
 })
 
 export type WorkerHeartbeat = z.infer<typeof workerHeartbeatSchema>
@@ -58,7 +59,12 @@ export function useWorkerStatus() {
       const workers = (heartbeats.data ?? []).map((row) => {
         const parsed = workerHeartbeatSchema.parse(row)
         const ageMs = now - new Date(parsed.last_seen).getTime()
-        return { ...parsed, ageMs, online: ageMs < HEARTBEAT_STALE_MS }
+        // A deliberate stop is known immediately; only a crash has to be
+        // inferred from silence. Without this a worker shut down on purpose
+        // showed as running for the whole staleness window, next to its own
+        // "stopped" activity line.
+        const online = ageMs < HEARTBEAT_STALE_MS && parsed.stopped_at === null
+        return { ...parsed, ageMs, online }
       })
       return {
         desiredState: control.data?.desired_state === 'paused' ? 'paused' : 'running',

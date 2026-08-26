@@ -58,6 +58,9 @@ export async function beat(db: Db, hb: Heartbeat): Promise<void> {
     state: hb.state,
     spend_today: hb.spendToday ?? null,
     budget_usd: config.DAILY_BUDGET_USD,
+    // Cleared on every beat: a process that is beating has not stopped, and a
+    // stale `stopped_at` would keep a live worker looking shut down.
+    stopped_at: null,
     ...(hb.lastError === undefined
       ? {}
       : { last_error: hb.lastError, last_error_at: hb.lastError ? new Date().toISOString() : null }),
@@ -79,6 +82,7 @@ export async function announceStart(db: Db): Promise<void> {
         activity: 'starting',
         state: 'running',
         started_at: new Date().toISOString(),
+        stopped_at: null,
         budget_usd: config.DAILY_BUDGET_USD,
         last_error: null,
         last_error_at: null,
@@ -102,7 +106,11 @@ export async function announceStop(db: Db, reason: string): Promise<void> {
   try {
     await db
       .from('worker_heartbeat')
-      .update({ activity: `stopped: ${reason}`, last_seen: new Date().toISOString() })
+      .update({
+        activity: `stopped: ${reason}`,
+        last_seen: new Date().toISOString(),
+        stopped_at: new Date().toISOString(),
+      })
       .eq('worker_id', config.WORKER_ID)
   } catch {
     // Telemetry only.

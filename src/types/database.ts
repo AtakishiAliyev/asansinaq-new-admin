@@ -594,6 +594,7 @@ export type Database = {
           spend_today: number | null
           started_at: string | null
           state: string
+          stopped_at: string | null
           worker_id: string
         }
         Insert: {
@@ -605,6 +606,7 @@ export type Database = {
           spend_today?: number | null
           started_at?: string | null
           state?: string
+          stopped_at?: string | null
           worker_id: string
         }
         Update: {
@@ -616,6 +618,7 @@ export type Database = {
           spend_today?: number | null
           started_at?: string | null
           state?: string
+          stopped_at?: string | null
           worker_id?: string
         }
         Relationships: []
