@@ -39,3 +39,6 @@ public/pdfjs/
 # these paths; main never did, so they sat here untracked.
 probe/out/
 probe/cases/
+
+# operator scratch scripts (service-role one-offs)
+.*.mjs
