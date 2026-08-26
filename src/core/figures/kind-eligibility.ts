@@ -91,3 +91,33 @@ export function figureIneligible(item: FigItem): Ineligible | null {
 export function documentIneligible(items: FigItem[]): Ineligible[] {
   return items.map(figureIneligible).filter((x): x is Ineligible => x !== null)
 }
+
+/**
+ * Replace every ineligible figure with a cut of the original.
+ *
+ * Flagging an over-reach and leaving the spec in place is the defect this
+ * closes: the row still renders a venn made of rectangles, still reads as
+ * extracted, and the flag is a note beside a picture that is wrong. "Everything
+ * the kind cannot hold routes to image" has to be something the pipeline DOES,
+ * not something the prompt asks for — two prompt versions in, the model still
+ * reached for function_graph on a curve whose coefficient it had to invent.
+ *
+ * The replacement carries no box. That is deliberate: the model's opinion about
+ * this figure has already been shown to be wrong, so the region is left to the
+ * pixel localizer, which takes the largest block of drawing on the crop.
+ *
+ * Returns the rewritten items and what was rerouted, so the row can say so.
+ */
+export function rerouteIneligible(items: FigItem[]): {
+  items: FigItem[]
+  rerouted: Ineligible[]
+} {
+  const rerouted: Ineligible[] = []
+  const next = items.map((item) => {
+    const bad = figureIneligible(item)
+    if (!bad) return item
+    rerouted.push(bad)
+    return { kind: 'image', src: '' } as FigItem
+  })
+  return { items: next, rerouted }
+}

@@ -4,7 +4,11 @@
 // is the dangerous one: each rendered without throwing, so the row looked
 // extracted, and only a comparison against the original showed the figure was
 // not the figure. Two of them even passed the verification wave.
-import { documentIneligible, figureIneligible } from '@/core/figures/kind-eligibility'
+import {
+  documentIneligible,
+  figureIneligible,
+  rerouteIneligible,
+} from '@/core/figures/kind-eligibility'
 import type { FigItem } from '@/core/figures/figspec'
 import { eq, ok, suite } from '../harness.ts'
 
@@ -165,6 +169,27 @@ export const kindEligibilitySuite = suite('kind-eligibility', {
       null,
       'cubes unaffected',
     )
+  },
+
+  // Flagging is not routing. The round that only flagged left every row still
+  // carrying the figure it had just called wrong.
+  'an ineligible figure is replaced by a cut, not just flagged'() {
+    const { items, rerouted } = rerouteIneligible([RECT_VENN, GOOD_VENN, SPLINE_GRAPH])
+    eq(items.length, 3, 'nothing is dropped')
+    eq(items[0]?.kind, 'image', 'the rect venn became a cut')
+    eq(items[1]?.kind, 'venn', 'the good venn is untouched')
+    eq(items[2]?.kind, 'image', 'the spline graph became a cut')
+    eq(rerouted.length, 2, 'and both are reported so the row can say so')
+  },
+
+  // No box on purpose: the model's opinion about this figure has already been
+  // shown wrong, so the region is the pixel localizer's to decide.
+  'a rerouted figure carries no box from the model'() {
+    const { items } = rerouteIneligible([SPLINE_GRAPH])
+    const first = items[0] as { kind: string; box?: unknown; src?: string }
+    eq(first.kind, 'image', 'rerouted')
+    eq(first.box, undefined, 'no box inherited')
+    eq(first.src, '', 'and no source yet — the cutter fills it')
   },
 
   'a document reports every ineligible item, not just the first'() {

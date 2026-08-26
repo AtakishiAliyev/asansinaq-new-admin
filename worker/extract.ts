@@ -12,6 +12,7 @@ import {
   type AnthropicRequest,
 } from '@/core/extract/request-anthropic'
 import { wireToQuestion } from '@/core/questions/extraction'
+import { rerouteIneligible } from '@/core/figures/kind-eligibility'
 import type { StoredVersion } from '@/core/questions/repair-guard'
 import type { Flag } from '@/core/questions/lint'
 import { buildRowPayload } from '@/core/questions/row-payload'
@@ -95,6 +96,22 @@ export async function applyResult(
 ): Promise<ApplyOutcome> {
   const question = wireToQuestion(wire)
 
+  // A kind that cannot hold its figure is REPLACED by a cut of the original,
+  // not merely flagged. Leaving the spec in place is what made the last round
+  // useless: the lint fired and the row still carried a venn drawn out of
+  // rectangles. The prompt asks; this enforces.
+  const routed = question.figures
+    ? rerouteIneligible(question.figures.items)
+    : { items: [], rerouted: [] }
+  if (question.figures) question.figures = { ...question.figures, items: routed.items }
+  const routeFlags: Flag[] = routed.rerouted.map((bad) => ({
+    level: 'warning',
+    code: 'figure_rerouted',
+    message:
+      `kind="${bad.kind}" bu fiqura uyğun deyil (${bad.reason}) — ` +
+      'fiqur orijinaldan kəsildi',
+  }))
+
   // Before the payload is built, not after: the option-empty lint reads
   // `image`, so cutting the pictures later would flag every picture option on
   // a question that is about to be complete.
@@ -117,7 +134,7 @@ export async function applyResult(
     answerKeysRead: context.answerKeysRead,
     categoryIds: context.categories.map((c) => c.id),
     croppedOptionImages: cut.produced,
-    cutFlags: [...cut.flags, ...figureCut.flags],
+    cutFlags: [...cut.flags, ...figureCut.flags, ...routeFlags],
     model: modelFor(row.figure_kind !== 'none' ? 'figure' : 'text'),
     promptVersion: PROMPT_VERSION,
   })
