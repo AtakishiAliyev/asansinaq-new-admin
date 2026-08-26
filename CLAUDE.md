@@ -103,6 +103,25 @@ what each stage needs.
   pass. One retry, then the cut is kept with a `gen_rejected` flag. A missing
   `GEMINI_API_KEY` turns the lane off rather than failing a queue.
 
+  **The guard compares CONTENT, and every part of it that once compared the
+  MEDIUM has been removed.** Its first live run rejected all eight faithful
+  reproductions, and not one rejection was about the drawing: a reproduction is
+  larger and crisper than the scan it came from, and comparing inked mass,
+  thresholding after resampling, or bucketing hue at 45 degrees all measure that
+  difference instead of the figure. What survives is measured at a common
+  resolution or as a scale-free share — thin lines are compared as skeletons,
+  hue as a circular earth-mover distance over 10-degree buckets, coloured area
+  as a fraction of its own image.
+
+  **Where a channel cannot carry a verdict, the guard ABSTAINS and says so.** On
+  a figure drawn entirely in colour the black channel is the question number and
+  the labels — 57 pixels of skeleton — so the ink checks stand down
+  (`inkMeasurable: false`) and the strict colour checks decide alone. This is
+  the one place the guard is deliberately weaker than it looks: a black line
+  lost from a colour-dominated figure is not caught here, and is left to the
+  verification wave along with the labels. Abstaining silently would have been
+  the defect; the flag exists so a caller cannot read silence as a pass.
+
   The cleaner is `adaptive local contrast + saturation kept + an absolute ink
   floor`, and all three parts are load bearing. Measured over eight real crops:
   dropping the saturation rule removes 100% of the colour, and dropping the ink

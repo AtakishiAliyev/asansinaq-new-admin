@@ -142,6 +142,104 @@ export const structuralDiffSuite = suite('structural-diff', {
 
   // Silence about labels must never read as a pass: there is no OCR here, and
   // the verification wave is what reads text.
+  // The calibration failure that rejected 6 of 8 real reproductions: a 300px
+  // crop redrawn at 1024px has THINNER relative strokes, and comparing inked
+  // mass read that as losing 21% to 60% of the drawing. Same figure, same
+  // lines, thinner pen — must pass.
+  'the same figure drawn with a thinner pen passes'() {
+    const thick = blank()
+    draw(thick, 20, 168, 180, 174, BLACK) // 6px strokes
+    draw(thick, 18, 30, 24, 174, BLACK)
+    draw(thick, 60, 100, 140, 150, RED)
+
+    const thin = blank()
+    draw(thin, 20, 170, 180, 171, BLACK) // 1px strokes, same lines
+    draw(thin, 20, 30, 21, 171, BLACK)
+    draw(thin, 60, 100, 140, 150, RED)
+
+    const d = compareStructure(thick, thin)
+    ok(d.passed, `stroke weight must not decide: ${d.reasons.join('; ')}`)
+  },
+
+  // ...and the guard must still see a real loss at that same stroke weight,
+  // otherwise the fix has become a rubber stamp.
+  'a thinner pen does not hide a missing line'() {
+    const thick = blank()
+    draw(thick, 20, 168, 180, 174, BLACK)
+    draw(thick, 18, 30, 24, 174, BLACK)
+    draw(thick, 40, 60, 130, 66, BLACK) // a third line, well clear of the axes
+    draw(thick, 60, 100, 140, 150, RED)
+
+    const thinAndMissing = blank()
+    draw(thinAndMissing, 20, 170, 180, 171, BLACK)
+    draw(thinAndMissing, 20, 30, 21, 171, BLACK)
+    // the third line is gone
+    draw(thinAndMissing, 60, 100, 140, 150, RED)
+
+    const d = compareStructure(thick, thinAndMissing)
+    ok(!d.passed, 'a dropped line must still fail when strokes are thinner')
+  },
+
+  // An anti-aliased edge puts a sliver into a hue that is otherwise absent.
+  // That scored 0.01 and rejected figures whose shading overlapped at 0.95.
+  'a hue sliver from anti-aliasing is not a recolour'() {
+    const ref = blank()
+    draw(ref, 60, 100, 140, 150, RED)
+    const withFringe = blank()
+    draw(withFringe, 60, 100, 140, 150, RED)
+    draw(withFringe, 60, 99, 140, 99, [200, 120, 90]) // a one-pixel warm fringe
+    const d = compareStructure(ref, withFringe)
+    ok(d.passed, `an edge fringe must not read as a recolour: ${d.reasons.join('; ')}`)
+  },
+
+  // Hue is a WHEEL, and red sits on the seam. The live two-ellipse Venn had its
+  // red at about 5 degrees in the scan and 355 in the reproduction — ten
+  // degrees apart, and on opposite sides of the wrap — which coarse buckets
+  // scored as half the palette moving.
+  'a hue that straddles the wrap point is not a recolour'() {
+    const a = blank()
+    draw(a, 40, 40, 160, 160, [230, 40, 30]) // hue just above 0
+    const b = blank()
+    draw(b, 40, 40, 160, 160, [230, 30, 40]) // hue just below 360
+    const d = compareStructure(a, b)
+    ok(d.passed, `a ten-degree hue difference must pass: ${d.reasons.join('; ')}`)
+    ok(d.hueAgreement > 0.9, `palette should read as intact, got ${d.hueAgreement}`)
+  },
+
+  // Figures drawn entirely in colour: the black channel is labels, and labels
+  // are this function's declared blind spot. It must SAY it is not measuring
+  // them rather than judge them anyway — three faithful live reproductions were
+  // rejected on 57-pixel skeletons of their question numbers.
+  'ink checks abstain on a figure that is drawn in colour'() {
+    const a = blank()
+    draw(a, 30, 30, 170, 90, RED)
+    draw(a, 30, 110, 170, 170, BLUE)
+    draw(a, 4, 4, 10, 12, BLACK) // a question number, and nothing else
+    const b = blank()
+    draw(b, 30, 30, 170, 90, RED)
+    draw(b, 30, 110, 170, 170, BLUE)
+    draw(b, 5, 4, 9, 13, BLACK) // drawn a shade differently, as a redraw would
+    const d = compareStructure(a, b)
+    ok(!d.inkMeasurable, 'so little line art must be declared unmeasurable')
+    ok(d.passed, `colour-only figures must not fail on labels: ${d.reasons.join('; ')}`)
+  },
+
+  // ...and abstaining on ink must not become abstaining. The colour checks are
+  // what carry such a figure, and they are the strict ones.
+  'a colour-only figure still fails when a coloured region goes missing'() {
+    const a = blank()
+    draw(a, 30, 30, 170, 90, RED)
+    draw(a, 30, 110, 170, 170, BLUE)
+    draw(a, 4, 4, 10, 12, BLACK)
+    const b = blank()
+    draw(b, 30, 30, 170, 90, RED)
+    // the blue region is gone
+    draw(b, 4, 4, 10, 12, BLACK)
+    const d = compareStructure(a, b)
+    ok(!d.inkMeasurable, 'still no line art to measure')
+    ok(!d.passed, 'a lost coloured region must fail on the colour checks')
+  },
+
   'labels are declared unchecked'() {
     eq(compareStructure(reference(), reference()).labelsChecked, false, 'declared')
   },

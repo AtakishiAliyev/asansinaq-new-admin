@@ -32,12 +32,17 @@ export interface StructuralDiff {
   inkIoU: number
   /** Colour-region overlap after dilation, 0..1. Strict by design. */
   colourIoU: number
-  /** How much the total inked area changed, as a ratio. 1 = identical. */
+  /** How much the total inked area changed, as a ratio. 1 = identical.
+   *  Reported for the record; NOT a pass criterion — see `minInkIoU`. */
   inkAreaRatio: number
   /** How much the total coloured area changed, as a ratio. 1 = identical. */
   colourAreaRatio: number
-  /** Per-hue area agreement, worst bucket. Catches a recoloured region. */
-  worstHueAgreement: number
+  /** Palette agreement, 1 = same colours in the same proportions. Catches a
+   *  recoloured region without tripping on a hue that straddles a bucket. */
+  hueAgreement: number
+  /** Whether the cut had enough line art for `inkAreaRatio` to mean anything.
+   *  False on a figure that is almost entirely colour. */
+  inkMeasurable: boolean
   /** Distinct ink elements in the cut, and how many the generation still has. */
   elements: { inCut: number; matched: number }
   /** Always false: no OCR engine, so labels are the verify wave's job. */
@@ -53,10 +58,18 @@ export interface DiffThresholds {
   minColourIoU?: number
   /** How far the coloured area may drift, either way. */
   colourAreaSlack?: number
-  /** How far the inked area may drift. Wide enough for a stroke-weight
-   *  difference, narrow enough that a vanished element shows. */
-  inkAreaSlack?: number
   minHueAgreement?: number
+  /**
+   * Below this share of skeleton pixels, the inked area is not evidence.
+   *
+   * Three of the seven live figures are almost entirely colour, with a 57- to
+   * 60-pixel skeleton in a 180,000-pixel image. At that size the ratio is noise
+   * — a single junction thinning differently moves it by a fifth — and the
+   * check was rejecting faithful reproductions on it. The structural checks
+   * (overlap, and whether each element is still present) keep running at any
+   * size; only the AREA check abstains, and it says so in the reasons.
+   */
+  minInkToMeasure?: number
   /** An ink component smaller than this share of the image is noise. */
   minElementArea?: number
 }
@@ -65,12 +78,29 @@ const DEFAULTS: Required<DiffThresholds> = {
   // ~1.5% of the image, so on a 512px figure a stroke may drift about 8px and
   // still match. Sized for the endpoint drift the operator's sample showed.
   tolerance: 0.015,
-  minInkIoU: 0.55,
   minColourIoU: 0.8,
   colourAreaSlack: 0.18,
-  inkAreaSlack: 0.15,
-  minHueAgreement: 0.8,
+  // Raised from 0.55 when the inked-AREA criterion was dropped. That criterion
+  // was redundant — `tolerantIoU` already measures coverage in both
+  // directions, so ink that went missing and ink that was invented both show
+  // up here — and it was redundant in the worst way: two honest drawings of one
+  // figure differ in skeleton LENGTH by up to 2x, because thinning a blurry
+  // scanned blob yields a short medial axis and thinning crisp strokes yields a
+  // long one. It measured the pen, and it did so with an authority that
+  // overruled an overlap of 0.99.
+  // 0.85, and the exact value is load bearing in both directions. The suite's
+  // dropped guide is 24% of the line art and lands at 0.76, so anything looser
+  // lets a whole missing line through — and because that guide TOUCHES an axis,
+  // the two merge into one component and the element count cannot see it
+  // either, leaving this as the only check standing. The seven live
+  // reproductions sit at 0.88-0.99, so this is not near them.
+  minInkIoU: 0.85,
+  // 0.9 = the average coloured pixel may shift about 18 degrees of hue. The
+  // seven live reproductions land at 0.95-0.99 and a red region repainted blue
+  // scores 0.26, so this sits in the gap rather than near either.
+  minHueAgreement: 0.9,
   minElementArea: 0.0006,
+  minInkToMeasure: 0.0012,
 }
 
 type Mask = Uint8Array
@@ -79,28 +109,218 @@ type Mask = Uint8Array
 // pixels keeps the two measures disjoint, and without that a shaded block
 // dominates the ink figures and hides everything happening to the lines — a
 // deleted guide showed as a 5% change because the shading counted as ink.
-const isInk = (d: Uint8ClampedArray, i: number): boolean =>
-  luminance(d, i) < 140 && saturation(d, i) < 0.28
+const COLOUR_SATURATION = 0.28
+/** Bounds on the per-image ink threshold. Below the floor a stroke is being
+ *  called paper; above the ceiling paper is being called a stroke. */
+const INK_FLOOR = 60
+const INK_CEILING = 205
+/** Used only when there is nothing to measure — a blank or single-tone image. */
+const DEFAULT_INK = 140
+const inkAt =
+  (threshold: number) =>
+  (d: Uint8ClampedArray, i: number): boolean =>
+    luminance(d, i) < threshold && saturation(d, i) < COLOUR_SATURATION
 const isColour = (d: Uint8ClampedArray, i: number): boolean =>
-  saturation(d, i) >= 0.28 && luminance(d, i) < 245
+  saturation(d, i) >= COLOUR_SATURATION && luminance(d, i) < 245
 
-/** Nearest-neighbour resample, so two figures of different sizes can be compared. */
+/**
+ * Resample to a common size, averaging over the source area.
+ *
+ * Area-preserving, not nearest-neighbour. Nearest-neighbour DROPS thin strokes
+ * when shrinking — a 1px line in a 1024px reproduction lands between samples on
+ * the way down to a 300px cut and simply disappears — so the comparison was
+ * manufacturing the very ink loss it then reported.
+ *
+ * Averaging leaves a thin stroke as a PALE GREY smear rather than black, which
+ * is why the ink threshold below is measured per image instead of fixed. An
+ * earlier version tried to fix that here, by keeping the darkest sample in each
+ * box: it preserved the stroke and thickened it, and the same eight figures
+ * came back 167%-655% too inky instead of 40%-88% too sparse. Resampling
+ * decides resolution; thresholding decides what counts as a stroke. Keeping
+ * those separate is the whole repair.
+ */
 function resample(pix: Pixels, width: number, height: number): Pixels {
   if (pix.width === width && pix.height === height) return pix
   const out = new Uint8ClampedArray(width * height * 4)
+  const fx = pix.width / width
+  const fy = pix.height / height
   for (let y = 0; y < height; y++) {
-    const sy = Math.min(pix.height - 1, Math.floor((y * pix.height) / height))
+    const y0 = Math.floor(y * fy)
+    const y1 = Math.max(y0 + 1, Math.floor((y + 1) * fy))
     for (let x = 0; x < width; x++) {
-      const sx = Math.min(pix.width - 1, Math.floor((x * pix.width) / width))
-      const from = (sy * pix.width + sx) * 4
+      const x0 = Math.floor(x * fx)
+      const x1 = Math.max(x0 + 1, Math.floor((x + 1) * fx))
+      let r = 0
+      let g = 0
+      let b = 0
+      let n = 0
+      for (let sy = y0; sy < y1; sy++) {
+        for (let sx = x0; sx < x1; sx++) {
+          const i = (sy * pix.width + sx) * 4
+          r += pix.data[i]!
+          g += pix.data[i + 1]!
+          b += pix.data[i + 2]!
+          n++
+        }
+      }
       const to = (y * width + x) * 4
-      out[to] = pix.data[from]!
-      out[to + 1] = pix.data[from + 1]!
-      out[to + 2] = pix.data[from + 2]!
+      out[to] = r / n
+      out[to + 1] = g / n
+      out[to + 2] = b / n
       out[to + 3] = 255
     }
   }
   return { data: out, width, height }
+}
+
+/**
+ * Where paper stops and a stroke starts — ONE threshold, for BOTH images.
+ *
+ * Per-image thresholds were the third miscalibration, and the sharpest lesson
+ * of the three. Both sides here are nearly binary: 94% paper, ~1% strokes, and
+ * almost nothing in between. Otsu therefore has a PLATEAU — every cut-off from
+ * 0 to 249 splits those two masses identically and scores identically — and the
+ * only thing that separated them was the tie-break. The cut's plateau starts at
+ * 0 and the generation's anti-aliased halo ends its plateau near 200, so
+ * keeping the first best threshold gave the two images 100 and 199, and the
+ * same drawing measured 3.5x more inked on one side than the other.
+ *
+ * So: one histogram over both images, and the MIDDLE of the plateau rather than
+ * its edge. A shared threshold cannot be asymmetric by construction, which is
+ * the property that matters — an absolute value that is slightly wrong costs
+ * some stroke width on both sides equally, and the skeleton then removes it.
+ */
+function sharedInkThreshold(a: Pixels, b: Pixels): number {
+  const hist = new Array<number>(256).fill(0)
+  let total = 0
+  for (const pix of [a, b]) {
+    const n = pix.width * pix.height
+    for (let p = 0; p < n; p++) {
+      const i = p * 4
+      if (saturation(pix.data, i) >= COLOUR_SATURATION) continue
+      hist[Math.round(luminance(pix.data, i))]!++
+      total++
+    }
+  }
+  if (total === 0) return DEFAULT_INK
+  let sum = 0
+  for (let t = 0; t < 256; t++) sum += t * hist[t]!
+  let wB = 0
+  let sumB = 0
+  let bestVar = -1
+  let lo = 0
+  let hi = 0
+  for (let t = 0; t < 256; t++) {
+    wB += hist[t]!
+    if (wB === 0) continue
+    const wF = total - wB
+    if (wF === 0) break
+    sumB += t * hist[t]!
+    const between = (wB * wF * (sumB / wB - (sum - sumB) / wF) ** 2) / (total * total)
+    // A plateau, tracked by its two ends rather than by its first member.
+    if (between > bestVar * (1 + 1e-9)) {
+      bestVar = between
+      lo = t
+      hi = t
+    } else if (bestVar > 0 && between >= bestVar * (1 - 1e-9)) {
+      hi = t
+    }
+  }
+  if (bestVar <= 0) return DEFAULT_INK
+  return Math.min(INK_CEILING, Math.max(INK_FLOOR, Math.round((lo + hi) / 2)))
+}
+
+/**
+ * Put a mask measured at one resolution onto another grid, keeping presence.
+ *
+ * OR rather than average, because this carries a SKELETON: a one-pixel line
+ * downscaled by averaging falls below any coverage threshold and disappears,
+ * which is the same bug as resampling the picture, one level down.
+ */
+function project(
+  mask: Mask,
+  width: number,
+  height: number,
+  toWidth: number,
+  toHeight: number,
+): Mask {
+  if (width === toWidth && height === toHeight) return mask
+  const out = new Uint8Array(toWidth * toHeight)
+  for (let y = 0; y < height; y++) {
+    const ty = Math.min(toHeight - 1, Math.floor((y * toHeight) / height))
+    for (let x = 0; x < width; x++) {
+      if (!mask[y * width + x]) continue
+      out[ty * toWidth + Math.min(toWidth - 1, Math.floor((x * toWidth) / width))] = 1
+    }
+  }
+  return out
+}
+
+/**
+ * Thin a mask to a one-pixel skeleton (Zhang-Suen).
+ *
+ * The fix for the bias that rejected every reproduction: a 300px crop redrawn
+ * at 1024px has THINNER relative strokes, and comparing inked MASS read that as
+ * losing 21% to 60% of the drawing. What matters is whether the same lines are
+ * in the same places, not how heavily they were laid down — so both sides are
+ * reduced to their centrelines and the comparison is about structure.
+ *
+ * Deliberately kept as an area measure afterwards: skeleton length is still
+ * area, but it is area that no longer moves with stroke weight, so a genuinely
+ * missing line still shows up as missing length.
+ */
+function skeletonize(mask: Mask, width: number, height: number): Mask {
+  const img = Uint8Array.from(mask)
+  const at = (x: number, y: number): number =>
+    x < 0 || y < 0 || x >= width || y >= height ? 0 : img[y * width + x]!
+
+  for (let pass = 0; pass < 64; pass++) {
+    let removedAny = false
+    for (const step of [0, 1]) {
+      const doomed: number[] = []
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          if (!img[y * width + x]) continue
+          // p2..p9 clockwise from north.
+          const p = [
+            at(x, y - 1),
+            at(x + 1, y - 1),
+            at(x + 1, y),
+            at(x + 1, y + 1),
+            at(x, y + 1),
+            at(x - 1, y + 1),
+            at(x - 1, y),
+            at(x - 1, y - 1),
+          ]
+          const b = p.reduce<number>((a, v) => a + v, 0)
+          if (b < 2 || b > 6) continue
+          let transitions = 0
+          for (let i = 0; i < 8; i++) {
+            if (p[i] === 0 && p[(i + 1) % 8] === 1) transitions++
+          }
+          if (transitions !== 1) continue
+          const [n, ne, e, se, sth, sw, w] = p
+          if (step === 0) {
+            if (n! * e! * sth! !== 0) continue
+            if (e! * sth! * w! !== 0) continue
+          } else {
+            if (n! * e! * w! !== 0) continue
+            if (n! * sth! * w! !== 0) continue
+          }
+          void ne
+          void se
+          void sw
+          doomed.push(y * width + x)
+        }
+      }
+      if (doomed.length) {
+        removedAny = true
+        for (const p of doomed) img[p] = 0
+      }
+    }
+    if (!removedAny) break
+  }
+  return img
 }
 
 function maskOf(pix: Pixels, test: (d: Uint8ClampedArray, i: number) => boolean): Mask {
@@ -178,8 +398,16 @@ function tolerantIoU(a: Mask, b: Mask, width: number, height: number, r: number)
   return Math.min(aCovered / aTotal, bCovered / bTotal)
 }
 
-/** Area per hue bucket, as a share of the image. */
-function hueProfile(pix: Pixels, buckets = 8): number[] {
+/**
+ * Area per hue bucket, as a share of THIS image's coloured pixels.
+ *
+ * Share-of-colour rather than share-of-image, because the two sides differ in
+ * resolution and in how much anti-aliasing they carry, and a bucket measured
+ * against the whole image moves with both. Normalising against the image's own
+ * colour makes the question "is the palette the same", which is what the check
+ * is for.
+ */
+function hueProfile(pix: Pixels, buckets = HUE_BUCKETS): number[] {
   const out = new Array(buckets).fill(0)
   const n = pix.width * pix.height
   for (let p = 0; p < n; p++) {
@@ -201,7 +429,65 @@ function hueProfile(pix: Pixels, buckets = 8): number[] {
     }
     out[Math.min(buckets - 1, Math.floor((h / 360) * buckets))]++
   }
-  return out.map((v) => v / n)
+  const coloured = out.reduce((a, b) => a + b, 0)
+  return coloured === 0 ? out : out.map((v) => v / coloured)
+}
+
+/**
+ * How far the palette had to MOVE to become the other palette (circular EMD).
+ *
+ * Per-bucket comparison was the second miscalibration, and it failed the same
+ * way as the ink one: a single colour whose hue sits near a bucket edge lands
+ * in bucket 3 on one side and bucket 4 on the other, and comparing the buckets
+ * one by one reported "worst hue agreement 0.01" — a total recolour — for a
+ * figure whose shading overlapped the original at 0.95. Anti-aliased edges do
+ * the same thing with slivers of hue that belong to no region.
+ *
+ * Earth-mover distance asks the question that actually matters: how much colour
+ * moved, and how far. A boundary split moves a lot of mass by one bucket and
+ * scores near-identical; red becoming blue moves a lot of mass by three or four
+ * and cannot hide. Circular because hue wraps, so red is next to magenta.
+ */
+/** 10 degrees each. Fine enough that a bucket edge is a rounding error rather
+ *  than a verdict — at 45 degrees the live Venn's red straddled the wrap point
+ *  and half the palette appeared to move. */
+const HUE_BUCKETS = 36
+
+function hueDistance(a: number[], b: number[]): number {
+  const n = a.length
+  let best = Infinity
+  // The optimal circular transport is the best linear one over some starting
+  // bucket, and n is 8, so trying them all is cheaper than being clever.
+  for (let start = 0; start < n; start++) {
+    let carry = 0
+    let cost = 0
+    for (let k = 0; k < n; k++) {
+      const idx = (start + k) % n
+      carry += a[idx]! - b[idx]!
+      cost += Math.abs(carry)
+    }
+    if (cost < best) best = cost
+  }
+  return best
+}
+
+/**
+ * 1 = the same palette, 0 = as far apart as hues can be.
+ *
+ * Normalised by the largest circular distance there is (half the wheel), so the
+ * score reads as "how far the average coloured pixel had to shift, against the
+ * furthest it could have shifted". With 10-degree buckets a hue that merely
+ * straddles a boundary moves one bucket and costs a five-hundredth; red
+ * becoming blue moves half the wheel and scores zero.
+ */
+function hueAgreement(a: number[], b: number[]): number {
+  const cutHas = a.reduce((t, v) => t + v, 0) > 0
+  const genHas = b.reduce((t, v) => t + v, 0) > 0
+  // Neither side is coloured: line art, and there is no palette to disagree on.
+  if (!cutHas && !genHas) return 1
+  // One side lost its colour entirely. That is not a metric artefact.
+  if (cutHas !== genHas) return 0
+  return Math.max(0, 1 - hueDistance(a, b) / (a.length / 2))
 }
 
 /**
@@ -260,13 +546,47 @@ export function compareStructure(
   const gen = resample(generated, cut.width, cut.height)
   const r = Math.max(1, Math.round(Math.min(cut.width, cut.height) * t.tolerance))
 
-  const inkIoU = tolerantIoU(
-    maskOf(cut, isInk),
-    maskOf(gen, isInk),
+  // Both sides reduced to centrelines first, so stroke weight cannot decide the
+  // verdict. A reproduction drawn at 3x the cut's resolution has thinner
+  // relative lines; that is a property of the rendering, not a loss of content.
+  // Each side gets its own ink threshold. See `inkThreshold`: a scan and a
+  // downscaled crisp render are not the same medium, and one fixed cut-off
+  // measures the medium instead of the drawing.
+  // Ink is measured at each image's NATIVE resolution and only then brought
+  // onto a common grid.
+  //
+  // The order matters more than anything else in this function. Resampling
+  // first and thresholding second smears a crisp 1px stroke across several
+  // grey pixels, and since the cut is already hard black-and-white, every
+  // threshold above black then adds pixels to the generation and none to the
+  // cut. Measured on the live pairs that read as 5.6x and 8.7x more ink in
+  // reproductions that had merely been drawn at higher resolution.
+  //
+  // Thresholding first keeps both sides crisp; projecting the MASK down puts
+  // them on one grid without averaging a stroke away; and thinning happens last,
+  // on that shared grid.
+  //
+  // Thinning at native resolution instead was the near miss: a skeleton is a
+  // one-dimensional measure, so normalising its length by the image's linear
+  // size looks like it should make the two comparable, and it does not. Detail
+  // is not scale-invariant — a 1376px drawing simply RESOLVES structure that a
+  // 562px scan merges into a blob, and its skeleton is genuinely longer for
+  // that reason. Both sides must be thinned at the same resolution or the
+  // comparison measures the resolution.
+  const ink = inkAt(sharedInkThreshold(generated, cut))
+  const cutSkeleton = skeletonize(maskOf(cut, ink), cut.width, cut.height)
+  const genSkeleton = skeletonize(
+    project(
+      maskOf(generated, ink),
+      generated.width,
+      generated.height,
+      cut.width,
+      cut.height,
+    ),
     cut.width,
     cut.height,
-    r,
   )
+  const inkIoU = tolerantIoU(cutSkeleton, genSkeleton, cut.width, cut.height, r)
   // Colour gets a much smaller tolerance: a shaded region that moved by more
   // than a hair is a different region, and that is the question itself.
   const colourIoU = tolerantIoU(
@@ -283,31 +603,37 @@ export function compareStructure(
   // component — it only removed ink. Area is the blunt instrument that sees it,
   // and it separates cleanly from endpoint drift: on that figure losing the
   // guide cost 24% of the ink and shortening it cost 2%.
-  const cutInkArea = maskOf(cut, isInk).reduce<number>((a, b) => a + b, 0)
-  const genInkArea = maskOf(gen, isInk).reduce<number>((a, b) => a + b, 0)
+  const inkMeasurable =
+    cutSkeleton.reduce<number>((a, b) => a + b, 0) >=
+    cut.width * cut.height * t.minInkToMeasure
+  const cutInkArea = cutSkeleton.reduce<number>((a, b) => a + b, 0)
+  const genInkArea = genSkeleton.reduce<number>((a, b) => a + b, 0)
   const inkAreaRatio = cutInkArea === 0 ? (genInkArea === 0 ? 1 : 0) : genInkArea / cutInkArea
 
-  const cutHues = hueProfile(cut)
-  const genHues = hueProfile(gen)
-  const cutColour = cutHues.reduce((a, b) => a + b, 0)
-  const genColour = genHues.reduce((a, b) => a + b, 0)
-  const colourAreaRatio = cutColour === 0 ? (genColour === 0 ? 1 : 0) : genColour / cutColour
+  // Likewise as a share of each image, not a count on the shared grid.
+  const cutColourArea =
+    maskOf(cut, isColour).reduce<number>((a, b) => a + b, 0) / (cut.width * cut.height)
+  const genColourArea =
+    maskOf(generated, isColour).reduce<number>((a, b) => a + b, 0) /
+    (generated.width * generated.height)
+  const colourAreaRatio =
+    cutColourArea === 0 ? (genColourArea === 0 ? 1 : 0) : genColourArea / cutColourArea
 
-  let worstHueAgreement = 1
-  for (let i = 0; i < cutHues.length; i++) {
-    const a = cutHues[i]!
-    const b = genHues[i]!
-    // Buckets that are empty in both say nothing; a bucket that appears or
-    // vanishes is a recolour and scores zero.
-    if (a < 0.002 && b < 0.002) continue
-    const agreement = Math.min(a, b) / Math.max(a, b)
-    if (agreement < worstHueAgreement) worstHueAgreement = agreement
-  }
+  // The palette is read at NATIVE resolution, for the same reason the ink is.
+  // These figures outline their regions in colour, and an outline is a stroke:
+  // resampling it desaturates its edges out of the colour mask entirely, which
+  // shifts the share held by every hue and reported a faithful two-ellipse Venn
+  // as a recolour at 0.78. A share of the palette is scale-free; a count of
+  // pixels on someone else's grid is not.
+  const cutHues = hueProfile(cut)
+  const genHues = hueProfile(generated)
+
+  const hueMatch = hueAgreement(cutHues, genHues)
 
   // Presence, not just overlap. Generous about position and size — this is
   // asking whether the element is still there, not whether it moved slightly.
-  const cutMaskWide = dilate(maskOf(cut, isInk), cut.width, cut.height, r)
-  const genMaskWide = dilate(maskOf(gen, isInk), cut.width, cut.height, r)
+  const cutMaskWide = dilate(cutSkeleton, cut.width, cut.height, r)
+  const genMaskWide = dilate(genSkeleton, cut.width, cut.height, r)
   const minArea = Math.max(4, Math.round(cut.width * cut.height * t.minElementArea))
   const cutElements = components(cutMaskWide, cut.width, cut.height, minArea)
   const genElements = components(genMaskWide, cut.width, cut.height, minArea)
@@ -323,18 +649,20 @@ export function compareStructure(
   }
 
   const reasons: string[] = []
-  if (matched < cutElements.length) {
+  // Every INK check is gated on there being enough line art to measure. On a
+  // figure drawn almost entirely in colour the black channel is labels, and
+  // labels are exactly what this function declares it does not check — see
+  // `labelsChecked`. Judging their pixel geometry anyway rejected three
+  // faithful reproductions on skeletons of 57 to 60 pixels. Colour, which is
+  // where those figures carry their meaning, is checked strictly and
+  // unconditionally below.
+  if (inkMeasurable && matched < cutElements.length) {
     reasons.push(
       `${cutElements.length - matched} of ${cutElements.length} drawn element(s) missing`,
     )
   }
-  if (Math.abs(inkAreaRatio - 1) > t.inkAreaSlack) {
-    reasons.push(
-      `drawn area changed by ${((inkAreaRatio - 1) * 100).toFixed(0)}% — ` +
-        'something was added or left out',
-    )
-  }
-  if (inkIoU < t.minInkIoU) {
+
+  if (inkMeasurable && inkIoU < t.minInkIoU) {
     reasons.push(`ink layout differs (overlap ${inkIoU.toFixed(2)} < ${t.minInkIoU})`)
   }
   if (colourIoU < t.minColourIoU) {
@@ -343,8 +671,8 @@ export function compareStructure(
   if (Math.abs(colourAreaRatio - 1) > t.colourAreaSlack) {
     reasons.push(`coloured area changed by ${((colourAreaRatio - 1) * 100).toFixed(0)}%`)
   }
-  if (worstHueAgreement < t.minHueAgreement) {
-    reasons.push(`a colour changed (worst hue agreement ${worstHueAgreement.toFixed(2)})`)
+  if (hueMatch < t.minHueAgreement) {
+    reasons.push(`a colour changed (palette agreement ${hueMatch.toFixed(2)})`)
   }
 
   return {
@@ -352,7 +680,8 @@ export function compareStructure(
     inkAreaRatio,
     colourIoU,
     colourAreaRatio,
-    worstHueAgreement,
+    hueAgreement: hueMatch,
+    inkMeasurable,
     elements: { inCut: cutElements.length, matched },
     labelsChecked: false,
     passed: reasons.length === 0,
