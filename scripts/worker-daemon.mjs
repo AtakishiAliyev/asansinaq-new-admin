@@ -11,10 +11,13 @@
 //
 // Three things are deliberate.
 //
-// The plist runs `npm run worker -- --daemon` from the project directory rather
-// than embedding a node path: the worker already runs under Node's TypeScript
-// stripping with the eval loader, and duplicating that invocation here would be
-// a second copy to keep in step with package.json.
+// The plist runs NODE BY ABSOLUTE PATH, not `npm`. A launchd agent inherits no
+// login shell and gets a minimal PATH, and npm is a shell script whose shebang
+// is `#!/usr/bin/env node` — so an agent that runs npm dies with
+// "env: node: No such file or directory" before the worker starts at all. The
+// argument list is still DERIVED from package.json's `worker` script rather
+// than written out here, so the two cannot drift; only the leading `node` is
+// swapped for the absolute path of the interpreter running this installer.
 //
 // The environment comes from the project's own `.env`, read at install time and
 // baked into the plist. launchd agents do not inherit a login shell, so a plist
@@ -101,7 +104,24 @@ function install() {
   mkdirSync(dirname(PLIST), { recursive: true })
   mkdirSync(join(PROJECT, 'local'), { recursive: true })
 
-  const npm = execFileSync('which', ['npm']).toString().trim()
+  // Derived from package.json so a change to how the worker is launched cannot
+  // leave the agent running yesterday's command line.
+  const pkg = JSON.parse(readFileSync(join(PROJECT, 'package.json'), 'utf8'))
+  const script = String(pkg.scripts?.worker ?? '')
+  const tokens = script.split(/\s+/).filter(Boolean)
+  if (tokens[0] !== 'node') {
+    console.error(
+      `package.json's "worker" script does not start with node:\n  ${script}\n` +
+        'The agent needs an absolute interpreter path, so this installer has to\n' +
+        'know which token is the interpreter. Update worker-daemon.mjs to match.',
+    )
+    process.exit(1)
+  }
+  // The interpreter running this installer. Correct by construction, and the
+  // one thing launchd cannot work out for itself.
+  const nodePath = process.execPath
+  const args = [nodePath, ...tokens.slice(1), '--daemon']
+
   const entries = Object.entries(env)
     .map(([k, v]) => `      <key>${escapeXml(k)}</key>\n      <string>${escapeXml(v)}</string>`)
     .join('\n')
@@ -116,16 +136,16 @@ function install() {
     <string>${LABEL}</string>
     <key>ProgramArguments</key>
     <array>
-      <string>${escapeXml(npm)}</string>
-      <string>run</string>
-      <string>worker</string>
-      <string>--</string>
-      <string>--daemon</string>
+${args.map((a) => `      <string>${escapeXml(a)}</string>`).join('\n')}
     </array>
     <key>WorkingDirectory</key>
     <string>${escapeXml(PROJECT)}</string>
     <key>EnvironmentVariables</key>
     <dict>
+      <!-- Belt and braces: the interpreter is absolute above, but anything the
+           worker shells out to would hit the same empty PATH. -->
+      <key>PATH</key>
+      <string>${escapeXml(`${dirname(nodePath)}:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin`)}</string>
 ${entries}
     </dict>
     <key>RunAtLoad</key>
@@ -156,7 +176,13 @@ ${entries}
     `installed ${LABEL}\n` +
       `  plist   ${PLIST}\n` +
       `  workdir ${PROJECT}\n` +
+      `  node    ${nodePath}\n` +
+      `  command ${args.join(' ')}\n` +
       `  log     ${LOG}\n\n` +
+      'The node path above is baked into the plist, because a launchd agent has\n' +
+      'no PATH to find it with. If node is ever upgraded or moved, that path\n' +
+      'stops existing and the agent dies on launch — re-run worker:install then.\n' +
+      '`npm run worker:status` names that failure if it happens.\n\n' +
       'It starts now, and again at every login. It restarts itself if it crashes.\n' +
       'The keys were copied from .env INTO the plist, so re-run worker:install\n' +
       'after changing any of them.\n\n' +
@@ -177,22 +203,121 @@ function uninstall() {
   )
 }
 
-function status() {
-  let loaded = false
+/**
+ * Known ways a launchd agent dies before the worker ever runs.
+ *
+ * Each one looks identical from the outside — an agent that is loaded and a log
+ * that says nothing useful — so the point is to name the class rather than
+ * print the log and leave the reading to whoever is unlucky. The PATH failure
+ * is first because it is the one this installer itself shipped: launchd gives
+ * an agent no PATH, npm's shebang is `#!/usr/bin/env node`, and the whole thing
+ * dies with a message about `env` that never mentions the worker.
+ */
+const LOG_SIGNATURES = [
+  {
+    match: /env:\s*node:\s*No such file or directory/i,
+    what: 'launchd could not find node',
+    fix:
+      'The plist is invoking node through PATH, and an agent has none. Re-run\n' +
+      '  npm run worker:install\n' +
+      'which bakes the absolute interpreter path in.',
+  },
+  {
+    match: /^(.*\/node): No such file or directory/im,
+    what: 'the node baked into the plist no longer exists',
+    fix:
+      'node was probably upgraded or moved since install. Re-run\n' +
+      '  npm run worker:install\n' +
+      'from this directory to point the agent at the current one.',
+  },
+  {
+    match: /Cannot find module|ERR_MODULE_NOT_FOUND/i,
+    what: 'node started but could not load the worker',
+    fix:
+      'Usually a missing install or a wrong working directory. Check that\n' +
+      '  npm run worker -- --dry-run\n' +
+      'works by hand in this directory first.',
+  },
+  {
+    match: /Invalid worker environment/i,
+    what: 'the worker started without its keys',
+    fix:
+      'The plist carries a copy of .env taken at install time. Re-run\n' +
+      '  npm run worker:install\n' +
+      'after any key change.',
+  },
+]
+
+/** What launchctl knows: is it loaded, has it been dying, what did it exit with. */
+function agentState() {
+  let out = ''
   try {
-    execFileSync('launchctl', ['print', `gui/${process.getuid()}/${LABEL}`], { stdio: 'ignore' })
-    loaded = true
+    out = execFileSync('launchctl', ['print', `gui/${process.getuid()}/${LABEL}`], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
   } catch {
-    loaded = false
+    return { loaded: false }
   }
-  console.log(`agent: ${loaded ? 'loaded' : 'not loaded'}  (${PLIST})`)
-  if (existsSync(LOG)) {
-    const lines = readFileSync(LOG, 'utf8').trimEnd().split('\n')
-    console.log(`log: ${LOG}\n`)
-    for (const line of lines.slice(-12)) console.log(`  ${line}`)
+  const num = (re) => {
+    const m = re.exec(out)
+    return m ? Number(m[1]) : undefined
+  }
+  return {
+    loaded: true,
+    pid: num(/\bpid = (\d+)/),
+    runs: num(/\bruns = (\d+)/),
+    lastExit: num(/last exit (?:code|status) = (\d+)/),
+  }
+}
+
+function status() {
+  const agent = agentState()
+  console.log(`agent:   ${agent.loaded ? 'loaded' : 'not loaded'}  (${PLIST})`)
+  if (agent.loaded) {
+    console.log(
+      `process: ${agent.pid ? `running, pid ${agent.pid}` : 'not currently running'}` +
+        `${agent.runs !== undefined ? `  ·  ${agent.runs} run(s)` : ''}` +
+        `${agent.lastExit !== undefined ? `  ·  last exit ${agent.lastExit}` : ''}`,
+    )
+  }
+
+  const tail = existsSync(LOG) ? readFileSync(LOG, 'utf8').trimEnd() : ''
+  const problems = LOG_SIGNATURES.filter((sig) => sig.match.test(tail))
+
+  // A loaded agent with no process and several runs behind it is a crash loop,
+  // whatever the log happens to say — launchd restarting it is the evidence.
+  const respawning =
+    agent.loaded && !agent.pid && (agent.runs ?? 0) > 2 && (agent.lastExit ?? 0) !== 0
+
+  if (problems.length || respawning) {
+    console.log('\nPROBLEM')
+    for (const p of problems) console.log(`  ${p.what}\n${p.fix.replace(/^/gm, '    ')}`)
+    if (respawning && !problems.length) {
+      console.log(
+        `  the agent has started ${agent.runs} times and keeps exiting ` +
+          `(last exit ${agent.lastExit})\n` +
+          '    Read the log below: the worker is failing at startup rather than\n' +
+          '    running out of work.',
+      )
+    }
+  } else if (agent.loaded && agent.pid) {
+    console.log('\nno known startup failure in the log.')
+  }
+
+  if (tail) {
+    console.log(`\nlog: ${LOG}\n`)
+    for (const line of tail.split('\n').slice(-12)) console.log(`  ${line}`)
   } else {
-    console.log('log: not written yet')
+    console.log('\nlog: not written yet — the agent has produced no output at all.')
+    if (agent.loaded) {
+      console.log(
+        '  For a loaded agent that is usually a launch failure before any of the\n' +
+          "  worker's own code ran. `launchctl print gui/$UID/" + LABEL + "` has more.",
+      )
+    }
   }
+
   console.log(
     '\nLiveness is the heartbeat, not this: the UI reads worker_heartbeat and\n' +
       'judges by its age, because a process that died cannot report that it did.',
