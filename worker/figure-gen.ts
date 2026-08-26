@@ -102,6 +102,16 @@ export interface GuardedGeneration {
   attempts: number
   /** Why the cut is being kept, when it is. */
   rejection?: string
+  /**
+   * The last image the guard REFUSED, kept for review only.
+   *
+   * Separate from `png` on purpose: a rejected reproduction must be impossible
+   * to hand to the pipeline by accident, and equally must not be thrown away —
+   * the whole question a reviewer asks about a rejection is "what did it
+   * actually draw", and the first version of the sample page answered that with
+   * a line of error text.
+   */
+  rejectedPng?: Buffer
   usage: { input: number; output: number }
 }
 
@@ -120,6 +130,7 @@ export async function guardedReproduction(
 ): Promise<GuardedGeneration> {
   let lastRejection = 'no attempt made'
   let lastDiff: StructuralDiff | null = null
+  let lastRefused: Buffer | null = null
   const usage = { input: 0, output: 0 }
 
   for (let attempt = 1; attempt <= 2; attempt++) {
@@ -139,7 +150,15 @@ export async function guardedReproduction(
     lastDiff = diff
     if (diff.passed) return { png: result.png, diff, attempts: attempt, usage }
     lastRejection = diff.reasons.join('; ')
+    lastRefused = result.png
   }
 
-  return { png: null, diff: lastDiff, attempts: 2, rejection: lastRejection, usage }
+  return {
+    png: null,
+    diff: lastDiff,
+    attempts: 2,
+    rejection: lastRejection,
+    rejectedPng: lastRefused ?? undefined,
+    usage,
+  }
 }

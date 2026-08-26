@@ -64,6 +64,7 @@ const decode = async (png: Buffer): Promise<Pixels | null> => {
   return { data: raw.data, width: img.width, height: img.height }
 }
 
+const PAIRS = 'local/samples/genlane-pairs'
 const uri = (png: Buffer) => `data:image/png;base64,${png.toString('base64')}`
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
@@ -96,10 +97,22 @@ for (const row of rows ?? []) {
       (result.png ? compareStructure(cut.pixels, (await decode(result.png))!) : null)
     if (result.png) passed++
 
+    // Both sides of every comparison, on disk, under the gitignored tree.
+    // Tuning the guard against real reproductions is otherwise a paid loop:
+    // each metric experiment would re-bill eight generations to look at
+    // numbers that could have been recomputed offline for nothing.
+    const pair = result.png ?? result.rejectedPng
+    if (pair) {
+      mkdirSync(PAIRS, { recursive: true })
+      writeFileSync(`${PAIRS}/q${row.id}-fig${index}-cut.png`, cut.png)
+      writeFileSync(`${PAIRS}/q${row.id}-fig${index}-gen.png`, pair)
+    }
+
     const numbers = diff
       ? `ink ${diff.inkIoU.toFixed(2)} · ink area ${(diff.inkAreaRatio * 100).toFixed(0)}% · ` +
         `shading ${diff.colourIoU.toFixed(2)} · colour area ${(diff.colourAreaRatio * 100).toFixed(0)}% · ` +
-        `elements ${diff.elements.matched}/${diff.elements.inCut}`
+        `elements ${diff.elements.matched}/${diff.elements.inCut} · ` +
+        `palette ${diff.hueAgreement.toFixed(2)}`
       : 'no comparison — nothing came back to compare'
 
     cards.push(`
@@ -110,7 +123,13 @@ for (const row of rows ?? []) {
     <figure><figcaption>təmizlənmiş kəsim <em>(source of truth)</em></figcaption><img src="${uri(cut.png)}" alt=""></figure>
     <figure>
       <figcaption>1:1 təkrar çəkiliş ${result.png ? '<b class="ok">qəbul edildi</b>' : '<b class="no">rədd edildi</b>'} · ${result.attempts} cəhd</figcaption>
-      ${result.png ? `<img src="${uri(result.png)}" alt="">` : `<p class="err">${esc(result.rejection ?? 'no image')}</p>`}
+      ${
+        result.png
+          ? `<img src="${uri(result.png)}" alt="">`
+          : result.rejectedPng
+            ? `<img class="refused" src="${uri(result.rejectedPng)}" alt=""><p class="err">${esc(result.rejection ?? '')}</p>`
+            : `<p class="err">${esc(result.rejection ?? 'no image')}</p>`
+      }
     </figure>
   </div>
   <p class="metrics">${esc(numbers)}</p>
@@ -140,6 +159,7 @@ const html = `<!doctype html>
   .card { border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 20px; }
   h2 { font-size: 15px; margin: 0 0 12px; }
   h2 span { color: #888; font-weight: 400; font-size: 12px; }
+  .refused { outline: 2px solid #b4402f; }
   .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
   figure { margin: 0; min-width: 0; }
   figcaption { font-size: 11px; color: #888; margin-bottom: 6px; min-height: 2.6em; }
