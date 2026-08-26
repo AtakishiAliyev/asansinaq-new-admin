@@ -286,8 +286,15 @@ function lintFigures(doc: FigureDoc): Flag[] {
     if (item.kind === 'image')
       flags.push({
         level: 'warning',
+        // The message used to say the figure had been DRAWN by an image model.
+        // That was true of a lane that no longer exists, and it is now the exact
+        // opposite of what happened: these are the source's own pixels, cleaned.
+        // Telling a reviewer "the AI drew this" about the one path that cannot
+        // hallucinate sends their attention to the wrong place.
         code: 'raster_figure',
-        message: 'Fiqur AI image-gen ilə rasterdə çəkilib — orijinalla diqqətli vizual müqayisə şərtdir',
+        message:
+          'Fiqur DSL ilə ifadə olunmadığı üçün orijinaldan KƏSİLİB və su nişanından təmizlənib — ' +
+          'lint edilə bilmir, gözlə yoxlanmalıdır',
       })
     if (item.kind === 'function_graph') {
       for (const p of item.panels) {

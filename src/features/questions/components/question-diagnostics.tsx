@@ -14,7 +14,7 @@ const FLAG_HINTS: Record<string, string> = {
   figure_missing_referenced_segment: 'sual bu parçadan danışır, fiqurda yoxdur',
   geo_ticks_on_ray: 'şüada bərabər uzunluq işarəsi — paralellik nəzərdə tutulub?',
   geo_empty: 'həndəsə fiqurunda çəkiləcək bir şey yoxdur',
-  raster_figure: 'fiqur şəkil kimi yaradılıb — gözlə təsdiqlə',
+  raster_figure: 'fiqur orijinaldan kəsilib (DSL ifadə etmir) — gözlə təsdiqlə',
   raster_mismatch: 'yaradılan fiqur orijinala uyğun gəlmədi',
   figure_failed: 'fiqur yaradıla bilmədi',
   option_figure_failed: 'variant şəkli yaradıla bilmədi',
