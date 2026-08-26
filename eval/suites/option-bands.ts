@@ -8,6 +8,7 @@
 // placement when the layout is not understood.
 import {
   contentBands,
+  localizeFigureBox,
   localizeOptionBoxes,
   type Box,
 } from '@/core/segment/option-bands'
@@ -258,6 +259,36 @@ export const optionBandsSuite = suite('option-bands', {
     for (const box of result.boxes) {
       ok(box[3] - box[1] > 100, `every option is a real width, not a speck (${box[3] - box[1]})`)
     }
+  },
+
+  // p311/16: the model's figure box was taken at face value and the cut held
+  // the wrong region. Same defect as the option boxes, other lane.
+  'a figure box snaps to the drawing, not to the hint'() {
+    const pix = blank(900, 800)
+    fill(pix, 120, 300, 700, 520, BLACK) // the figure
+    fill(pix, 60, 60, 800, 120, BLACK) // the stem, well above it
+    // A hint that lands mostly on blank paper between the two.
+    const result = localizeFigureBox(pix, [180, 100, 300, 800])
+    ok(result.ok, 'located')
+    if (!result.ok) return
+    // 300/800 = 375, 520/800 = 650 — the drawing, not the hint's 180..300.
+    ok(result.box[0] > 330 && result.box[0] < 400, `top follows the ink (${result.box[0]})`)
+    ok(result.box[2] > 620 && result.box[2] < 700, `bottom follows the ink (${result.box[2]})`)
+  },
+
+  'a figure hint that lands on blank paper falls back to the nearest drawing'() {
+    const pix = blank(900, 800)
+    fill(pix, 120, 500, 700, 640, BLACK)
+    // Hint sits in empty space near the top.
+    const result = localizeFigureBox(pix, [20, 100, 60, 800])
+    ok(result.ok, 'still located')
+    if (!result.ok) return
+    ok(result.box[0] > 550, `it took the real block (${result.box[0]})`)
+  },
+
+  'a figure box on an empty crop is a refusal'() {
+    const result = localizeFigureBox(blank(400, 300), [100, 100, 200, 200])
+    ok(!result.ok, 'nothing to snap to')
   },
 
   'a crop with no content at all is a refusal'() {

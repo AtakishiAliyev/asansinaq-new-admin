@@ -10,6 +10,7 @@ import { extractionSuite } from './suites/extraction.ts'
 import { figureRefsSuite } from './suites/figure-refs.ts'
 import { geometryEditSuite } from './suites/geometry-edit.ts'
 import { figuresSuite } from './suites/figures.ts'
+import { kindEligibilitySuite } from './suites/kind-eligibility.ts'
 import { lintSuite } from './suites/lint.ts'
 import { imageCleanSuite, optionBandsSuite } from './suites/option-bands.ts'
 import { pageRangeSuite } from './suites/page-range.ts'
@@ -32,6 +33,7 @@ const SUITES: Suite[] = [
   workerCacheSuite,
   geometryEditSuite,
   imageCleanSuite,
+  kindEligibilitySuite,
   optionBandsSuite,
   repairGuardSuite,
   classifySuite,

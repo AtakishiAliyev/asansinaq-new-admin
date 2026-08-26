@@ -103,7 +103,9 @@ export async function applyResult(
     : { produced: 0, failed: 0, flags: [] }
   // Same reasoning, for a figure that declared itself a region rather than a
   // drawing. Before the payload is built, so the cut path is on the row.
-  if (crop) await attachFigureImages(db, row, crop, question)
+  const figureCut = crop
+    ? await attachFigureImages(db, row, crop, question)
+    : { produced: 0, failed: 0, flags: [] }
 
   // The rules live in core because the review screen writes this same row after
   // a single re-run, and two copies of them would drift.
@@ -115,7 +117,7 @@ export async function applyResult(
     answerKeysRead: context.answerKeysRead,
     categoryIds: context.categories.map((c) => c.id),
     croppedOptionImages: cut.produced,
-    cutFlags: cut.flags,
+    cutFlags: [...cut.flags, ...figureCut.flags],
     model: modelFor(row.figure_kind !== 'none' ? 'figure' : 'text'),
     promptVersion: PROMPT_VERSION,
   })

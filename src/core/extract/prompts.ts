@@ -12,7 +12,7 @@
 // squares instead of falling through to hand-written SVG that drops them. Rows
 // stamped 6 and 7 can hold visibly different figures for the same crop, which
 // is exactly what the version is for.
-export const PROMPT_VERSION = 10
+export const PROMPT_VERSION = 11
 
 // Prompt texts for the question-recreation pipeline. Shared by the
 // question-ops Edge Function and the Node eval harness — ONE source of truth,
@@ -68,12 +68,20 @@ Qaydalar:
 // Rules 9-11: the declarative FigSpec instructions — only for the DSL lanes.
 const SYSTEM_FIGURE_RULES = `12. Fiqurlar: deklarativ spec ver, şəkil çəkmə.
    - Ox etiketlərini (simvolik olsa belə: 2a, -a/2), hər işarəli nöqtəni, qırıq bələdçi xətti, əyri rəngini və adını şəkildən oxu.
-   - Sərbəst dalğalı əyrilər üçün curve_type="spline" və hər işarəli/ekstremal nöqtəni points-ə daxil et; tanınan ailə (düz xətt, parabola) üçün curve_type="expr".
-   - Venn/çoxluq diaqramı: sual şəkilə istinad edirsə ("Yukarıdaki Venn şeması", "Şekilde...") figures MÜTLƏQ doldurulmalıdır, boş buraxma. BİR sualda BİR venn fiquru — eyni diaqramı təkrar vermə.
-     venn_shapes: hər çoxluq bir forma (ellipse/circle/triangle/rect), kətan ~300x230 px, tipik iki dairə: cx=115 və cx=185, cy=115, r=70.
-       id = şəkildəki AD (K, L, M, A... Roma rəqəmi də ola bilər: I, II, III, IV); label = eyni ad.
+   - QRAFİK NƏ VAXT function_graph OLA BİLƏR: YALNIZ əyrinin düsturu KONKRET və HESABLANA BİLƏNdirsə
+     (məs. y=x^2-3, y=2x+1) — bütün sabitlər məlum olmalıdır. curve_type="expr" ver.
+     Düsturu bilinməyən, parametrik və ya adı çəkilməyən əyri (y=af(x+b), "f-in qrafiki şəkildəki kimidir",
+     sərbəst dalğalı forma) function_graph DEYİL — kind="image" ver.
+     SABİT UYDURMA: stem "f(x)=ax^3" deyirsə və a naməlumdursa, a-nın yerinə 0.335 kimi rəqəm YAZMA —
+     bu, uydurulmuş düsturdur və doğru kimi çəkilir. Belə hallarda kind="image".
+   - Venn/çoxluq diaqramı — kind="venn" YALNIZ bu ÜÇ şərtin HAMISI ödənəndə:
+       (1) bütün çoxluqlar DAİRƏdir (üçbucaq, düzbucaqlı, oval və ya başqa forma varsa — kind="image");
+       (2) hər çoxluğun adı TƏK BÖYÜK HƏRFdir (A, B, C). "A\\B", "A∪B" kimi ad ƏMƏLİYYATdır, ad deyil — kind="image";
+       (3) ştrixlənmiş bölgə ∩ ∪ - ' ( ) ilə yazıla bilir.
+     Şərtlərdən biri pozulursa fiquru ÇƏKMƏ — kind="image" ver, biz orijinaldan kəsirik.
+     Şərtlər ödənirsə: kətan ~300x230 px, tipik iki dairə: cx=115 və cx=185, cy=115, r=70.
+       id = şəkildəki AD (A, B, C, K, L, M); label = eyni ad.
        color: şəkildəki rəngə uyğun token seç — qırmızı→primary, mavi/göy→secondary, yaşıl→guide, qara→ink, boz→muted.
-       Düzbucaqlı çoxluq (şəkildəki M çərçivəsi kimi): {"id":"M","label":"M","shape":"rect","x":80,"y":95,"w":150,"h":45}.
      shaded: ştrixlənmiş bölgənin çoxluq ifadəsi — bölgəni ÇƏKMƏ, ifadəni yaz.
      region_labels: bölgələrin İÇİNDƏ çap olunmuş HƏR yazı üçün (say, hərf, element siyahısı) BİR giriş {expr, tex} — heç birini buraxma:
        məsələn K-da 2, kəsişmədə "1, 2, a", L-də 3, çölündə "e,f" →

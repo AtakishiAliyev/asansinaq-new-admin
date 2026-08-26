@@ -1,6 +1,7 @@
 import { canonMath } from '@/core/questions/compare'
 import { texCompiles } from '@/core/questions/tex-normalize'
 import { pointsLieOnCurves, sampleCurve } from '@/core/figures/curve'
+import { documentIneligible } from '@/core/figures/kind-eligibility'
 import { parseSetExpr, setIdsUsed } from '@/core/figures/set-expr'
 import type { ExtractedQuestion } from '@/core/questions/extraction'
 import { figureRefs } from '@/core/questions/figure-refs'
@@ -172,6 +173,7 @@ export const LINT_CODES = new Set([
   'raw_svg',
   'stem_latex',
   'venn_empty',
+  'kind_over_reach',
   'venn_parse',
   'venn_unknown_set',
   'watermark_leak',
@@ -282,6 +284,19 @@ export function lintQuestion(q: ExtractedQuestion, expectedNumber?: number): Fla
 
 function lintFigures(doc: FigureDoc): Flag[] {
   const flags: Flag[] = []
+
+  // A structured kind claiming a figure it cannot hold is worse than no
+  // structured figure: it renders confidently and is wrong only against the
+  // original. An error rather than a warning, so the row cannot be
+  // auto-approved on a figure the DSL was never able to express.
+  for (const bad of documentIneligible(doc.items)) {
+    flags.push({
+      level: 'error',
+      code: 'kind_over_reach',
+      message: `kind="${bad.kind}" bu fiqura uyğun deyil (${bad.reason}) — kind="image" olmalıdır`,
+    })
+  }
+
   for (const item of doc.items) {
     if (item.kind === 'image')
       flags.push({

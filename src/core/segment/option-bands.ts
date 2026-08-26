@@ -321,3 +321,65 @@ export function localizeOptionBoxes(
   }
   return { ok: true, boxes, bands: chosen }
 }
+
+/**
+ * Snap a FIGURE's box to the pixels.
+ *
+ * The same defect as the option boxes, on the other lane: on p311/16 the cut
+ * came back holding the wrong region entirely, because the model's coordinates
+ * were taken at face value. The model is reliable about there BEING a figure
+ * and roughly where in the flow it sits; it is not reliable about the exact
+ * rows, so the hint chooses which content to snap to and the pixels decide the
+ * rectangle.
+ *
+ * A figure is one contiguous block of drawing, so this takes the content bands
+ * the hint overlaps and returns their union. Where the hint overlaps nothing —
+ * the coordinates were wrong enough to land on paper — it falls back to the
+ * band nearest the hint's centre, and refuses when there is no content at all.
+ */
+export function localizeFigureBox(
+  pix: Pixels,
+  hint: Box | null,
+  options: LocalizeOptions = {},
+): { ok: true; box: Box } | { ok: false; reason: string } {
+  const { pad } = { ...DEFAULTS, ...options }
+  const bands = contentBands(pix, options)
+  if (!bands.length) return { ok: false, reason: 'crop holds no content at all' }
+
+  const toPx = (v: number) => Math.round((v / 1000) * pix.height)
+  let chosen: Band[] = []
+
+  if (hint) {
+    const top = toPx(hint[0])
+    const bottom = toPx(hint[2])
+    chosen = bands.filter((b) => b.bottom >= top && b.top <= bottom)
+    if (!chosen.length) {
+      // The hint landed on blank paper, so it says nothing reliable about which
+      // block is the figure. The TALLEST block is taken rather than the nearest:
+      // a figure is a block of drawing and a stem is a line of text, and
+      // "nearest" happily returns the stem whenever the hint drifts upward —
+      // which is the direction these hints drift.
+      chosen = [bands.reduce((a, b) => (b.bottom - b.top > a.bottom - a.top ? b : a))]
+    }
+  } else {
+    // With no hint the largest block is the only defensible guess.
+    chosen = [bands.reduce((a, b) => (b.bottom - b.top > a.bottom - a.top ? b : a))]
+  }
+
+  const top = Math.min(...chosen.map((b) => b.top))
+  const bottom = Math.max(...chosen.map((b) => b.bottom))
+  const extent = extentOf(pix, { top, bottom })
+  if (!extent) return { ok: false, reason: 'the chosen region holds no content' }
+
+  const padY = Math.round(pad * pix.height)
+  const padX = Math.round(pad * pix.width)
+  return {
+    ok: true,
+    box: [
+      Math.round((Math.max(0, top - padY) / pix.height) * 1000),
+      Math.round((Math.max(0, extent.left - padX) / pix.width) * 1000),
+      Math.round((Math.min(pix.height - 1, bottom + padY) / pix.height) * 1000),
+      Math.round((Math.min(pix.width - 1, extent.right + padX) / pix.width) * 1000),
+    ],
+  }
+}

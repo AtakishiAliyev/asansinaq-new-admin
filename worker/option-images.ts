@@ -19,7 +19,11 @@ import type { ExtractedOption, ExtractedQuestion } from '@/core/questions/extrac
 import type { ImageFig } from '@/core/figures/figspec'
 import type { Flag } from '@/core/questions/lint'
 import { cleanCrop, type Pixels } from '@/core/segment/image-clean'
-import { localizeOptionBoxes, type Box } from '@/core/segment/option-bands'
+import {
+  localizeFigureBox,
+  localizeOptionBoxes,
+  type Box,
+} from '@/core/segment/option-bands'
 import type { Db, QuestionRow } from './db.ts'
 
 /** Where crops and generated images live, by convention shared with the UI. */
@@ -206,21 +210,39 @@ export async function attachFigureImages(
   row: QuestionRow,
   crop: { image: string; mime: string },
   question: ExtractedQuestion,
-): Promise<{ produced: number; failed: number }> {
+): Promise<{ produced: number; failed: number; flags: Flag[] }> {
   const wanted = (question.figures?.items ?? [])
     .map((item, index) => ({ item, index }))
     .filter(
       (entry): entry is { item: ImageFig; index: number } =>
-        entry.item.kind === 'image' && !!entry.item.box && !entry.item.src,
+        entry.item.kind === 'image' && !entry.item.src,
     )
-  if (!wanted.length) return { produced: 0, failed: 0 }
+  if (!wanted.length) return { produced: 0, failed: 0, flags: [] }
 
-  const source = await loadImage(Buffer.from(crop.image, 'base64'))
+  const { pix, image: source } = await pixelsOf(crop)
+  const flags: Flag[] = []
   let produced = 0
   let failed = 0
 
   for (const { item, index } of wanted) {
     try {
+      // Same rule as the option boxes: the model's coordinates are a hint about
+      // WHERE IN THE FLOW to look, and the ink decides the rectangle. On p311/16
+      // the hint was taken at face value and the cut held the wrong region.
+      const located = localizeFigureBox(pix, item.box ?? null)
+      if (located.ok) {
+        item.box = located.box
+      } else {
+        flags.push({
+          level: 'warning',
+          code: 'figure_box_unverified',
+          message: `Fiqurun yeri ölçülə bilmədi (${located.reason}) — kəsimi gözlə yoxlayın`,
+        })
+        if (!item.box) {
+          failed++
+          continue
+        }
+      }
       const { sw, sh } = toRect(item.box!, source.width, source.height)
       const path = figureImagePath(row, index)
       await cutAndStore(db, source, item.box!, path)
@@ -237,5 +259,5 @@ export async function attachFigureImages(
       )
     }
   }
-  return { produced, failed }
+  return { produced, failed, flags }
 }
