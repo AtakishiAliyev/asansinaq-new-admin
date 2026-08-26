@@ -12,6 +12,7 @@ import { geometryEditSuite } from './suites/geometry-edit.ts'
 import { figuresSuite } from './suites/figures.ts'
 import { kindEligibilitySuite } from './suites/kind-eligibility.ts'
 import { lintSuite } from './suites/lint.ts'
+import { modelsSuite } from './suites/models.ts'
 import { imageCleanSuite, optionBandsSuite } from './suites/option-bands.ts'
 import { pageRangeSuite } from './suites/page-range.ts'
 import { repairGuardSuite } from './suites/repair-guard.ts'
@@ -32,6 +33,7 @@ const SUITES: Suite[] = [
   rateGateSuite,
   promptsSuite,
   anthropicRequestSuite,
+  modelsSuite,
   workerCacheSuite,
   geometryEditSuite,
   imageCleanSuite,

@@ -22,6 +22,17 @@ const RATES: [RegExp, Rate][] = [
   [/haiku/i, { input: 1, output: 5 }],
   [/sonnet/i, { input: 3, output: 15 }],
   [/opus/i, { input: 5, output: 25 }],
+  // The figure-reproduction lane. Image output is billed as OUTPUT TOKENS at a
+  // flat count per image, so the per-token shape here is the provider's own and
+  // not an approximation: a 1024px reproduction is ~1290 output tokens, which
+  // at this rate is about four cents.
+  //
+  // It is listed because without it the lane priced at `UNKNOWN_RATE` and
+  // happened to land near the truth — an accident that would have quietly
+  // stopped being true the day either number moved. Re-check this row whenever
+  // GEMINI_IMAGE_MODEL changes; unlike the text lanes, image pricing differs
+  // sharply between models.
+  [/gemini.*image|imagen|nano-banana/i, { input: 0.3, output: 30 }],
 ]
 
 /**
