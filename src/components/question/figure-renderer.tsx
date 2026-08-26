@@ -27,7 +27,11 @@ export function FigItemView({
 }) {
   const resolved =
     item.kind === 'image' && resolveImageUrl
-      ? { ...item, src: resolveImageUrl(item.src) }
+      ? {
+          ...item,
+          src: resolveImageUrl(item.src),
+          ...(item.genSrc ? { genSrc: resolveImageUrl(item.genSrc) } : {}),
+        }
       : item
   return (
     <div

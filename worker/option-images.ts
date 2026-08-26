@@ -25,6 +25,9 @@ import {
   type Box,
 } from '@/core/segment/option-bands'
 import type { Db, QuestionRow } from './db.ts'
+import { FIGURE_GEN_OP, guardedReproduction } from './figure-gen.ts'
+import { budgetExhausted, logOp } from './ops.ts'
+import { config } from './config.ts'
 
 /** Where crops and generated images live, by convention shared with the UI. */
 export function optionImagePath(row: QuestionRow, label: string): string {
@@ -34,6 +37,11 @@ export function optionImagePath(row: QuestionRow, label: string): string {
 /** Same convention, for a figure the vector kinds could not express. */
 export function figureImagePath(row: QuestionRow, index: number): string {
   return `${row.book_id}/p${row.page_number}_c${row.col}_q${row.q_no}_fig${index}.png`
+}
+
+/** Where a guarded reproduction lives, beside the cut it was drawn from. */
+export function figureGenPath(row: QuestionRow, index: number): string {
+  return figureImagePath(row, index).replace(/\.png$/, '.gen.png')
 }
 
 /**
@@ -94,7 +102,7 @@ async function cutAndStore(
   source: Awaited<ReturnType<typeof loadImage>>,
   box: Box,
   path: string,
-): Promise<void> {
+): Promise<{ png: Buffer; pixels: Pixels } | null> {
   const { sx, sy, sw, sh } = toRect(box, source.width, source.height)
   const canvas = createCanvas(sw, sh)
   const ctx = canvas.getContext('2d')
@@ -124,6 +132,83 @@ async function cutAndStore(
       .upload(target, buffer, { upsert: true, contentType: 'image/png' })
     if (error) throw new Error(error.message)
   }
+  return { png: outCanvas.toBuffer('image/png'), pixels: cleaned }
+}
+
+/**
+ * One figure through the reproduction lane, with the ledger and the budget.
+ *
+ * Everything here is best-effort by construction: the cut is already stored and
+ * already the figure, so a provider outage, an exhausted budget or a rejected
+ * reproduction all leave a working question and a flag explaining what was not
+ * done. That is the property that makes the lane safe to switch on per book.
+ */
+async function runGuardedGeneration(
+  db: Db,
+  row: QuestionRow,
+  index: number,
+  cut: { png: Buffer; pixels: Pixels },
+): Promise<{ path?: string; flag?: Flag }> {
+  if (await budgetExhausted(db).catch(() => true)) {
+    return {
+      flag: {
+        level: 'warning',
+        code: 'gen_skipped',
+        message: 'Günlük büdcə dolub — fiqur kəsim olaraq qaldı',
+      },
+    }
+  }
+
+  const started = Date.now()
+  const result = await guardedReproduction(cut.png, cut.pixels, async (png) => {
+    const img = await loadImage(png)
+    const canvas = createCanvas(img.width, img.height)
+    const ctx = canvas.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const raw = ctx.getImageData(0, 0, img.width, img.height)
+    return { data: raw.data, width: img.width, height: img.height }
+  })
+
+  await logOp(db, {
+    op: FIGURE_GEN_OP,
+    model: config.GEMINI_IMAGE_MODEL ?? 'gemini(unset)',
+    usage: {
+      input: result.usage.input,
+      cacheWrite: 0,
+      cacheRead: 0,
+      output: result.usage.output,
+    },
+    viaBatch: false,
+    cached: false,
+    ms: Date.now() - started,
+  }).catch(() => {})
+
+  if (!result.png) {
+    return {
+      flag: {
+        level: 'warning',
+        code: 'gen_rejected',
+        message:
+          `Fiqurun 1:1 təkrar çəkilişi qəbul edilmədi (${result.attempts} cəhd): ` +
+          `${result.rejection ?? 'səbəb bilinmir'} — orijinal kəsim saxlanıldı`,
+      },
+    }
+  }
+
+  const path = figureGenPath(row, index)
+  const { error } = await db.storage
+    .from('question-crops')
+    .upload(path, result.png, { upsert: true, contentType: 'image/png' })
+  if (error) {
+    return {
+      flag: {
+        level: 'warning',
+        code: 'gen_rejected',
+        message: `Təkrar çəkiliş saxlanıla bilmədi: ${error.message} — kəsim saxlanıldı`,
+      },
+    }
+  }
+  return { path }
 }
 
 export async function attachOptionImages(
@@ -224,6 +309,15 @@ export async function attachFigureImages(
   let produced = 0
   let failed = 0
 
+  // Per book, so the lane can be A/B'd during rollout. Unknown or unreadable
+  // means 'cut', which is the lane that cannot be wrong about the page.
+  const { data: book } = await db
+    .from('books')
+    .select('figure_render')
+    .eq('id', row.book_id)
+    .maybeSingle()
+  const lane = book?.figure_render === 'gen' ? 'gen' : 'cut'
+
   for (const { item, index } of wanted) {
     try {
       // Same rule as the option boxes: the model's coordinates are a hint about
@@ -245,12 +339,25 @@ export async function attachFigureImages(
       }
       const { sw, sh } = toRect(item.box!, source.width, source.height)
       const path = figureImagePath(row, index)
-      await cutAndStore(db, source, item.box!, path)
+      const cut = await cutAndStore(db, source, item.box!, path)
       item.src = path
       // Recorded so the renderer can draw it undistorted without loading it.
       item.w = sw
       item.h = sh
       produced++
+
+      // The reproduction lane, if this book is on it. The cut is already
+      // stored and already the figure at this point, so everything below can
+      // fail in any way and leave a working question behind.
+      if (lane === 'gen' && cut) {
+        const gen = await runGuardedGeneration(db, row, index, cut)
+        if (gen.flag) flags.push(gen.flag)
+        if (gen.path) {
+          // The cut stays in `src` as the source of truth; the reproduction is
+          // what gets DISPLAYED, and only ever after passing the guard.
+          item.genSrc = gen.path
+        }
+      }
     } catch (error) {
       failed++
       console.warn(

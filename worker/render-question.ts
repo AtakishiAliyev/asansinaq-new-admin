@@ -369,8 +369,14 @@ export function renderQuestion(
     // exactly what the verification wave reported for both IQ questions that
     // used the kind: "the main figure is completely absent".
     const resolved =
-      item.kind === 'image' && !item.src.startsWith('data:')
-        ? { ...item, src: optionImages.get(item.src) ?? item.src }
+      item.kind === 'image'
+        ? {
+            ...item,
+            src: item.src.startsWith('data:') ? item.src : (optionImages.get(item.src) ?? item.src),
+            ...(item.genSrc && !item.genSrc.startsWith('data:')
+              ? { genSrc: optionImages.get(item.genSrc) ?? item.genSrc }
+              : {}),
+          }
         : item
     const figure = inner(renderFigItem(resolved, { idPrefix: `v-${index}`, tex: mathjaxRenderer }))
     blocks.push(fitBlock(figure, available))
@@ -435,7 +441,9 @@ export async function fetchOptionImages(
   const images = new Map<string, string>()
   const paths = [
     ...question.options.map((o) => o.image),
-    ...(question.figures?.items ?? []).map((i) => (i.kind === 'image' ? i.src : undefined)),
+    ...(question.figures?.items ?? []).flatMap((i) =>
+      i.kind === 'image' ? [i.src, i.genSrc] : [],
+    ),
   ]
   for (const path of paths) {
     if (!path || images.has(path) || path.startsWith('data:')) continue

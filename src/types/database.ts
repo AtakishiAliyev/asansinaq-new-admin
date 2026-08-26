@@ -82,6 +82,7 @@ export type Database = {
           content_hash: string | null
           created_at: string
           created_by: string | null
+          figure_render: string
           file_size: number
           id: number
           note: string | null
@@ -99,6 +100,7 @@ export type Database = {
           content_hash?: string | null
           created_at?: string
           created_by?: string | null
+          figure_render?: string
           file_size: number
           id?: never
           note?: string | null
@@ -116,6 +118,7 @@ export type Database = {
           content_hash?: string | null
           created_at?: string
           created_by?: string | null
+          figure_render?: string
           file_size?: number
           id?: never
           note?: string | null

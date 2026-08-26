@@ -89,6 +89,10 @@ export function renderFigItem(item: FigItem, options: RenderOptions = {}): strin
       // a fixed box would stretch it, and a stretched copy of the source is a
       // difference the verification wave would report against the source it
       // was cut from.
+      // The guarded reproduction is what is DISPLAYED when one exists; `src`
+      // stays the cut and stays the source of truth. A reproduction only ever
+      // reaches this field after the structural guard compared it back.
+      const shown = item.genSrc || item.src
       const w = item.w && item.w > 0 ? item.w : 420
       const h = item.h && item.h > 0 ? item.h : 300
       return tag(
@@ -101,7 +105,7 @@ export function renderFigItem(item: FigItem, options: RenderOptions = {}): strin
         },
         // Both dimensions, always: given one, a rasteriser draws the image at
         // its intrinsic size and silently ignores the dimension that was set.
-        tag('image', { href: item.src, x: 0, y: 0, width: w, height: h }),
+        tag('image', { href: shown, x: 0, y: 0, width: w, height: h }),
       )
     }
     case 'raw_svg':

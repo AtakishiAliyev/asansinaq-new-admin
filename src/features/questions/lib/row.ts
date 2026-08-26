@@ -44,7 +44,11 @@ export function imagePathsOf(row: QuestionRow): string[] {
   }
   const figures = parseFigures(row.figures)
   for (const item of figures?.items ?? []) {
-    if (item.kind === 'image' && !item.src.startsWith('data:')) paths.push(item.src)
+    if (item.kind !== 'image') continue
+    if (!item.src.startsWith('data:')) paths.push(item.src)
+    // The guarded reproduction as well as the cut: the review screen shows the
+    // reproduction and needs the cut beside it to judge against.
+    if (item.genSrc && !item.genSrc.startsWith('data:')) paths.push(item.genSrc)
   }
   return paths
 }

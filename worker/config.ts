@@ -42,6 +42,18 @@ const envSchema = z.object({
 
   /** Questions per claim. The Batches API caps a batch far above anything sane here. */
   BATCH_SIZE: z.coerce.number().int().positive().max(50),
+
+  /**
+   * The figure-reproduction lane. OPTIONAL on purpose.
+   *
+   * Without these the lane is simply off, and a book set to `figure_render =
+   * 'gen'` falls back to its cleaned cut with a flag rather than failing — the
+   * lane is an enhancement over something that already works, so a missing key
+   * must never be able to stop a queue. It is also the only provider here that
+   * is not Anthropic, so it stays opt-in by absence.
+   */
+  GEMINI_API_KEY: z.string().min(1).optional(),
+  GEMINI_IMAGE_MODEL: z.string().min(1).optional(),
 })
 
 const parsed = envSchema.safeParse(process.env)

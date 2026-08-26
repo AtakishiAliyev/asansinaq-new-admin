@@ -21,6 +21,7 @@ import { divisionRolesSuite, setRefsSuite } from './suites/division-and-sets.ts'
 import { errorsSuite } from './suites/errors.ts'
 import { promptsSuite } from './suites/prompts.ts'
 import { rateGateSuite } from './suites/rate-gate.ts'
+import { structuralDiffSuite } from './suites/structural-diff.ts'
 import { svgSafeSuite } from './suites/svg-safe.ts'
 import { workerCacheSuite } from './suites/worker-cache.ts'
 
@@ -35,6 +36,7 @@ const SUITES: Suite[] = [
   geometryEditSuite,
   imageCleanSuite,
   kindEligibilitySuite,
+  structuralDiffSuite,
   divisionRolesSuite,
   setRefsSuite,
   optionBandsSuite,

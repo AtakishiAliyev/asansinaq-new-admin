@@ -16,6 +16,7 @@
     "smoke:verify": "node --import ./eval/loader.mjs --disable-warning=ExperimentalWarning scripts/verify-smoke.ts",
     "sample:verify": "node --import ./eval/loader.mjs --disable-warning=ExperimentalWarning scripts/verify-sample.ts",
     "probe:dewatermark": "node --import ./eval/loader.mjs --disable-warning=ExperimentalWarning scripts/dewatermark-probe.ts",
+    "sample:genlane": "node --import ./eval/loader.mjs --disable-warning=ExperimentalWarning scripts/gen-lane-sample.ts",
     "sample:kinds": "node --import ./eval/loader.mjs --disable-warning=ExperimentalWarning scripts/figure-kinds-sample.ts",
     "sample:corruptions": "node --import ./eval/loader.mjs --disable-warning=ExperimentalWarning scripts/corruption-sample.ts",
     "requeue": "node --import ./eval/loader.mjs --disable-warning=ExperimentalWarning scripts/requeue.ts",

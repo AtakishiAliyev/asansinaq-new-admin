@@ -88,6 +88,21 @@ what each stage needs.
   figure no kind expresses becomes a cleaned cut and nothing else. The type and
   the renderer stay so rows written before the change still open.
 
+  **There IS now an image-generation lane, and it is guarded.** The earlier rule
+  that image generation is gone entirely was replaced by an explicit operator
+  decision after a 1:1 reproduction prompt tested well on real figures. It is
+  opt-in per book (`books.figure_render = 'cut' | 'gen'`, default `cut`) and it
+  never replaces the cut: the cut stays in `ImageFig.src` as the source of truth
+  and as the fallback, and a reproduction lands in `genSrc` — the field the
+  renderers DISPLAY — only after passing a deterministic structural guard
+  (`core/figures/structural-diff.ts`). The guard is loose about where lines end
+  and strict about shaded regions and colour, because a guide stopping short of
+  an axis is harmless while a shading that moved is a different question. It
+  does not read labels; there is no OCR here, so text stays the verification
+  wave's job and the guard says `labelsChecked: false` rather than implying a
+  pass. One retry, then the cut is kept with a `gen_rejected` flag. A missing
+  `GEMINI_API_KEY` turns the lane off rather than failing a queue.
+
   The cleaner is `adaptive local contrast + saturation kept + an absolute ink
   floor`, and all three parts are load bearing. Measured over eight real crops:
   dropping the saturation rule removes 100% of the colour, and dropping the ink
@@ -182,6 +197,11 @@ place, and it is scheduled for removal after M6 along with
   byte-identical to a bare label anchor.
 - `npm run sample:verify` — the same for the live verification wave, written to
   `local/samples/` because every card embeds a book crop.
+- `npm run sample:genlane` — original crop / cleaned cut / guarded reproduction,
+  side by side, written to `local/samples/`. COSTS MONEY: one generation per
+  figure plus a retry when the guard rejects. Needs `GEMINI_API_KEY` and
+  `GEMINI_IMAGE_MODEL`; without them it refuses rather than silently producing
+  a two-column page.
 - `npm run probe:dewatermark` — before/after for the crop cleaner over real
   crops, written to `local/samples/`. Free and offline. Run it on any newly
   imported book whose watermark is a COLOURED LOGO: keeping saturated pixels is

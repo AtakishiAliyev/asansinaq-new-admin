@@ -304,6 +304,17 @@ export interface ImageFig {
   box?: [number, number, number, number]
   w?: number
   h?: number
+  /**
+   * A guarded 1:1 reproduction of the cut, when the book is on that lane and
+   * the reproduction passed its structural guard.
+   *
+   * `src` stays the CUT and stays the source of truth: it is the source's own
+   * pixels and cannot be wrong about the page. This is what gets DISPLAYED
+   * instead, and only ever after the guard has compared it back to `src` — a
+   * reproduction that looks better than the original while saying something
+   * else is the entire risk of the lane.
+   */
+  genSrc?: string
   note?: string
 }
 
