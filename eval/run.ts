@@ -17,6 +17,7 @@ import { pageRangeSuite } from './suites/page-range.ts'
 import { repairGuardSuite } from './suites/repair-guard.ts'
 import { renderSuite } from './suites/render.ts'
 import { segmenterSuite } from './suites/segmenter.ts'
+import { divisionRolesSuite, setRefsSuite } from './suites/division-and-sets.ts'
 import { errorsSuite } from './suites/errors.ts'
 import { promptsSuite } from './suites/prompts.ts'
 import { rateGateSuite } from './suites/rate-gate.ts'
@@ -34,6 +35,8 @@ const SUITES: Suite[] = [
   geometryEditSuite,
   imageCleanSuite,
   kindEligibilitySuite,
+  divisionRolesSuite,
+  setRefsSuite,
   optionBandsSuite,
   repairGuardSuite,
   classifySuite,

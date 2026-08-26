@@ -12,7 +12,7 @@
 // squares instead of falling through to hand-written SVG that drops them. Rows
 // stamped 6 and 7 can hold visibly different figures for the same crop, which
 // is exactly what the version is for.
-export const PROMPT_VERSION = 11
+export const PROMPT_VERSION = 12
 
 // Prompt texts for the question-recreation pipeline. Shared by the
 // question-ops Edge Function and the Node eval harness — ONE source of truth,
@@ -95,6 +95,10 @@ const SYSTEM_FIGURE_RULES = `12. Fiqurlar: deklarativ spec ver, şəkil çəkmə
    quotient_tex = bölənin ALTINDAKI ifadə (qismət, üfüqi xəttdən sonra);
    remainder_tex = bölünənin altındakı çıxma addımından qalan ƏN AŞAĞI ifadə (qalıq).
    Nümunə: A│B sxemi, B-nin altında 4, A-nın altında 5 → {"dividend_tex":"A","divisor_tex":"B","quotient_tex":"4","remainder_tex":"5"}.
+   DÖRD ROL POZİSİYA İLƏ AYRILIR: sol-yuxarı=bölünən, sağ-yuxarı=bölən, sağ-aşağı=bölüm, sol-aşağı=qalıq.
+   Hər rol ÖZ xanasına. Xananın içinə "/" və ya \\frac YAZMA — bir xanada iki rol olmaz.
+   Xanalar ifadədirsə (n^2, K+4, a+1) rollar asan qarışır: şəkildəki YERİNƏ bax, ifadənin özünə yox.
+   Səhifədə YANAŞI iki sxem varsa İKİSİNİ də ver və layout_direction="row" qoy — biri şərt, o biri sualdır.
 14. ŞAQULİ HESAB (alt-alta çarpma/toplama) — kind="vertical_arithmetic":
    rows = çap olunduğu sıra ilə YUXARIDAN AŞAĞI hər sətir; sətrin solunda operator varsa həmin sətrə op yaz ("×" vuruq sətrində, "+" sürüşdürülmüş hissə-hasil sətrində);
    gizli rəqəmlər üçün hər nöqtə əvəzinə "•" simvolu (məs. "••••");

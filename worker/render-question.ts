@@ -338,7 +338,32 @@ export function renderQuestion(
   }
 
   const available = WIDTH - PAD * 2
-  for (const [index, item] of (question.figures?.items ?? []).entries()) {
+  const figures = question.figures?.items ?? []
+  // Twin division schemes are printed SIDE BY SIDE, and the question asks about
+  // both at once ("bölme işlemlerine göre, L kaçtır?"). Stacked, they read as
+  // two separate questions, and the verification wave has to compare that
+  // against a page that shows a pair.
+  const sideBySide =
+    question.figures?.layout?.direction === 'row' ||
+    (figures.length === 2 && figures.every((f) => f.kind === 'division_scheme'))
+  if (sideBySide) {
+    const rendered = figures.map((item, index) =>
+      inner(renderFigItem(item, { idPrefix: `v-${index}`, tex: mathjaxRenderer })),
+    )
+    const gap = 28
+    const totalW = rendered.reduce((sum, f) => sum + (f.width || 120), 0) + gap * (rendered.length - 1)
+    const scale = totalW > available ? available / totalW : 1
+    const height = Math.max(...rendered.map((f) => f.height || 120))
+    let x = 0
+    const row: string[] = []
+    for (const fig of rendered) {
+      row.push(tag('g', { transform: `translate(${num(x)} 0)` }, fig.body))
+      x += (fig.width || 120) + gap
+    }
+    const svg = scale < 1 ? tag('g', { transform: `scale(${num(scale)})` }, row.join('')) : row.join('')
+    blocks.push({ svg, height: Math.ceil(height * scale) })
+  }
+  for (const [index, item] of (sideBySide ? [] : figures).entries()) {
     // An `image` figure carries a STORAGE PATH, and a rasteriser cannot fetch
     // one. Left unresolved the figure renders as nothing at all, which is
     // exactly what the verification wave reported for both IQ questions that

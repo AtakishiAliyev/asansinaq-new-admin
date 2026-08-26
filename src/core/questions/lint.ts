@@ -2,6 +2,8 @@ import { canonMath } from '@/core/questions/compare'
 import { texCompiles } from '@/core/questions/tex-normalize'
 import { pointsLieOnCurves, sampleCurve } from '@/core/figures/curve'
 import { documentIneligible } from '@/core/figures/kind-eligibility'
+import { divisionRoleProblems } from '@/core/questions/division-roles'
+import { setRefProblems } from '@/core/questions/set-refs'
 import { parseSetExpr, setIdsUsed } from '@/core/figures/set-expr'
 import type { ExtractedQuestion } from '@/core/questions/extraction'
 import { figureRefs } from '@/core/questions/figure-refs'
@@ -151,6 +153,9 @@ function lintFigureRefs(q: ExtractedQuestion): Flag[] {
 export const LINT_CODES = new Set([
   'clipped',
   'curve_invalid',
+  'division_arithmetic',
+  'division_role_crammed',
+  'division_role_empty',
   'empty_stem',
   'figure_angle_not_marked',
   'figure_missing_referenced_angle',
@@ -173,6 +178,8 @@ export const LINT_CODES = new Set([
   'raw_svg',
   'stem_latex',
   'venn_empty',
+  'venn_extra_set',
+  'venn_missing_set',
   'kind_over_reach',
   'venn_parse',
   'venn_unknown_set',
@@ -273,6 +280,18 @@ export function lintQuestion(q: ExtractedQuestion, expectedNumber?: number): Fla
     add('error', 'missing_figure', 'Stem şəkilə istinad edir, amma fiqur çıxarılmayıb')
 
   if (q.figures) flags.push(...lintFigures(q.figures))
+  // Needs the stem as well as the figure, so it sits beside lintFigures rather
+  // than inside it: a venn can be internally perfect and still not be the
+  // diagram the question asks about.
+  if (q.figures) {
+    for (const problem of setRefProblems(q.figures, q.stem)) {
+      flags.push({
+        level: problem.code === 'venn_missing_set' ? 'error' : 'warning',
+        code: problem.code,
+        message: problem.message,
+      })
+    }
+  }
   // Last, because it is the only check that reads the STEM and the FIGURE
   // together — everything above asks whether each half is well formed on its
   // own, and a question can pass all of that while asking about something the
@@ -289,6 +308,13 @@ function lintFigures(doc: FigureDoc): Flag[] {
   // structured figure: it renders confidently and is wrong only against the
   // original. An error rather than a warning, so the row cannot be
   // auto-approved on a figure the DSL was never able to express.
+  for (const item of doc.items) {
+    if (item.kind !== 'division_scheme') continue
+    for (const problem of divisionRoleProblems(item)) {
+      flags.push({ level: 'error', code: problem.code, message: problem.message })
+    }
+  }
+
   for (const bad of documentIneligible(doc.items)) {
     flags.push({
       level: 'error',

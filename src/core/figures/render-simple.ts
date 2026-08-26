@@ -163,18 +163,32 @@ export function renderDivisionScheme(
   const height = Math.max(leftRows, 2) * rowH + PAD * 2
 
   const barX = leftWidth
+  const splitY = PAD + rowH - ROW_GAP / 2
   const body: string[] = [
-    // The vertical bar runs the whole height; the divisor's underline stops at
-    // the right edge. Together they are the scheme.
+    // The bracket has to be unmistakable, because the failure mode is not an
+    // ugly figure — it is a reader answering a different question. A dividend
+    // above a bar above a remainder is read as a FRACTION, and the whole point
+    // of the Turkish scheme is that it is not one. So the vertical bar is
+    // heavier than any other rule in the figure and runs the full height, and
+    // the only horizontal line is the one under the divisor, joined to it.
     tag('line', {
       x1: barX,
-      y1: PAD * 0.5,
+      y1: PAD * 0.4,
       x2: barX,
-      y2: height - PAD * 0.5,
+      y2: height - PAD * 0.4,
       stroke: hex('ink'),
-      'stroke-width': 1.4,
+      'stroke-width': 2.2,
+      'stroke-linecap': 'square',
     }),
-    rule(barX, PAD + rowH - ROW_GAP / 2, barX + rightWidth),
+    tag('line', {
+      x1: barX,
+      y1: splitY,
+      x2: barX + rightWidth,
+      y2: splitY,
+      stroke: hex('ink'),
+      'stroke-width': 2.2,
+      'stroke-linecap': 'square',
+    }),
   ]
 
   body.push(place(dividend, leftWidth - PAD - dividend.width, PAD))
@@ -188,7 +202,13 @@ export function renderDivisionScheme(
     y += rowH
   }
   if (remainder) {
-    body.push(rule(leftWidth - PAD - remainder.width - 6, y - ROW_GAP / 2, leftWidth - PAD))
+    // A rule above the remainder is the line under the LAST SUBTRACTION, so it
+    // belongs only when subtraction steps were actually drawn. Without steps it
+    // is a bar between two numbers with nothing between them, which is exactly
+    // the fraction this notation exists to not be.
+    if (steps.length) {
+      body.push(rule(leftWidth - PAD - remainder.width - 6, y - ROW_GAP / 2, leftWidth - PAD))
+    }
     body.push(place(remainder, leftWidth - PAD - remainder.width, y))
   }
 

@@ -18,6 +18,20 @@ NÜMUNƏLƏR (figures massivinə bu formada yaz):
 2) Türk bölmə sxemi (A│B, B altında qismət 4, A altında qalıq 5) — KƏSR DEYİL:
 {"kind":"division_scheme","division":{"style":"arithmetic","dividend_tex":"A","divisor_tex":"B","quotient_tex":"4","remainder_tex":"5"}}
 
+2b) BÖLMƏ SXEMİNDƏ DÖRD ROL — ifadəli xanalarda rollar QARIŞIR.
+Sxem dörd rolu POZİSİYA ilə ayırır: sol-yuxarı bölünən, sağ-yuxarı bölən,
+sağ-aşağı bölüm, sol-aşağı qalıq. Hər rol ÖZ xanasına.
+SƏHV: {"dividend_tex":"A","divisor_tex":"n^2/n","quotient_tex":"","remainder_tex":"64"}
+  — "n^2/n" iki roldur bir xanada, bölüm isə boş qalıb.
+DÜZGÜN (A ÷ n = n², qalıq 64):
+{"kind":"division_scheme","division":{"style":"arithmetic","dividend_tex":"A","divisor_tex":"n","quotient_tex":"n^2","remainder_tex":"64"}}
+Xanada / və ya \\frac YAZMA — bölmə işarəsi sxemin ÖZÜdür.
+
+2c) YANAŞI İKİ BÖLMƏ SXEMİ — biri sualın şərti, o biri sualı; İKİSİNİ də ver
+və layout_direction="row" qoy ki, yan-yana çəkilsin:
+{"kind":"division_scheme","division":{"style":"arithmetic","dividend_tex":"K","divisor_tex":"7","quotient_tex":"M","remainder_tex":"3"}}
+{"kind":"division_scheme","division":{"style":"arithmetic","dividend_tex":"K+4","divisor_tex":"M+1","quotient_tex":"7","remainder_tex":"L"}}
+
 3) Şaquli çarpma, gizli rəqəmlər (•) — NƏTİCƏ SƏTRİNİ MÜTLƏQ ver:
 {"kind":"vertical_arithmetic","vertical":{"rows":[{"tex":"••••"},{"tex":"36","op":"×"},{"tex":"•••••"},{"tex":"9762","op":"+","indent":1}],"hline_after":[1,3],"result_tex":"••••••"}}
 
