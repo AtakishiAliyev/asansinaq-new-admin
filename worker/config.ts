@@ -44,6 +44,27 @@ const envSchema = z.object({
   BATCH_SIZE: z.coerce.number().int().positive().max(50),
 
   /**
+   * At or below this many queued questions, the worker runs SYNCHRONOUSLY.
+   *
+   * Batch is half price and stays the default for bulk, but its latency does
+   * not scale down: a batch of one waits in the provider's queue as long as a
+   * batch of fifty, and a measured eight-question run spent 85% of its wall
+   * clock waiting across two waves. A set this small is one an operator is
+   * watching, and minutes matter more than the discount.
+   */
+  EXPRESS_THRESHOLD: z.coerce.number().int().nonnegative().default(20),
+
+  /**
+   * How many questions express works on at once.
+   *
+   * Each one holds an Anthropic call and possibly a Gemini call, so this is
+   * also the ceiling on concurrent figure generations. Low by default: the
+   * point is to remove queue waiting, not to find the provider's rate limit,
+   * and a 429 wastes the paid steps a question has already completed.
+   */
+  EXPRESS_CONCURRENCY: z.coerce.number().int().positive().max(16).default(4),
+
+  /**
    * The figure-reproduction lane. OPTIONAL on purpose.
    *
    * Without these the lane is simply off, and a book set to `figure_render =

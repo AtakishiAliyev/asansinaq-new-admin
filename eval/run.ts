@@ -21,6 +21,7 @@ import { renderSuite } from './suites/render.ts'
 import { segmenterSuite } from './suites/segmenter.ts'
 import { divisionRolesSuite, setRefsSuite } from './suites/division-and-sets.ts'
 import { errorsSuite } from './suites/errors.ts'
+import { expressSuite } from './suites/express.ts'
 import { promptsSuite } from './suites/prompts.ts'
 import { rateGateSuite } from './suites/rate-gate.ts'
 import { structuralDiffSuite } from './suites/structural-diff.ts'
@@ -36,6 +37,7 @@ const SUITES: Suite[] = [
   anthropicRequestSuite,
   modelsSuite,
   labelsSuite,
+  expressSuite,
   workerCacheSuite,
   geometryEditSuite,
   imageCleanSuite,

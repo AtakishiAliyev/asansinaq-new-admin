@@ -107,3 +107,49 @@ export async function* batchResults(
     }
   }
 }
+
+/**
+ * The same request, sent synchronously.
+ *
+ * Express mode's half of the file. Batch is the right default because it is
+ * half price and the queue is overnight work, but its cost is LATENCY THAT DOES
+ * NOT SCALE DOWN: a measured run of eight questions spent 935 of its 1099
+ * seconds waiting in the provider's queue across two waves, and a batch of one
+ * waits just as long as a batch of fifty. For a set small enough that an
+ * operator is sitting watching it, paying full price to skip the queue is the
+ * better trade.
+ *
+ * Deliberately shares `describeError` and the tool-block rules with
+ * `batchResults`: the two paths must agree about what an answer IS, or a
+ * question read one way in express and another way in batch would produce two
+ * different rows from one crop.
+ */
+export async function runSync(item: BatchItem, toolName: string): Promise<BatchOutcome> {
+  try {
+    const message = await anthropic.messages.create({
+      model: item.model,
+      ...samplingFor(item.model),
+      ...item.params,
+    })
+    const block = message.content.find(
+      (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use' && b.name === toolName,
+    )
+    return {
+      customId: item.customId,
+      wire: (block?.input as Record<string, unknown> | undefined) ?? null,
+      usage: message.usage,
+      error: block
+        ? null
+        : `no ${toolName} call in the answer (stop_reason: ${message.stop_reason})`,
+    }
+  } catch (error) {
+    // Returned, not thrown: one question that the provider refused must not
+    // take down the other three running beside it.
+    return {
+      customId: item.customId,
+      wire: null,
+      usage: null,
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
+}

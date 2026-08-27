@@ -32,6 +32,25 @@ export async function readDesiredState(db: Db): Promise<DesiredState> {
   return data.desired_state === 'paused' ? 'paused' : 'running'
 }
 
+/**
+ * The operator's express override, read at the top of every pass.
+ *
+ * Defaults to FALSE when the row cannot be read, which is the opposite
+ * reasoning to `readDesiredState` and for the same underlying rule: fail
+ * towards the cheaper, more conservative behaviour. A blip that silently
+ * switched a large queue to full price would be an expensive way to find out
+ * the database was unreachable.
+ */
+export async function readExpressOverride(db: Db): Promise<boolean> {
+  const { data, error } = await db
+    .from('worker_control')
+    .select('express')
+    .eq('id', 1)
+    .maybeSingle()
+  if (error || !data) return false
+  return data.express === true
+}
+
 export interface Heartbeat {
   activity: string
   state: DesiredState
