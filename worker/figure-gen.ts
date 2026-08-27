@@ -9,7 +9,9 @@
 // thing needed here is a POST with an image and a prompt, and a dependency that
 // has to be approved, versioned and audited is a poor trade for a fetch call.
 import { FIGURE_REPRODUCE_PROMPT } from '@/core/extract/figure-gen-prompt'
+import { compareLabels, type LabelDiff } from '@/core/figures/labels'
 import { compareStructure, type StructuralDiff } from '@/core/figures/structural-diff'
+import { readLabels } from './figure-ocr.ts'
 import type { Pixels } from '@/core/segment/image-clean'
 import { config } from './config.ts'
 
@@ -99,6 +101,8 @@ export async function reproduceFigure(cutPng: Buffer): Promise<GenerationResult>
 export interface GuardedGeneration {
   png: Buffer | null
   diff: StructuralDiff | null
+  /** The writing check, when the structure check got far enough to run it. */
+  labels: LabelDiff | null
   attempts: number
   /** Why the cut is being kept, when it is. */
   rejection?: string
@@ -130,6 +134,7 @@ export async function guardedReproduction(
 ): Promise<GuardedGeneration> {
   let lastRejection = 'no attempt made'
   let lastDiff: StructuralDiff | null = null
+  let lastLabels: LabelDiff | null = null
   let lastRefused: Buffer | null = null
   const usage = { input: 0, output: 0 }
 
@@ -148,14 +153,32 @@ export async function guardedReproduction(
     }
     const diff = compareStructure(cutPixels, generated)
     lastDiff = diff
-    if (diff.passed) return { png: result.png, diff, attempts: attempt, usage }
-    lastRejection = diff.reasons.join('; ')
+
+    // The writing is read only when the drawing already holds up. OCR is the
+    // slow part of this lane by an order of magnitude, and a reproduction that
+    // moved a shaded region is going back regardless of what it says.
+    let labels: LabelDiff | null = null
+    if (diff.passed) {
+      labels = compareLabels(await readLabels(cutPng), await readLabels(result.png))
+      lastLabels = labels
+    }
+
+    if (diff.passed && labels?.passed) {
+      return { png: result.png, diff, labels, attempts: attempt, usage }
+    }
+    lastRejection = [
+      ...diff.reasons,
+      ...(labels && !labels.passed
+        ? [`yazı itib: ${labels.missing.join(', ')}`]
+        : []),
+    ].join('; ')
     lastRefused = result.png
   }
 
   return {
     png: null,
     diff: lastDiff,
+    labels: lastLabels,
     attempts: 2,
     rejection: lastRejection,
     rejectedPng: lastRefused ?? undefined,

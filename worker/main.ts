@@ -15,6 +15,7 @@
 import { EMIT_QUESTION_TOOL_NAME } from '@/core/extract/tool-schema'
 import { EMIT_VERDICT_TOOL_NAME, parseVerdict } from '@/core/extract/verify-request'
 import { config } from './config.ts'
+import { closeOcr } from './figure-ocr.ts'
 import {
   announceStart,
   announceStop,
@@ -667,4 +668,7 @@ while (!stopping) {
 }
 
 await announceStop(db, stopping ? 'signal' : 'queue empty')
+// The OCR engine holds a loaded language model and would keep the process
+// alive after the loop has finished with it.
+await closeOcr()
 log('worker stopped')

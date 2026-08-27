@@ -11,6 +11,7 @@ import { figureRefsSuite } from './suites/figure-refs.ts'
 import { geometryEditSuite } from './suites/geometry-edit.ts'
 import { figuresSuite } from './suites/figures.ts'
 import { kindEligibilitySuite } from './suites/kind-eligibility.ts'
+import { labelsSuite } from './suites/labels.ts'
 import { lintSuite } from './suites/lint.ts'
 import { modelsSuite } from './suites/models.ts'
 import { imageCleanSuite, optionBandsSuite } from './suites/option-bands.ts'
@@ -34,6 +35,7 @@ const SUITES: Suite[] = [
   promptsSuite,
   anthropicRequestSuite,
   modelsSuite,
+  labelsSuite,
   workerCacheSuite,
   geometryEditSuite,
   imageCleanSuite,
