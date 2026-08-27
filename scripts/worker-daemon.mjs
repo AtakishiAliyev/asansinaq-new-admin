@@ -170,10 +170,61 @@ ${entries}
 `,
   )
 
+  const previousPid = agentState().pid
   bootedOut()
-  execFileSync('launchctl', ['bootstrap', `gui/${process.getuid()}`, PLIST], { stdio: 'inherit' })
+  // Unloading is asynchronous, and bootstrapping into a label that is still
+  // going down fails with an I/O error that says nothing about the cause.
+  waitUnloaded(5_000)
+  const installedAt = Date.now()
+  let bootstrapError = null
+  try {
+    execFileSync('launchctl', ['bootstrap', `gui/${process.getuid()}`, PLIST], {
+      stdio: ['ignore', 'inherit', 'pipe'],
+    })
+  } catch (error) {
+    // Captured rather than thrown: launchctl's own message is worth showing,
+    // but the verification below is what decides whether this worked.
+    bootstrapError = String(error.stderr ?? error.message ?? error).trim()
+  }
+
+  const agent = waitForAgent(10_000, previousPid)
+  if (!agent.loaded || !agent.pid || agent.pid === previousPid) {
+    console.error(
+      `FAILED to start ${LABEL}.\n` +
+        (bootstrapError ? `  launchctl: ${bootstrapError}\n` : '') +
+        `  agent: ${
+          !agent.loaded
+            ? 'not loaded'
+            : agent.pid === previousPid
+              ? `still the previous process (pid ${agent.pid}) — the new one never started`
+              : 'loaded but no process'
+        }\n` +
+        (agent.lastExit ? `  last exit code: ${agent.lastExit}\n` : '') +
+        `  plist: ${PLIST}\n` +
+        `  log:   ${LOG}\n\n` +
+        'The daemon is NOT running, so nothing will drain the queue.\n' +
+        'Try again with `npm run worker:install`; if it fails the same way,\n' +
+        '`npm run worker:status` reads the log and names the usual causes.',
+    )
+    process.exit(1)
+  }
+
+  // A pid means launchd spawned it; a start line means the worker itself got
+  // far enough to say so. The second is the one that rules out a process that
+  // launches and dies on its config.
+  const reported = (() => {
+    const deadline = Date.now() + 5_000
+    for (;;) {
+      if (startedSince(installedAt)) return true
+      if (Date.now() >= deadline) return false
+      sleepSync(250)
+    }
+  })()
+
   console.log(
-    `installed ${LABEL}\n` +
+    `installed ${LABEL} — running, pid ${agent.pid}` +
+      (reported ? '' : ' (started, but has not written to the log yet)') +
+      `\n` +
       `  plist   ${PLIST}\n` +
       `  workdir ${PROJECT}\n` +
       `  node    ${nodePath}\n` +
@@ -247,6 +298,62 @@ const LOG_SIGNATURES = [
       'after any key change.',
   },
 ]
+
+/** Sleep, in a script that is otherwise entirely synchronous. */
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
+
+/**
+ * Wait for launchd to actually have the thing running.
+ *
+ * `bootstrap` returning is not the same as the agent being up, and the gap
+ * between them is not theoretical: an install once printed its whole success
+ * banner over a launchctl error and left the daemon NOT LOADED, which is the
+ * worst possible outcome for this script — the operator believes the worker is
+ * back, the queue stops draining, and nothing says why until someone thinks to
+ * run `worker:status`.
+ *
+ * Polls for a pid rather than merely for the label being known, because a
+ * loaded agent whose process dies on launch — the PATH failure this script
+ * already documents — reports loaded and no pid.
+ *
+ * `notPid` is the pid that was running BEFORE this install, and refusing it is
+ * the whole point. `bootout` is asynchronous, so for a moment after it the old
+ * process is still there; the first version of this check accepted it, printed
+ * "running, pid 51467" naming the process it had just killed, and reported
+ * success for a bootstrap that had failed.
+ */
+function waitForAgent(timeoutMs, notPid) {
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    const state = agentState()
+    if (state.loaded && state.pid && state.pid !== notPid) return state
+    if (Date.now() >= deadline) return state
+    sleepSync(250)
+  }
+}
+
+/** Wait for launchd to finish unloading, so the bootstrap after it can work. */
+function waitUnloaded(timeoutMs) {
+  const deadline = Date.now() + timeoutMs
+  while (agentState().loaded && Date.now() < deadline) sleepSync(250)
+}
+
+/** Did the worker itself say it started, after `since`? */
+function startedSince(since) {
+  if (!existsSync(LOG)) return false
+  try {
+    const tail = readFileSync(LOG, 'utf8').split('\n').slice(-40)
+    for (const line of tail) {
+      const m = /^\[([0-9T:.\-Z]+)\] worker .* starting/.exec(line)
+      if (m && Date.parse(m[1]) >= since) return true
+    }
+  } catch {
+    /* the log is a convenience, not a source of truth */
+  }
+  return false
+}
 
 /** What launchctl knows: is it loaded, has it been dying, what did it exit with. */
 function agentState() {
