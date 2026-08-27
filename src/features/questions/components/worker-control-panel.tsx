@@ -1,4 +1,4 @@
-import { CircleDot, Pause, Play, TriangleAlert } from 'lucide-react'
+import { CircleDot, Pause, Play, TriangleAlert, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import {
@@ -7,6 +7,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import {
+  useSetExpress,
   useSetWorkerState,
   useWorkerStatus,
   type WorkerStatus,
@@ -20,6 +21,16 @@ import { cn } from '@/lib/utils'
 // it — pressing Start writes "running" and the daemon picks that up on its next
 // pass. When no daemon is installed there is nothing to pick it up, and saying
 // so plainly is more useful than a button that appears to work.
+
+/**
+ * Mirrors the worker's EXPRESS_THRESHOLD default, for the label only.
+ *
+ * A hint, not the decision: the real threshold is worker configuration and the
+ * browser cannot read it. It is used to say what the next set will PROBABLY do,
+ * and the tooltip says which part is the worker's own choice — a panel that
+ * claimed certainty here would be wrong the moment the operator tuned the env.
+ */
+const EXPRESS_THRESHOLD_HINT = 20
 
 function relative(ms: number): string {
   const s = Math.round(ms / 1000)
@@ -41,7 +52,9 @@ function StatusDot({ status }: { status: WorkerStatus }) {
   const label = !online ? 'oflayn' : paused ? 'dayandırılıb' : 'işləyir'
   return (
     <span className={cn('flex items-center gap-1.5 text-sm font-medium', tone)}>
-      <CircleDot className={cn('size-3.5', online && !paused && 'animate-pulse')} />
+      <CircleDot
+        className={cn('size-3.5', online && !paused && 'animate-pulse')}
+      />
       {label}
     </span>
   )
@@ -54,6 +67,7 @@ export function WorkerControlPanel(counts: {
 }) {
   const status = useWorkerStatus()
   const setState = useSetWorkerState()
+  const setExpress = useSetExpress()
 
   if (status.isPending) {
     return (
@@ -70,6 +84,8 @@ export function WorkerControlPanel(counts: {
       status={status.data}
       isPending={setState.isPending}
       onToggle={(desired) => setState.mutate(desired)}
+      expressPending={setExpress.isPending}
+      onExpress={(express) => setExpress.mutate(express)}
     />
   )
 }
@@ -91,6 +107,8 @@ export function WorkerControlView({
   status,
   isPending,
   onToggle,
+  expressPending = false,
+  onExpress,
 }: {
   queued: number
   inBatch: number
@@ -98,8 +116,15 @@ export function WorkerControlView({
   status: WorkerStatus
   isPending: boolean
   onToggle: (desired: 'running' | 'paused') => void
+  expressPending?: boolean
+  onExpress?: (express: boolean) => void
 }) {
-  const { desiredState, workers, anyOnline } = status
+  const { desiredState, workers, anyOnline, express, spend } = status
+  // What the NEXT set will do, which is not the same as the toggle: the worker
+  // enters express on its own for a small queue, so a panel that showed only
+  // the flag would say "batch" about a run that is about to be synchronous.
+  const nextIsExpress =
+    express || (queued > 0 && queued <= EXPRESS_THRESHOLD_HINT)
   const newest = workers[0]
   const paused = desiredState === 'paused'
   // The daemon is not installed, or is not running. The switch can still be
@@ -117,7 +142,9 @@ export function WorkerControlView({
           <Tooltip>
             <TooltipTrigger asChild>
               <span className="text-muted-foreground max-w-[38ch] truncate text-xs">
-                {anyOnline ? newest.activity : `son siqnal ${relative(newest.ageMs)}`}
+                {anyOnline
+                  ? newest.activity
+                  : `son siqnal ${relative(newest.ageMs)}`}
               </span>
             </TooltipTrigger>
             <TooltipContent className="max-w-sm">
@@ -136,14 +163,63 @@ export function WorkerControlView({
         {newest?.spend_today != null ? (
           <span className="text-muted-foreground text-xs tabular-nums">
             ${newest.spend_today.toFixed(2)}
-            {newest.budget_usd != null ? ` / $${newest.budget_usd.toFixed(0)}` : ''}
+            {newest.budget_usd != null
+              ? ` / $${newest.budget_usd.toFixed(0)}`
+              : ''}
           </span>
+        ) : null}
+
+        {spend.express > 0 || spend.batch > 0 ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="text-muted-foreground text-xs tabular-nums">
+                batch ${spend.batch.toFixed(2)} · express $
+                {spend.express.toFixed(2)}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p className="max-w-64 text-xs">
+                Bu günün xərci hansı yolla ödənilib. Express sinxrondur — tam
+                qiymət, amma növbə gözləmir.
+              </p>
+            </TooltipContent>
+          </Tooltip>
         ) : null}
 
         <div className="ml-auto flex items-center gap-2">
           <span className="text-muted-foreground text-xs tabular-nums">
-            {queued} növbədə · {inBatch} provayderdə · {awaitingVerify} yoxlamada
+            {queued} növbədə · {inBatch} provayderdə · {awaitingVerify}{' '}
+            yoxlamada
           </span>
+          {onExpress ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size="sm"
+                  variant={express ? 'default' : 'outline'}
+                  disabled={expressPending}
+                  onClick={() => onExpress(!express)}
+                >
+                  {expressPending ? (
+                    <Spinner className="size-3.5" />
+                  ) : (
+                    <Zap data-icon="inline-start" />
+                  )}
+                  Express
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="max-w-72 text-xs">
+                  {nextIsExpress
+                    ? 'Növbəti dəst SİNXRON işlənəcək — dəqiqələr, tam qiymət.'
+                    : 'Növbəti dəst batch ilə — yarı qiymət, provayder növbəsi.'}
+                  {!express && nextIsExpress
+                    ? ' (Dəst kiçik olduğu üçün worker özü express seçir.)'
+                    : ''}
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          ) : null}
           <Button
             size="sm"
             variant={paused ? 'default' : 'outline'}
@@ -166,8 +242,11 @@ export function WorkerControlView({
         <p className="text-destructive flex items-start gap-1.5 text-xs">
           <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
           <span className="min-w-0 break-words">
-            son xəta{newest.last_error_at ? ` (${relative(Date.now() - new Date(newest.last_error_at).getTime())})` : ''}:{' '}
-            {newest.last_error}
+            son xəta
+            {newest.last_error_at
+              ? ` (${relative(Date.now() - new Date(newest.last_error_at).getTime())})`
+              : ''}
+            : {newest.last_error}
           </span>
         </p>
       ) : null}
@@ -182,11 +261,18 @@ export function WorkerControlView({
           </p>
           <p className="mt-1.5">
             Operator maşınında bir dəfə quraşdırın:{' '}
-            <code className="bg-background rounded px-1 py-0.5">npm run worker:install</code>
+            <code className="bg-background rounded px-1 py-0.5">
+              npm run worker:install
+            </code>
             {' — '}girişdə özü qalxır, çökəndə yenidən başlayır. Vəziyyət:{' '}
-            <code className="bg-background rounded px-1 py-0.5">npm run worker:status</code>
+            <code className="bg-background rounded px-1 py-0.5">
+              npm run worker:status
+            </code>
             {', silmək: '}
-            <code className="bg-background rounded px-1 py-0.5">npm run worker:uninstall</code>.
+            <code className="bg-background rounded px-1 py-0.5">
+              npm run worker:uninstall
+            </code>
+            .
           </p>
           {queued ? (
             <p className="mt-1.5">

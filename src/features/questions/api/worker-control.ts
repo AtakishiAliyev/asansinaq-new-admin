@@ -38,6 +38,12 @@ export type WorkerHeartbeat = z.infer<typeof workerHeartbeatSchema>
 
 export interface WorkerStatus {
   desiredState: 'running' | 'paused'
+  /** The operator's express override. The worker also enters express on its
+   *  own for a small queue, so false does NOT mean the next run is batched. */
+  express: boolean
+  /** Today's spend split by which lane paid for it. Rows written before the
+   *  column existed are counted as neither — see `via_batch`. */
+  spend: { batch: number; express: number }
   /** Every worker that has ever reported, most recently seen first. */
   workers: (WorkerHeartbeat & { online: boolean; ageMs: number })[]
   /** True when at least one worker has beaten recently. */
@@ -49,11 +55,24 @@ export function useWorkerStatus() {
     queryKey: questionKeys.worker(),
     queryFn: async (): Promise<WorkerStatus> => {
       const [control, heartbeats] = await Promise.all([
-        supabase.from('worker_control').select('desired_state').eq('id', 1).maybeSingle(),
+        supabase.from('worker_control').select('desired_state, express').eq('id', 1).maybeSingle(),
         supabase.from('worker_heartbeat').select('*').order('last_seen', { ascending: false }),
       ])
       if (control.error) throw control.error
       if (heartbeats.error) throw heartbeats.error
+
+      // Which lane paid for today, so the panel can show what express cost.
+      const since = new Date()
+      since.setHours(0, 0, 0, 0)
+      const ledger = await supabase
+        .from('ops_log')
+        .select('est_cost_usd, via_batch')
+        .gte('created_at', since.toISOString())
+      const spend = { batch: 0, express: 0 }
+      for (const entry of ledger.data ?? []) {
+        if (entry.via_batch === null) continue
+        spend[entry.via_batch ? 'batch' : 'express'] += Number(entry.est_cost_usd ?? 0)
+      }
 
       const now = Date.now()
       const workers = (heartbeats.data ?? []).map((row) => {
@@ -68,6 +87,8 @@ export function useWorkerStatus() {
       })
       return {
         desiredState: control.data?.desired_state === 'paused' ? 'paused' : 'running',
+        express: control.data?.express === true,
+        spend,
         workers,
         anyOnline: workers.some((w) => w.online),
       }
@@ -109,5 +130,41 @@ export function useSetWorkerState() {
     },
     onError: (error) =>
       toast.error(`Worker vəziyyəti dəyişmədi: ${normalizeError(error).message}`),
+  })
+}
+
+/**
+ * Turn the express override on or off.
+ *
+ * Separate from the run/pause switch because it answers a different question.
+ * Pause is "should the worker be working"; this is "how much is a run allowed
+ * to cost in order to finish sooner" — and the worker reads it at the top of
+ * every pass, so it takes effect on the next set rather than the current one.
+ */
+export function useSetExpress() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (express: boolean) => {
+      const { data: userData } = await supabase.auth.getUser()
+      const { error } = await supabase
+        .from('worker_control')
+        .update({
+          express,
+          updated_at: new Date().toISOString(),
+          updated_by: userData.user?.id ?? null,
+        })
+        .eq('id', 1)
+      if (error) throw error
+      return express
+    },
+    onSuccess: (express) => {
+      queryClient.invalidateQueries({ queryKey: questionKeys.worker() })
+      toast.success(
+        express
+          ? 'Express açıldı — növbəti dəst sinxron işlənəcək (tam qiymət)'
+          : 'Express bağlandı — böyük dəstlər yenidən batch ilə (yarı qiymət)',
+      )
+    },
+    onError: (error) => toast.error(`Express dəyişmədi: ${normalizeError(error).message}`),
   })
 }
