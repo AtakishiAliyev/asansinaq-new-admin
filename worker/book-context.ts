@@ -18,6 +18,15 @@ export interface BookContext {
    */
   answerKeysRead: boolean
   categories: CategoryOption[]
+  /**
+   * Which figure lane this book is on.
+   *
+   * Here rather than looked up where it is used, because two stages need the
+   * same answer about the same book and they must not be able to disagree:
+   * extraction decides whether a figure may be a DSL kind at all, and the
+   * cutting stage decides whether to reproduce it.
+   */
+  figureLane: 'cut' | 'gen'
 }
 
 const PAGE = 1000
@@ -88,10 +97,19 @@ export async function bookContext(db: Db, bookId: number): Promise<BookContext> 
     )
   }
 
+  const { data: book } = await db
+    .from('books')
+    .select('figure_render')
+    .eq('id', bookId)
+    .maybeSingle()
+
   const context: BookContext = {
     answerKeys,
     answerKeysRead,
     categories: await fetchCategories(db, bookId),
+    // Unknown or unreadable means 'cut', the lane that cannot be wrong about
+    // the page.
+    figureLane: book?.figure_render === 'gen' ? 'gen' : 'cut',
   }
   // Only a successful key read is worth keeping: a transient failure must not
   // stamp "this book has no answers" on the rest of the run.

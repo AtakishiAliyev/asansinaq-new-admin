@@ -121,3 +121,37 @@ export function rerouteIneligible(items: FigItem[]): {
   })
   return { items: next, rerouted }
 }
+
+/**
+ * Send EVERY figure to the cut lane, whatever kind the model chose.
+ *
+ * The policy for books on `figure_render = 'gen'`, and it is a policy about
+ * which is the better picture rather than about which kinds are expressible.
+ * Two live rows settled it: both picked `function_graph`, both were within
+ * their kind's competence, and both drew the wrong graph — one with its marked
+ * point sitting off the curve it was supposed to lie on. A cut of the printed
+ * figure cannot be wrong about the page, and a guarded reproduction of that cut
+ * is the same figure drawn more clearly.
+ *
+ * What this gives up is real and worth naming: the DSL is lintable, editable on
+ * the review screen and comparable field by field, and a cut is none of those.
+ * That trade is the operator's to make per book, which is why it is keyed to
+ * the lane and not applied everywhere.
+ */
+export function rerouteAllToCut(items: FigItem[]): {
+  items: FigItem[]
+  rerouted: Ineligible[]
+} {
+  const rerouted: Ineligible[] = []
+  const next = items.map((item) => {
+    if (item.kind === 'image') return item
+    rerouted.push({
+      kind: item.kind,
+      reason: 'bu kitab fiqurları orijinaldan kəsir (gen lane)',
+    })
+    // No box: the model's placement is not trusted here either, and the pixel
+    // localizer takes the largest block of drawing on the crop.
+    return { kind: 'image', src: '' } as FigItem
+  })
+  return { items: next, rerouted }
+}

@@ -5,6 +5,7 @@
 // extracted, and only a comparison against the original showed the figure was
 // not the figure. Two of them even passed the verification wave.
 import {
+  rerouteAllToCut,
   documentIneligible,
   figureIneligible,
   rerouteIneligible,
@@ -28,8 +29,16 @@ const RECT_VENN: FigItem = {
   height: 230,
   shapes: [
     { id: 'B', label: 'B', geom: { type: 'circle', cx: 115, cy: 115, r: 70 } },
-    { id: 'A', label: 'A', geom: { type: 'rect', x: 80, y: 95, w: 150, h: 45 } },
-    { id: 'C', label: 'C', geom: { type: 'rect', x: 90, y: 140, w: 150, h: 45 } },
+    {
+      id: 'A',
+      label: 'A',
+      geom: { type: 'rect', x: 80, y: 95, w: 150, h: 45 },
+    },
+    {
+      id: 'C',
+      label: 'C',
+      geom: { type: 'rect', x: 90, y: 140, w: 150, h: 45 },
+    },
   ],
   shaded: ['A-C', 'C-A'],
 } as FigItem
@@ -43,7 +52,14 @@ const TRIANGLE_VENN: FigItem = {
     {
       id: 'A',
       label: 'A',
-      geom: { type: 'triangle', points: [[10, 10], [200, 10], [100, 200]] },
+      geom: {
+        type: 'triangle',
+        points: [
+          [10, 10],
+          [200, 10],
+          [100, 200],
+        ],
+      },
     },
     { id: 'B', label: 'B', geom: { type: 'circle', cx: 115, cy: 115, r: 70 } },
     { id: 'C', label: 'C', geom: { type: 'circle', cx: 185, cy: 115, r: 70 } },
@@ -57,8 +73,16 @@ const OPERATOR_VENN: FigItem = {
   width: 300,
   height: 230,
   shapes: [
-    { id: 'A\\B', label: 'A\\B', geom: { type: 'circle', cx: 115, cy: 115, r: 70 } },
-    { id: 'A\\C', label: 'A\\C', geom: { type: 'circle', cx: 185, cy: 115, r: 70 } },
+    {
+      id: 'A\\B',
+      label: 'A\\B',
+      geom: { type: 'circle', cx: 115, cy: 115, r: 70 },
+    },
+    {
+      id: 'A\\C',
+      label: 'A\\C',
+      geom: { type: 'circle', cx: 185, cy: 115, r: 70 },
+    },
   ],
   shaded: [],
 } as FigItem
@@ -74,7 +98,16 @@ const SPLINE_GRAPH: FigItem = {
         {
           id: 'f',
           color: 'primary',
-          def: { type: 'spline', points: [[-4, 1], [-2, 0], [0, 1], [1, 2], [2, -1]] },
+          def: {
+            type: 'spline',
+            points: [
+              [-4, 1],
+              [-2, 0],
+              [0, 1],
+              [1, 2],
+              [2, -1],
+            ],
+          },
         },
       ],
     },
@@ -89,8 +122,24 @@ const FABRICATED_CONSTANT: FigItem = {
       x: { min: -3, max: 3, ticks: [] },
       y: { min: -5, max: 5, ticks: [] },
       curves: [
-        { id: 'f', color: 'primary', def: { type: 'expr', expr: 'x*x*x*0.335', domain: [-3, 3] } },
-        { id: 'g', color: 'secondary', def: { type: 'spline', points: [[-2, 1], [0, 0], [1, 2], [2, 3]] } },
+        {
+          id: 'f',
+          color: 'primary',
+          def: { type: 'expr', expr: 'x*x*x*0.335', domain: [-3, 3] },
+        },
+        {
+          id: 'g',
+          color: 'secondary',
+          def: {
+            type: 'spline',
+            points: [
+              [-2, 1],
+              [0, 0],
+              [1, 2],
+              [2, 3],
+            ],
+          },
+        },
       ],
     },
   ],
@@ -114,7 +163,13 @@ const GOOD_GRAPH: FigItem = {
     {
       x: { min: -3, max: 3, ticks: [] },
       y: { min: -1, max: 5, ticks: [] },
-      curves: [{ id: 'p', color: 'primary', def: { type: 'expr', expr: 'x^2', domain: [-2, 2] } }],
+      curves: [
+        {
+          id: 'p',
+          color: 'primary',
+          def: { type: 'expr', expr: 'x^2', domain: [-2, 2] },
+        },
+      ],
     },
   ],
 } as FigItem
@@ -163,7 +218,11 @@ export const kindEligibilitySuite = suite('kind-eligibility', {
   },
 
   'kinds outside the two gated ones are untouched'() {
-    eq(figureIneligible({ kind: 'image', src: 'a.png' } as FigItem), null, 'image always allowed')
+    eq(
+      figureIneligible({ kind: 'image', src: 'a.png' } as FigItem),
+      null,
+      'image always allowed',
+    )
     eq(
       figureIneligible({ kind: 'cubes', cubes: [{ front: {} }] } as FigItem),
       null,
@@ -174,7 +233,11 @@ export const kindEligibilitySuite = suite('kind-eligibility', {
   // Flagging is not routing. The round that only flagged left every row still
   // carrying the figure it had just called wrong.
   'an ineligible figure is replaced by a cut, not just flagged'() {
-    const { items, rerouted } = rerouteIneligible([RECT_VENN, GOOD_VENN, SPLINE_GRAPH])
+    const { items, rerouted } = rerouteIneligible([
+      RECT_VENN,
+      GOOD_VENN,
+      SPLINE_GRAPH,
+    ])
     eq(items.length, 3, 'nothing is dropped')
     eq(items[0]?.kind, 'image', 'the rect venn became a cut')
     eq(items[1]?.kind, 'venn', 'the good venn is untouched')
@@ -197,5 +260,28 @@ export const kindEligibilitySuite = suite('kind-eligibility', {
     eq(found.length, 2, 'both over-reaches are named')
     eq(found[0]?.kind, 'venn', 'in order')
     eq(found[1]?.kind, 'function_graph', 'in order')
+  },
+
+  // The gen-lane policy: the kind is not consulted at all. Two live rows chose
+  // function_graph, stayed inside their kind's competence, and still drew the
+  // wrong graph — one with its marked point off the curve.
+  'on a gen book every figure kind is sent to the cut lane'() {
+    const { items, rerouted } = rerouteAllToCut([
+      { kind: 'function_graph', curves: [], points: [] } as never,
+      { kind: 'venn', sets: [], shade: [] } as never,
+    ])
+    eq(items.length, 2, 'both survive as figures')
+    ok(
+      items.every((i) => i.kind === 'image' && i.src === ''),
+      'both are now cuts awaiting a region',
+    )
+    eq(rerouted.length, 2, 'and both are reported as rerouted')
+  },
+
+  'a figure that is already a cut is left untouched by the gen policy'() {
+    const original = { kind: 'image', src: 'books/1/fig0.png' } as never
+    const { items, rerouted } = rerouteAllToCut([original])
+    eq(items[0], original, 'the same object, not a rebuilt one')
+    eq(rerouted.length, 0, 'nothing to report')
   },
 })

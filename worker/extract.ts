@@ -12,7 +12,7 @@ import {
   type AnthropicRequest,
 } from '@/core/extract/request-anthropic'
 import { wireToQuestion } from '@/core/questions/extraction'
-import { rerouteIneligible } from '@/core/figures/kind-eligibility'
+import { rerouteAllToCut, rerouteIneligible } from '@/core/figures/kind-eligibility'
 import type { StoredVersion } from '@/core/questions/repair-guard'
 import type { Flag } from '@/core/questions/lint'
 import { buildRowPayload } from '@/core/questions/row-payload'
@@ -100,17 +100,28 @@ export async function applyResult(
   // not merely flagged. Leaving the spec in place is what made the last round
   // useless: the lint fired and the row still carried a venn drawn out of
   // rectangles. The prompt asks; this enforces.
+  // On a `gen` book the kind is not consulted at all: every figure is cut from
+  // the original and reproduced from that cut. See `rerouteAllToCut`.
+  const genLane = context.figureLane === 'gen'
   const routed = question.figures
-    ? rerouteIneligible(question.figures.items)
+    ? genLane
+      ? rerouteAllToCut(question.figures.items)
+      : rerouteIneligible(question.figures.items)
     : { items: [], rerouted: [] }
   if (question.figures) question.figures = { ...question.figures, items: routed.items }
-  const routeFlags: Flag[] = routed.rerouted.map((bad) => ({
-    level: 'warning',
-    code: 'figure_rerouted',
-    message:
-      `kind="${bad.kind}" bu fiqura uyğun deyil (${bad.reason}) — ` +
-      'fiqur orijinaldan kəsildi',
-  }))
+  // On a `gen` book every figure is rerouted BY POLICY, so flagging them would
+  // put every figure question in the review queue and say nothing — the queue
+  // is for rows that need a person, and "this book cuts its figures" does not.
+  // A kind that could not hold its figure is still a finding.
+  const routeFlags: Flag[] = genLane
+    ? []
+    : routed.rerouted.map((bad) => ({
+        level: 'warning',
+        code: 'figure_rerouted',
+        message:
+          `kind="${bad.kind}" bu fiqura uyğun deyil (${bad.reason}) — ` +
+          'fiqur orijinaldan kəsildi',
+      }))
 
   // Before the payload is built, not after: the option-empty lint reads
   // `image`, so cutting the pictures later would flag every picture option on
@@ -121,7 +132,7 @@ export async function applyResult(
   // Same reasoning, for a figure that declared itself a region rather than a
   // drawing. Before the payload is built, so the cut path is on the row.
   const figureCut = crop
-    ? await attachFigureImages(db, row, crop, question)
+    ? await attachFigureImages(db, row, crop, question, context.figureLane)
     : { produced: 0, failed: 0, flags: [] }
 
   // The rules live in core because the review screen writes this same row after
