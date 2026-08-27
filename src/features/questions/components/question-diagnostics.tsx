@@ -36,6 +36,7 @@ const FLAG_HINTS: Record<string, string> = {
   option_labels: 'variant hərfləri A–E deyil',
   option_latex: 'variant LaTeX-i render olunmur',
   stem_latex: 'sual mətnindəki LaTeX render olunmur',
+  stem_echoes_option: 'variantın məzmunu sual mətninə çəkilib — mənbə ilə tutuşdurun',
   stem_from_figure: 'şərt şəkildən oxunur — çap olunmuş mətn crop-dan kənardadır',
   empty_stem: 'sual mətni boşdur',
   illegible: 'model mətni oxuya bilmədi',

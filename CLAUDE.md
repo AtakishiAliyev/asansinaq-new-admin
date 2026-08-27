@@ -68,8 +68,18 @@ what each stage needs.
   generation is gone entirely — no automated path, no manual fallback, no
   provider key — and re-adding one is a decision, not a configuration change.
 
-  **Where a kind expresses the figure, the kind wins.** That lane is lintable,
-  editable and deeply verifiable, and nothing else is.
+  **Where a kind expresses the figure, the kind wins — ON A `cut` BOOK.** That
+  lane is lintable, editable and deeply verifiable, and nothing else is.
+
+  **On a `gen` book the kind is not consulted at all.** Every detected figure is
+  cut from the original and reproduced from that cut; `rerouteAllToCut` enforces
+  it in the pipeline rather than asking the prompt for it. Two reviewed rows
+  settled this: both chose `function_graph`, both stayed inside their kind's
+  competence, and both drew the wrong graph — one with its marked point sitting
+  off the curve it was supposed to lie on. What this gives up is real and is the
+  reason the policy is per book and not global: a cut is not lintable, not
+  editable and not comparable field by field. The operator trades that for a
+  figure that cannot be wrong about the page.
 
   **Where no kind expresses it, the fallback is a CLEANED REGION OF THE ORIGINAL
   CROP, not a free-drawn `raw_svg`.** A model asked to draw something it cannot
@@ -97,10 +107,9 @@ what each stage needs.
   renderers DISPLAY — only after passing a deterministic structural guard
   (`core/figures/structural-diff.ts`). The guard is loose about where lines end
   and strict about shaded regions and colour, because a guide stopping short of
-  an axis is harmless while a shading that moved is a different question. It
-  does not read labels; there is no OCR here, so text stays the verification
-  wave's job and the guard says `labelsChecked: false` rather than implying a
-  pass. One retry, then the cut is kept with a `gen_rejected` flag. A missing
+  an axis is harmless while a shading that moved is a different question. The
+  structural half does not read labels, and says `labelsChecked: false` rather
+  than implying a pass. One retry, then the cut is kept with a `gen_rejected` flag. A missing
   `GEMINI_API_KEY` turns the lane off rather than failing a queue.
 
   **The guard compares CONTENT, and every part of it that once compared the
@@ -112,6 +121,20 @@ what each stage needs.
   resolution or as a scale-free share — thin lines are compared as skeletons,
   hue as a circular earth-mover distance over 10-degree buckets, coloured area
   as a fraction of its own image.
+
+  **The guard READS THE WRITING too, since a reviewed row lost the name of its
+  own axis.** `core/figures/labels.ts` compares the words found on the cut with
+  the words found on the reproduction, and a label present in one and absent in
+  the other is a refusal. The engine (tesseract.js) lives in `worker/figure-ocr.ts`
+  and the JUDGEMENT lives in core, because deciding what noisy OCR output means
+  is the part that has to be argued about and pinned. Two measured facts shape
+  it: a cleaned cut is ~300px tall and must be upscaled before reading, or the
+  engine misreads the cut's own "6" as an "8" and reports a drift that exists
+  only inside the OCR; and real labels come back at 88-96 confidence while the
+  noise invented from curves and dashes sits at 55-80, so the bar sits above the
+  noise. It refuses when unsure, because a refusal keeps the cut — still the
+  source's own pixels, still correct — while an acceptance puts a cleaner-looking
+  wrong figure in front of a student.
 
   **Where a channel cannot carry a verdict, the guard ABSTAINS and says so.** On
   a figure drawn entirely in colour the black channel is the question number and

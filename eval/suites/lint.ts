@@ -172,4 +172,43 @@ export const lintSuite = suite('lint', {
     )
     eq(flags.some((f) => f.code === 'option_prose'), false)
   },
+
+  // Three reviewed rows widened the stem beyond what is printed; one pulled
+  // option A's content into the question itself, which leaves the option
+  // looking like the obvious answer and the stem asserting what it should ask.
+  'an option pulled into the stem is flagged'() {
+    const flags = lintQuestion({
+      stem: 'A və B çoxluqları verilir\n\\{1,2,3\\}',
+      options: [
+        { label: 'A', tex: '\\{1,2,3\\}' },
+        { label: 'B', tex: '\\{2,3\\}' },
+        { label: 'C', tex: '\\{1,2\\}' },
+        { label: 'D', tex: '\\{3\\}' },
+        { label: 'E', tex: '\\{1\\}' },
+      ],
+    } as never)
+    ok(
+      flags.some((f) => f.code === 'stem_echoes_option'),
+      `expected stem_echoes_option, got ${flags.map((f) => f.code).join(',')}`,
+    )
+  },
+
+  // A stem legitimately shares a short token with an option — "f(2)" asked
+  // about, "2" offered — and flagging that would fire on most of the bank.
+  'a stem that merely mentions a short option value is not flagged'() {
+    const flags = lintQuestion({
+      stem: '$f(2)=?$',
+      options: [
+        { label: 'A', tex: '2' },
+        { label: 'B', tex: '3' },
+        { label: 'C', tex: '4' },
+        { label: 'D', tex: '5' },
+        { label: 'E', tex: '6' },
+      ],
+    } as never)
+    ok(
+      !flags.some((f) => f.code === 'stem_echoes_option'),
+      'a short shared token is not an echo',
+    )
+  },
 })

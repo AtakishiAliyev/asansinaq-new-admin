@@ -176,6 +176,7 @@ export const LINT_CODES = new Set([
   'point_off_curve',
   'raster_figure',
   'raw_svg',
+  'stem_echoes_option',
   'stem_latex',
   'venn_empty',
   'venn_extra_set',
@@ -264,6 +265,33 @@ export function lintQuestion(q: ExtractedQuestion, expectedNumber?: number): Fla
         'error',
         'option_duplicate',
         `${labels.join(' və ')} variantları eynidir — biri səhv oxunub`,
+      )
+    }
+  }
+
+  // An option's content that also appears as a LINE of the stem.
+  //
+  // Three reviewed rows had the model widen the stem into territory that is not
+  // printed: two grew an invented preamble, and one pulled option A's content
+  // up into the question itself — which leaves the option looking like the
+  // obvious answer and the stem asserting what it was meant to ask.
+  //
+  // Whole lines only, and only substantial ones. A stem legitimately shares a
+  // short token with an option ("f(2)" asked about, "2" offered), and flagging
+  // that would fire on most of the bank.
+  const stemLines = q.stem
+    .split('\n')
+    .map((line) => canonMath(line))
+    .filter((line) => line.length >= 4)
+  for (const option of q.options) {
+    if (!option.tex) continue
+    const key = canonMath(option.tex)
+    if (key.length < 4) continue
+    if (stemLines.includes(key)) {
+      add(
+        'warning',
+        'stem_echoes_option',
+        `Stem-də ${option.label} variantının məzmunu təkrarlanır — variant sual mətninə çəkilib`,
       )
     }
   }

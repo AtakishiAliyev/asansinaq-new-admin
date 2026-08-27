@@ -12,7 +12,7 @@
 // squares instead of falling through to hand-written SVG that drops them. Rows
 // stamped 6 and 7 can hold visibly different figures for the same crop, which
 // is exactly what the version is for.
-export const PROMPT_VERSION = 12
+export const PROMPT_VERSION = 13
 
 // Prompt texts for the question-recreation pipeline. Shared by the
 // question-ops Edge Function and the Node eval harness — ONE source of truth,
@@ -30,7 +30,11 @@ Qaydalar:
 1. Şəkildə diaqonal watermark ola bilər — onu TAM İQNOR ET, heç vaxt köçürmə.
 2. Türk mətnini eynilə saxla (ç, ş, ğ, ı, ö, ü; onluq vergüllər 1,62 vergül qalır).
 3. Riyaziyyatı KaTeX-uyğun LaTeX ilə $...$ içində yaz; hissəli funksiyalar \\begin{cases}.
-4. "⇒ ... = ?" sətri stem-in bir hissəsidir. Sual nömrəsini stem-ə salma. Sualı HƏLL ETMƏ.
+4. Stem çap olunmuş mətnin EYNİSİDİR — köçürmə, təsvir deyil. "⇒ ... = ?" sətri stem-in bir hissəsidir. Sual nömrəsini stem-ə salma. Sualı HƏLL ETMƏ.
+   • Kitabda OLMAYAN giriş cümləsi əlavə etmə. "Şəkildəki çoxluqlar verilir", "Aşağıdakı qrafikə görə" kimi cümlə səhifədə çap olunmayıbsa — YAZMA.
+   • Fiquru sözlə TƏSVİR ETMƏ. Fiqur ayrıca verilir; stem fiqurun izahı deyil.
+   • Variantın məzmununu stem-ə ÇƏKMƏ. A–E-də yazılan heç nə stem-də təkrarlanmamalıdır.
+   • Çap olunmuş sual mətni yoxdursa (yalnız fiqur və variantlar) stem="" qoy — cümlə uydurma.
 5. Variantlar dəqiq A–E; məzmun qeyri-rəqəmi ola bilər (hərf, çoxluq, interval). Variant tex-ində $ işarəsi OLMASIN — sistem özü math rejimində göstərir. Çoxluq mötərizələri üçün \\{ və \\} yaz: "{e,m}" yox, "\\{e,m\\}".
 6. Əgər hər hansı hissə oxunmursa (üst-üstə çap və s.) illegible=true qoy və uydurma.
 7. Hər variant YA mətndir, YA şəkil — ikisindən biri, boş qalan variant olmamalıdır:
@@ -211,7 +215,17 @@ FƏRQ SAYILAN (hər birini ayrıca bildir):
   paralellik oxları, düz bucaq kvadratı, bərabər bucaq qövsləri;
 - sualın SORUŞDUĞU kəmiyyətin (adətən α) yenidən yaradılmış fiqurda ümumiyyətlə
   işarələnməməsi — bu, sualı həll edilməz edir və mütləq bildirilməlidir;
-- orijinalda olan mətnin/fiqurun tamamilə itməsi.
+- orijinalda olan mətnin/fiqurun tamamilə itməsi;
+- stem-də kitabda ÇAP OLUNMAYAN cümlənin əlavə edilməsi — giriş cümlələri və fiqurun
+  sözlə təsviri də daxil olmaqla;
+- stem-də hər hansı variantın (A–E) məzmununun təkrarlanması.
+
+STEM-İ ADDIM-ADDIM YOXLA (uydurulmuş mətn ən çox rast gəlinən səhvdir):
+1. Yenidən yaradılmışdakı HƏR cümləni orijinalda tap. Tapa bilmirsənsə — o cümlə uydurulub, bu FƏRQDİR.
+   Xüsusən "Şəkildəki çoxluqlar verilir", "Aşağıdakı qrafikə görə" tipli giriş cümlələri:
+   səhifədə çap olunmayıbsa, fərqdir — mənası doğru olsa belə.
+2. Stem-də A–E variantlarından birinin məzmunu təkrarlanırmı? Təkrarlanırsa, fərqdir.
+3. Orijinalda çap olunmuş hər şərt yenidən yaradılmışda varmı?
 
 FİQURU ADDIM-ADDIM YOXLA (fərqi "görməyə" güvənmə, SAY):
 1. Orijinaldakı bütün xətt/parça/şüaları say. Yenidən yaradılmışda neçədir? Say fərqlidirsə, hansı əskikdir?
