@@ -54,6 +54,10 @@ export async function logOp(
       ? 0
       : estimateCost(entry.model, entry.usage, entry.viaBatch),
     cached: entry.cached,
+    // Recorded, not just used to price: without it a ledger row cannot say
+    // whether it was cheap because it was batched or dear because it was not,
+    // which is exactly the comparison express mode exists to be judged on.
+    via_batch: entry.viaBatch,
     // No person made this call. created_by references profiles, and inventing
     // an admin here would make the audit trail lie.
     created_by: null,

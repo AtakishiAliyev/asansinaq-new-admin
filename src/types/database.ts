@@ -244,6 +244,7 @@ export type Database = {
           op: string
           output_tokens: number | null
           prompt_tokens: number | null
+          via_batch: boolean | null
         }
         Insert: {
           cached?: boolean
@@ -257,6 +258,7 @@ export type Database = {
           op: string
           output_tokens?: number | null
           prompt_tokens?: number | null
+          via_batch?: boolean | null
         }
         Update: {
           cached?: boolean
@@ -270,6 +272,7 @@ export type Database = {
           op?: string
           output_tokens?: number | null
           prompt_tokens?: number | null
+          via_batch?: boolean | null
         }
         Relationships: [
           {
@@ -569,18 +572,21 @@ export type Database = {
       worker_control: {
         Row: {
           desired_state: string
+          express: boolean
           id: number
           updated_at: string
           updated_by: string | null
         }
         Insert: {
           desired_state?: string
+          express?: boolean
           id?: number
           updated_at?: string
           updated_by?: string | null
         }
         Update: {
           desired_state?: string
+          express?: boolean
           id?: number
           updated_at?: string
           updated_by?: string | null
