@@ -30,6 +30,8 @@ export function QuestionsSelectionBar({
   onClear: () => void
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
+  /** Explicit consent to throw away results that have already been paid for. */
+  const [abandonInFlight, setAbandonInFlight] = useState(false)
   const [confirmApprove, setConfirmApprove] = useState(false)
   const bulkApprove = useBulkApprove()
   const remove = useDeleteQuestions()
@@ -44,6 +46,11 @@ export function QuestionsSelectionBar({
   const reviewed = selected.filter(
     (q) => q.status === 'approved' || q.status === 'rejected',
   )
+  // Rows still holding a submitted batch. That work is already paid for, and
+  // deleting the row does not cancel it — it removes the only place the results
+  // could land, so the provider finishes, bills, and nothing is kept. It has
+  // happened once: eight questions were in flight when the bank was cleared.
+  const inFlight = selected.filter((q) => q.batch_id)
   const busy = bulkApprove.isPending || remove.isPending || enqueue.isPending
 
   return (
@@ -161,12 +168,34 @@ export function QuestionsSelectionBar({
                 ? ` Seçilənlərin ${reviewed.length}-i artıq review-dən keçib.`
                 : ''}
             </AlertDialogDescription>
+            {inFlight.length ? (
+              <div className="border-destructive/40 bg-destructive/5 mt-3 rounded-md border p-3">
+                <p className="text-destructive text-sm font-medium">
+                  {inFlight.length} sual hazırda provayderdə emal olunur
+                </p>
+                <p className="text-muted-foreground mt-1 text-xs">
+                  Bu iş artıq ödənilib. Sətri silmək emalı dayandırmır — sadəcə
+                  nəticənin yazılacağı yeri silir, yəni pul xərclənir və heç nə
+                  qalmır. Worker onları özü toplayana qədər gözləyin
+                  (dayandırılıbsa, işə salın), ya da nəticələrdən imtina etdiyinizi
+                  aşağıda təsdiqləyin.
+                </p>
+                <label className="mt-2 flex items-center gap-2 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={abandonInFlight}
+                    onChange={(e) => setAbandonInFlight(e.target.checked)}
+                  />
+                  Ödənilmiş nəticələrdən imtina edirəm
+                </label>
+              </div>
+            ) : null}
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={remove.isPending}>İmtina</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-white hover:bg-destructive/90"
-              disabled={remove.isPending}
+              disabled={remove.isPending || (inFlight.length > 0 && !abandonInFlight)}
               onClick={(e) => {
                 e.preventDefault()
                 remove.mutate(selected, {

@@ -80,6 +80,10 @@ export const questionRowSchema = z.object({
   extraction_error: z.string().nullable(),
   queued_at: z.string().nullable().default(null),
   claimed_at: z.string().nullable().default(null),
+  // Read by the UI only to protect it: a row holding a batch handle has work
+  // in flight that is already paid for, and deleting it throws the results
+  // away without cancelling the charge.
+  batch_id: z.string().nullable().default(null),
   attempts: z.number().default(0),
   auto_approved: z.boolean().default(false),
 })

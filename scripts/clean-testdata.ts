@@ -3,6 +3,10 @@
 //
 //   npm run clean:testdata -- --project <ref> --yes
 //
+// It also refuses while any question still holds a submitted batch, because
+// that work is already paid for and deleting the row is what makes the payment
+// worthless. `--abandon-in-flight` says you mean it.
+//
 // DESTRUCTIVE AND IRREVERSIBLE. There is no soft delete here and no undo: the
 // crops are the only copy of the cropping work, and the PDFs are the only copy
 // of the upload. Run it when you mean to throw that away.
@@ -60,6 +64,7 @@ const actualRef = /https:\/\/([a-z0-9]+)\.supabase\./i.exec(url)?.[1] ?? url
 const argv = process.argv.slice(2)
 const confirmed = argv.includes('--yes')
 const claimedRef = argv[argv.indexOf('--project') + 1]
+const abandonInFlight = argv.includes('--abandon-in-flight')
 
 if (!confirmed || !argv.includes('--project') || claimedRef !== actualRef) {
   console.error('This deletes every question, answer key, book, cached op and')
@@ -73,6 +78,59 @@ if (!confirmed || !argv.includes('--project') || claimedRef !== actualRef) {
 }
 
 const db = createClient<Database>(url, key, { auth: { persistSession: false } })
+
+/**
+ * Refuse to delete rows that are still holding a submitted batch.
+ *
+ * A batch is paid for the moment it is submitted, and its results are the only
+ * thing that payment buys. Deleting the rows that hold its handle does not
+ * cancel it — it just removes the only place the answers could ever land, so
+ * the provider finishes the work, bills for it, and the worker finds nothing to
+ * write it to. That has already happened once here: eight questions were
+ * submitted, the bank was cleared while they were in flight, and the run came
+ * back to an empty table.
+ *
+ * A separate flag from `--yes` on purpose. `--yes` means "I meant to delete
+ * this"; this one means "I know I am throwing away work that has been paid
+ * for", which is a different thing to be sure about.
+ */
+async function refuseIfInFlight(): Promise<void> {
+  const { data, error } = await db
+    .from('questions')
+    .select('id, batch_id, batch_stage')
+    .not('batch_id', 'is', null)
+  if (error) {
+    // Not fatal, but not silent either: a check that could not run must not
+    // read as a check that passed.
+    console.error(`WARNING: could not check for in-flight batches — ${error.message}`)
+    console.error('Proceeding anyway; if a run is in flight its results are lost.\n')
+    return
+  }
+  const rows = data ?? []
+  if (!rows.length) return
+
+  const byBatch = new Map<string, number>()
+  for (const row of rows) {
+    const id = String(row.batch_id)
+    byBatch.set(id, (byBatch.get(id) ?? 0) + 1)
+  }
+  console.error(`${rows.length} question(s) are still holding a submitted batch:\n`)
+  for (const [batchId, count] of byBatch) {
+    const stage = rows.find((r) => r.batch_id === batchId)?.batch_stage ?? '?'
+    console.error(`  ${batchId}  ${stage.padEnd(7)} ${count} question(s)`)
+  }
+  console.error(
+    '\nThat work is already paid for. Deleting these rows does not cancel the\n' +
+      'batch — it removes the only place its results could land, so the money is\n' +
+      'spent and nothing is kept.\n\n' +
+      'Let the worker collect them first (it resumes polling on its own), or if\n' +
+      'you genuinely mean to throw the results away:\n' +
+      `  npm run clean:testdata -- --project ${actualRef} --yes --abandon-in-flight`,
+  )
+  process.exit(1)
+}
+
+if (!abandonInFlight) await refuseIfInFlight()
 
 async function tableCount(table: 'questions' | 'answer_keys' | 'books' | 'ops_cache' | 'ops_log') {
   const { count, error } = await db.from(table).select('*', { count: 'exact', head: true })
