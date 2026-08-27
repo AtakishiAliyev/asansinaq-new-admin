@@ -286,6 +286,65 @@ export const optionBandsSuite = suite('option-bands', {
     ok(result.box[0] > 550, `it took the real block (${result.box[0]})`)
   },
 
+  // Four of ten reviewed rows carried "8." or "10." into the figure cut, and
+  // from there into the reproduction, where the model redrew the number as
+  // though it were part of the drawing.
+  'the printed question number is left out of a figure box'() {
+    const pix = blank(900, 800)
+    fill(pix, 40, 300, 70, 330, BLACK) // "8." at the top left
+    fill(pix, 200, 300, 700, 600, BLACK) // the drawing, well clear of it
+    const result = localizeFigureBox(pix, [350, 100, 780, 900], { questionNumber: 8 })
+    ok(result.ok, 'located')
+    if (!result.ok) return
+    // 200/900 = 222 — the box starts at the drawing, not at the number's 44.
+    ok(result.box[1] > 180, `left edge clears the number (${result.box[1]})`)
+  },
+
+  'a question number on its own line is dropped with the line'() {
+    const pix = blank(900, 800)
+    fill(pix, 40, 200, 75, 232, BLACK) // "10." alone above the figure
+    fill(pix, 120, 300, 700, 600, BLACK)
+    const result = localizeFigureBox(pix, [250, 100, 780, 900], { questionNumber: 10 })
+    ok(result.ok, 'located')
+    if (!result.ok) return
+    ok(result.box[0] > 340, `top starts below the number line (${result.box[0]})`)
+  },
+
+  // The asymmetry that shapes the whole rule: leaving a number in is untidy and
+  // visible; cutting into the drawing removes something nobody can see is gone.
+  'a mark that belongs to the drawing is not mistaken for the number'() {
+    const pix = blank(900, 800)
+    // Same size and position as a question number, but the drawing reaches
+    // further left below it — so it cannot be cut away without loss.
+    fill(pix, 40, 300, 70, 330, BLACK)
+    fill(pix, 30, 400, 700, 600, BLACK)
+    const result = localizeFigureBox(pix, [350, 100, 780, 900], { questionNumber: 8 })
+    ok(result.ok, 'located')
+    if (!result.ok) return
+    ok(result.box[1] < 60, `nothing was cut (${result.box[1]})`)
+  },
+
+  'a cluster the wrong size for the number is left alone'() {
+    const pix = blank(900, 800)
+    // Far too wide to be "8." — a legend, or part of the figure.
+    fill(pix, 40, 300, 160, 330, BLACK)
+    fill(pix, 300, 300, 700, 600, BLACK)
+    const result = localizeFigureBox(pix, [350, 100, 780, 900], { questionNumber: 8 })
+    ok(result.ok, 'located')
+    if (!result.ok) return
+    ok(result.box[1] < 60, `left alone (${result.box[1]})`)
+  },
+
+  'without a known question number nothing is trimmed'() {
+    const pix = blank(900, 800)
+    fill(pix, 40, 300, 70, 330, BLACK)
+    fill(pix, 200, 300, 700, 600, BLACK)
+    const result = localizeFigureBox(pix, [350, 100, 780, 900])
+    ok(result.ok, 'located')
+    if (!result.ok) return
+    ok(result.box[1] < 60, `no number supplied, no trim (${result.box[1]})`)
+  },
+
   'a figure box on an empty crop is a refusal'() {
     const result = localizeFigureBox(blank(400, 300), [100, 100, 200, 200])
     ok(!result.ok, 'nothing to snap to')

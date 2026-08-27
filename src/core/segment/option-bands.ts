@@ -38,9 +38,17 @@ export interface LocalizeOptions {
   pad?: number
   /** White wider than this share of the crop separates two options in a row. */
   maxGutter?: number
+  /**
+   * The printed question number, when the caller knows it.
+   *
+   * Supplied so the leading "8." can be excluded from a figure box. Used as a
+   * SANITY CHECK on the glyph count and never as a licence to cut: a cluster
+   * that is not the right size for this many digits is left where it is.
+   */
+  questionNumber?: number
 }
 
-const DEFAULTS: Required<LocalizeOptions> = {
+const DEFAULTS: Omit<Required<LocalizeOptions>, 'questionNumber'> = {
   rowThreshold: 0.005,
   minBandHeight: 0.015,
   maxInnerGap: 0.012,
@@ -107,6 +115,136 @@ function extentOf(pix: Pixels, band: Band): { left: number; right: number } | nu
   return right < left ? null : { left, right }
 }
 
+
+/** Row-runs inside a region, looking only at the columns given. */
+function subBands(
+  pix: Pixels,
+  region: Band,
+  left: number,
+  right: number,
+  maxGap: number,
+): Band[] {
+  const occupied: boolean[] = []
+  for (let y = region.top; y <= region.bottom; y++) {
+    let on = false
+    for (let x = left; x <= right && !on; x++) {
+      if (isContent(pix.data, (y * pix.width + x) * 4)) on = true
+    }
+    occupied.push(on)
+  }
+  const bands: Band[] = []
+  let start = -1
+  for (let i = 0; i <= occupied.length; i++) {
+    const on = occupied[i] === true
+    if (on && start < 0) start = i
+    if (!on && start >= 0) {
+      const previous = bands[bands.length - 1]
+      const top = region.top + start
+      const bottom = region.top + i - 1
+      if (previous && top - previous.bottom - 1 <= maxGap) previous.bottom = bottom
+      else bands.push({ top, bottom })
+      start = -1
+    }
+  }
+  return bands
+}
+
+/** The rows actually carrying ink within a column range. */
+function rowExtentOf(
+  pix: Pixels,
+  band: Band,
+  left: number,
+  right: number,
+): { top: number; bottom: number } | null {
+  let top = -1
+  let bottom = -1
+  for (let y = band.top; y <= band.bottom; y++) {
+    let on = false
+    for (let x = left; x <= right && !on; x++) {
+      if (isContent(pix.data, (y * pix.width + x) * 4)) on = true
+    }
+    if (!on) continue
+    if (top < 0) top = y
+    bottom = y
+  }
+  return top < 0 ? null : { top, bottom }
+}
+
+/** Is there any content in these rows at or left of `x`? */
+function contentLeftOf(pix: Pixels, top: number, bottom: number, x: number): boolean {
+  for (let y = Math.max(0, top); y <= Math.min(pix.height - 1, bottom); y++) {
+    for (let cx = 0; cx <= Math.min(x, pix.width - 1); cx++) {
+      if (isContent(pix.data, (y * pix.width + cx) * 4)) return true
+    }
+  }
+  return false
+}
+
+/**
+ * Push a figure box past the printed question number.
+ *
+ * The number is not part of the figure, and four of ten reviewed rows carried
+ * theirs into the cut — which then went to the reproduction lane, where the
+ * model dutifully redrew "8." as though it were a label on the drawing.
+ *
+ * Deliberately timid, because the two mistakes here are not symmetric: leaving
+ * a number in is untidy and a reviewer can see it, while cutting into the
+ * drawing removes something nobody can see is gone. So it acts only on a
+ * cluster that is small, isolated, sized like the digits it is supposed to be,
+ * and removable without touching anything else — and otherwise leaves the box
+ * exactly as it found it.
+ */
+function trimQuestionNumber(
+  pix: Pixels,
+  region: Band,
+  left: number,
+  right: number,
+  expected: number | undefined,
+  maxGap: number,
+): { top: number; left: number } | null {
+  if (expected === undefined || expected <= 0) return null
+  const bands = subBands(pix, region, left, right, maxGap)
+  const first = bands[0]
+  if (!first) return null
+
+  const runs = columnRunsRaw(pix, first, left, right)
+  const candidate = runs[0]
+  if (!candidate) return null
+
+  // The candidate's OWN rows, not the band's. A number printed beside the
+  // drawing shares its rows with the whole figure, so the band's height is the
+  // figure's height and every size test on it fails open.
+  const rows = rowExtentOf(pix, first, candidate.left, candidate.right)
+  if (!rows) return null
+
+  const width = candidate.right - candidate.left + 1
+  const height = rows.bottom - rows.top + 1
+  const spanX = right - left + 1
+  const spanY = region.bottom - region.top + 1
+
+  // Small, in both directions, relative to the figure it sits on.
+  if (width > spanX * 0.16 || height > spanY * 0.16) return null
+  // It must start at the LEFT of the region: a number in the middle of a
+  // drawing is a label on the drawing.
+  if (candidate.left - left > spanX * 0.06) return null
+  // Sized like the digits it claims to be. "8." is two glyphs and "10." three,
+  // and a glyph is roughly six tenths of its height — wide bounds, because the
+  // point is to reject a stray rectangle, not to measure typography.
+  const glyphs = String(expected).length + 1
+  if (width < height * 0.3 * glyphs || width > height * 1.4 * glyphs) return null
+
+  if (runs.length === 1) {
+    // Alone on its line: everything below is the figure, so drop the line.
+    const next = bands[1]
+    return next ? { top: next.top, left } : null
+  }
+  // Beside the figure: it may only be cut away if the rest of the drawing
+  // stays clear of it, all the way down.
+  const gap = runs[1]!.left - candidate.right - 1
+  if (gap < spanX * 0.02) return null
+  if (contentLeftOf(pix, rows.bottom + 1, region.bottom, candidate.right)) return null
+  return { top: region.top, left: runs[1]!.left }
+}
 
 /**
  * Drop a narrow, isolated blob at the left edge — the "A)" label.
@@ -342,7 +480,8 @@ export function localizeFigureBox(
   hint: Box | null,
   options: LocalizeOptions = {},
 ): { ok: true; box: Box } | { ok: false; reason: string } {
-  const { pad } = { ...DEFAULTS, ...options }
+  const { pad, maxInnerGap } = { ...DEFAULTS, ...options }
+  const { questionNumber } = options
   const bands = contentBands(pix, options)
   if (!bands.length) return { ok: false, reason: 'crop holds no content at all' }
 
@@ -366,10 +505,25 @@ export function localizeFigureBox(
     chosen = [bands.reduce((a, b) => (b.bottom - b.top > a.bottom - a.top ? b : a))]
   }
 
-  const top = Math.min(...chosen.map((b) => b.top))
+  let top = Math.min(...chosen.map((b) => b.top))
   const bottom = Math.max(...chosen.map((b) => b.bottom))
   const extent = extentOf(pix, { top, bottom })
   if (!extent) return { ok: false, reason: 'the chosen region holds no content' }
+
+  // The printed question number is not part of the figure.
+  let left = extent.left
+  const trimmed = trimQuestionNumber(
+    pix,
+    { top, bottom },
+    extent.left,
+    extent.right,
+    questionNumber,
+    Math.max(1, Math.round(maxInnerGap * pix.height)),
+  )
+  if (trimmed) {
+    top = trimmed.top
+    left = trimmed.left
+  }
 
   const padY = Math.round(pad * pix.height)
   const padX = Math.round(pad * pix.width)
@@ -377,7 +531,7 @@ export function localizeFigureBox(
     ok: true,
     box: [
       Math.round((Math.max(0, top - padY) / pix.height) * 1000),
-      Math.round((Math.max(0, extent.left - padX) / pix.width) * 1000),
+      Math.round((Math.max(0, left - padX) / pix.width) * 1000),
       Math.round((Math.min(pix.height - 1, bottom + padY) / pix.height) * 1000),
       Math.round((Math.min(pix.width - 1, extent.right + padX) / pix.width) * 1000),
     ],

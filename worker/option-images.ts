@@ -295,6 +295,7 @@ export async function attachFigureImages(
   row: QuestionRow,
   crop: { image: string; mime: string },
   question: ExtractedQuestion,
+  lane: 'cut' | 'gen',
 ): Promise<{ produced: number; failed: number; flags: Flag[] }> {
   const wanted = (question.figures?.items ?? [])
     .map((item, index) => ({ item, index }))
@@ -309,21 +310,14 @@ export async function attachFigureImages(
   let produced = 0
   let failed = 0
 
-  // Per book, so the lane can be A/B'd during rollout. Unknown or unreadable
-  // means 'cut', which is the lane that cannot be wrong about the page.
-  const { data: book } = await db
-    .from('books')
-    .select('figure_render')
-    .eq('id', row.book_id)
-    .maybeSingle()
-  const lane = book?.figure_render === 'gen' ? 'gen' : 'cut'
 
   for (const { item, index } of wanted) {
     try {
       // Same rule as the option boxes: the model's coordinates are a hint about
       // WHERE IN THE FLOW to look, and the ink decides the rectangle. On p311/16
       // the hint was taken at face value and the cut held the wrong region.
-      const located = localizeFigureBox(pix, item.box ?? null)
+      // The printed number is not part of the drawing — see trimQuestionNumber.
+      const located = localizeFigureBox(pix, item.box ?? null, { questionNumber: row.q_no })
       if (located.ok) {
         item.box = located.box
       } else {
