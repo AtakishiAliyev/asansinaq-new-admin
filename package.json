@@ -32,7 +32,8 @@
     "seed:categories": "node --disable-warning=ExperimentalWarning scripts/seed-categories.ts",
     "types:gen": "node scripts/gen-types.mjs",
     "config:push": "node scripts/config-push.mjs",
-    "postinstall": "node scripts/copy-pdfjs-wasm.mjs"
+    "postinstall": "node scripts/copy-pdfjs-wasm.mjs",
+    "survey:pages": "node --max-old-space-size=4096 --import ./eval/loader.mjs --disable-warning=ExperimentalWarning scripts/page-survey.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.120.0",
