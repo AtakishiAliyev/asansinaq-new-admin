@@ -207,6 +207,130 @@ function inkCountInRow(
   return count
 }
 
+/** Ink row-runs inside one column, as pixel rows. */
+function inkRuns(
+  img: ImageData,
+  x0: number,
+  x1: number,
+  inkLum: number,
+  minRun: number,
+): { top: number; bottom: number }[] {
+  const tol = Math.max(2, Math.round((x1 - x0) * 0.004))
+  const runs: { top: number; bottom: number }[] = []
+  let start = -1
+  for (let y = 0; y <= img.height; y++) {
+    const on =
+      y < img.height &&
+      inkCountInRow(img.data, img.width, y, x0, x1, inkLum) > tol
+    if (on && start < 0) start = y
+    if (!on && start >= 0) {
+      if (y - start >= minRun) runs.push({ top: start, bottom: y - 1 })
+      start = -1
+    }
+  }
+  return runs
+}
+
+/**
+ * Scan-page question bounds, measured from the page instead of asked for.
+ *
+ * The detector's y coordinates are not measurements. On a reviewed page it
+ * answered 0-150, 150-350, 350-550 for the left column while the ink sat at
+ * 62-179, 431-535 and 764-903 of the same 1000-unit grid — evenly spaced slabs,
+ * wrong by as much as 410, and three of six crops held the wrong part of the
+ * page. The ink refiner could not rescue them: it searches upward from an
+ * anchor for whitespace, so an anchor in the wrong third of the page finds the
+ * wrong gap.
+ *
+ * What the model IS reliable about is WHAT — how many questions a column holds,
+ * their numbers and their order. So the numbering comes from the detection and
+ * the geometry comes from the pixels, the same division the option and figure
+ * localizers already make.
+ *
+ * The split needs no threshold: a column holding N questions is cut at the N-1
+ * WIDEST gaps between ink runs. On that page the gaps between questions ran
+ * 130-250 units against at most 20 inside one, so the choice is not close — and
+ * where it IS close, this refuses and leaves the detection's boxes alone. A
+ * confidently wrong split is worse than a crude one, because a question cut in
+ * half reads downstream exactly like a question the book never printed.
+ */
+export function regroupScanBands(
+  input: Band[],
+  img: ImageData,
+  scale: number,
+  inkLum: number,
+): { bands: Band[]; notes: string[] } {
+  const bands = input.map((b) => ({ ...b, bbox: { ...b.bbox } }))
+  const notes: string[] = []
+  const byCol = new Map<number, Band[]>()
+  for (const b of bands) {
+    const list = byCol.get(b.col) ?? []
+    list.push(b)
+    byCol.set(b.col, list)
+  }
+
+  for (const colBands of byCol.values()) {
+    colBands.sort((p, q) => p.bbox.y - q.bbox.y)
+    const wanted = colBands.length
+    if (wanted < 2) continue
+
+    const x0 = Math.max(0, Math.floor(Math.min(...colBands.map((b) => b.bbox.x)) * scale))
+    const x1 = Math.min(
+      img.width,
+      Math.ceil(Math.max(...colBands.map((b) => b.bbox.x + b.bbox.w)) * scale),
+    )
+    if (x1 - x0 < 8) continue
+
+    const runs = inkRuns(img, x0, x1, inkLum, Math.max(2, Math.round(scale)))
+    if (runs.length < wanted) {
+      notes.push(
+        `Sütun ${colBands[0]!.col}: mürəkkəb ${runs.length} bloka ayrıldı, ${wanted} sual gözlənilirdi — AI qutuları saxlanıldı`,
+      )
+      continue
+    }
+
+    const gaps = runs
+      .slice(1)
+      .map((r, i) => ({ at: i + 1, size: r.top - runs[i]!.bottom - 1 }))
+      .sort((a, b) => b.size - a.size)
+    const chosen = gaps.slice(0, wanted - 1)
+    const rest = gaps.slice(wanted - 1)
+    const smallestChosen = Math.min(...chosen.map((g) => g.size))
+    const largestRest = rest.length ? Math.max(...rest.map((g) => g.size)) : 0
+    // Clearly larger, not merely larger: a split decided by a few pixels is a
+    // guess wearing a measurement's clothes.
+    if (smallestChosen < largestRest * 1.5) {
+      notes.push(
+        `Sütun ${colBands[0]!.col}: sual sərhədləri mürəkkəbdən aydın seçilmir — AI qutuları saxlanıldı`,
+      )
+      continue
+    }
+
+    const cuts = new Set(chosen.map((g) => g.at))
+    const groups: { top: number; bottom: number }[] = []
+    let current = { top: runs[0]!.top, bottom: runs[0]!.bottom }
+    for (let i = 1; i < runs.length; i++) {
+      if (cuts.has(i)) {
+        groups.push(current)
+        current = { top: runs[i]!.top, bottom: runs[i]!.bottom }
+      } else {
+        current.bottom = runs[i]!.bottom
+      }
+    }
+    groups.push(current)
+
+    for (const [i, band] of colBands.entries()) {
+      const g = groups[i]
+      if (!g) continue
+      band.bbox.y = g.top / scale
+      band.bbox.h = (g.bottom - g.top + 1) / scale
+      band.anchorYTop = g.top / scale
+    }
+  }
+
+  return { bands, notes }
+}
+
 // Pure: returns refined copies, never mutates the caller's bands.
 function refineBandBounds(
   input: Band[],
@@ -348,7 +472,18 @@ export async function renderCrops(
 
   const img = ctx.getImageData(0, 0, canvas.width, canvas.height)
   const inkLum = opts.scanMode ? adaptiveInkThreshold(img) : INK_LUMINANCE
-  const { bands: refined, notes } = refineBandBounds(bands, img, scale, inkLum)
+  // On a scan the boxes came from a model that did not measure them, so the
+  // pixels get to say where the questions are before anything is cut.
+  const grouped = opts.scanMode
+    ? regroupScanBands(bands, img, scale, inkLum)
+    : { bands, notes: [] as string[] }
+  const { bands: refined, notes: refineNotes } = refineBandBounds(
+    grouped.bands,
+    img,
+    scale,
+    inkLum,
+  )
+  const notes = [...grouped.notes, ...refineNotes]
 
   const crops: Crop[] = []
   for (const b of refined) {
