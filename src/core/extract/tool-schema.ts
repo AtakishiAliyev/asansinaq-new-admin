@@ -14,7 +14,11 @@
 // fixtures and `wireFigure` both read that shape today, and changing the
 // schema and the provider in one step would leave no way to tell which one
 // moved the accuracy. Revisit once the batch lane has a baseline.
-import { extractResponseSchema } from '@/core/extract/schemas'
+import {
+  detectQuestionsSchema,
+  extractResponseSchema,
+  parseAnswerKeySchema,
+} from '@/core/extract/schemas'
 
 /** Structural clone that drops `nullable` and closes every object. */
 function toJsonSchema(node: unknown): unknown {
@@ -86,3 +90,28 @@ export const emitQuestionSchema: {
     additionalProperties: false,
   }
 })()
+
+// ---- the two utility ops ----
+//
+// These were built against Gemini's `responseSchema`, which FORCED the output
+// to be JSON of that shape. Anthropic has no equivalent for a plain message, so
+// the translation appended the schema to the prompt and asked politely — and
+// asking is not forcing. On a book whose pages carry no text layer, every
+// detection call answered with a Markdown table instead:
+//
+//     | Sual | Sütun | Box (ymin, xmin, ymax, xmax) |
+//     | 59   | 0     | [0, 0, 150, 500]             |
+//
+// The reading was perfect — six questions, right columns, watermark ignored —
+// and the parser threw on it because there was no `{`, so the page produced
+// nothing. Five runs over three pages, five Markdown tables: not a flake, a
+// default. A forced tool makes the shape structural instead of hoped-for,
+// which is what the extraction wave has always done.
+
+export const EMIT_DETECTION_TOOL_NAME = 'emit_detection'
+
+export const emitDetectionSchema = toJsonSchema(detectQuestionsSchema) as Record<string, unknown>
+
+export const EMIT_ANSWER_KEY_TOOL_NAME = 'emit_answer_key'
+
+export const emitAnswerKeySchema = toJsonSchema(parseAnswerKeySchema) as Record<string, unknown>

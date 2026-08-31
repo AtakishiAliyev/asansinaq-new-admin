@@ -41,7 +41,13 @@ import {
   buildAnthropicExtract,
   type ModelLane,
 } from '@/core/extract/request-anthropic'
-import { EMIT_QUESTION_TOOL_NAME } from '@/core/extract/tool-schema'
+import {
+  EMIT_ANSWER_KEY_TOOL_NAME,
+  EMIT_DETECTION_TOOL_NAME,
+  EMIT_QUESTION_TOOL_NAME,
+  emitAnswerKeySchema,
+  emitDetectionSchema,
+} from '@/core/extract/tool-schema'
 import {
   buildDetectQuestions,
   buildParseAnswerKey,
@@ -141,6 +147,7 @@ async function callAnthropic(
   model: string,
   params: Record<string, unknown>,
   deadline: number,
+  toolName: string = EMIT_QUESTION_TOOL_NAME,
   attempt = 0,
 ): Promise<AnthropicAnswer> {
   const key = Deno.env.get('ANTHROPIC_API_KEY')
@@ -167,7 +174,7 @@ async function callAnthropic(
     if ((res.status === 429 || res.status >= 500) && attempt < 1) {
       void res.body?.cancel().catch(() => {})
       await new Promise((r) => setTimeout(r, 2000))
-      return callAnthropic(model, params, deadline, attempt + 1)
+      return callAnthropic(model, params, deadline, toolName, attempt + 1)
     }
     if (!res.ok) {
       const detail = (await res.text()).slice(0, 400)
@@ -179,9 +186,7 @@ async function callAnthropic(
       stop_reason?: string
     }
     const blocks = out.content ?? []
-    const tool = blocks.find(
-      (b) => b.type === 'tool_use' && b.name === EMIT_QUESTION_TOOL_NAME,
-    )
+    const tool = blocks.find((b) => b.type === 'tool_use' && b.name === toolName)
     return {
       tool: (tool?.input as Record<string, unknown> | undefined) ?? null,
       text: blocks
@@ -221,13 +226,22 @@ function parseJsonAnswer(text: string): unknown {
 /**
  * A Gemini request body, re-expressed as an Anthropic one.
  *
- * The three utility ops keep their Gemini builders because their PROMPTS and
- * SCHEMAS are the asset and are shared with the eval fixtures. Rather than fork
- * them, the parts are lifted back out — the prompt text and the images — and
- * the response schema is appended to the prompt so the model still knows the
- * shape it owes. When these ops get tool definitions of their own, this goes.
+ * The utility ops keep their Gemini builders because their PROMPTS are the
+ * asset and are shared with the eval fixtures. What does NOT survive the
+ * translation is `responseSchema`: in Gemini it forced the output to be JSON of
+ * that shape, and this used to append it to the prompt and ask for JSON in
+ * words. Asking is not forcing — a detection call answered with a Markdown
+ * table on every page of a book with no text layer, and the parser threw on it
+ * because there was no `{`, so those pages produced nothing at all.
+ *
+ * So the shape now travels as a forced TOOL, which is structural, and the
+ * schema-as-prose is dropped: it would only be tokens repeating what the tool
+ * already guarantees.
  */
-function geminiToAnthropic(request: GeminiRequest): Record<string, unknown> {
+function geminiToAnthropic(
+  request: GeminiRequest,
+  tool?: { name: string; schema: Record<string, unknown> },
+): Record<string, unknown> {
   const body = request.body as {
     contents: { parts: { text?: string; inlineData?: { mimeType: string; data: string } }[] }[]
     generationConfig?: { responseSchema?: unknown }
@@ -248,6 +262,22 @@ function geminiToAnthropic(request: GeminiRequest): Record<string, unknown> {
       content.push({ type: 'text', text: part.text })
     }
   }
+  if (tool) {
+    return {
+      max_tokens: 8192,
+      messages: [{ role: 'user', content }],
+      tools: [
+        {
+          name: tool.name,
+          description: 'Nəticəni bu alətlə qaytar.',
+          input_schema: tool.schema,
+        },
+      ],
+      tool_choice: { type: 'tool', name: tool.name },
+    }
+  }
+
+  // No tool for this op: the schema still has to reach the model somehow.
   const schema = body.generationConfig?.responseSchema
   if (schema) {
     content.push({
@@ -509,12 +539,20 @@ Deno.serve(async (req) => {
       const refusal = await budgetRefusal(db)
       if (refusal) return refusal
 
+      const tool =
+        op === 'parse_answer_key'
+          ? { name: EMIT_ANSWER_KEY_TOOL_NAME, schema: emitAnswerKeySchema }
+          : { name: EMIT_DETECTION_TOOL_NAME, schema: emitDetectionSchema }
       const answer = await callAnthropic(
         model,
-        geminiToAnthropic(request),
+        geminiToAnthropic(request, tool),
         deadline,
+        tool.name,
       )
-      const parsed = parseJsonAnswer(answer.text) as Record<string, unknown>
+      // The tool is forced, so its input is the answer. Text is kept as a
+      // fallback rather than removed: a model that answered in prose anyway is
+      // a call already paid for, and reading it costs nothing.
+      const parsed = (answer.tool ?? parseJsonAnswer(answer.text)) as Record<string, unknown>
       const ms = Date.now() - started
       const usage = usageFrom(answer.usage)
       const cost = estimateCost(model, usage)

@@ -5,6 +5,10 @@ import {
 } from '@/core/extract/request-anthropic'
 import {
   EMIT_QUESTION_TOOL_NAME,
+  EMIT_ANSWER_KEY_TOOL_NAME,
+  EMIT_DETECTION_TOOL_NAME,
+  emitAnswerKeySchema,
+  emitDetectionSchema,
   emitQuestionSchema,
 } from '@/core/extract/tool-schema'
 import { extractResponseSchema } from '@/core/extract/schemas'
@@ -207,6 +211,45 @@ export const anthropicRequestSuite = suite('anthropic-request', {
       eq(node.additionalProperties, false, 'additionalProperties açıq qalıb')
       ok(Array.isArray(node.required), 'required yoxdur')
     }
+  },
+
+  // The two utility ops used to carry their schema as a sentence — "return only
+  // JSON matching this" — because Gemini's responseSchema had no Anthropic
+  // equivalent. Asking is not forcing: every detection call on a book with no
+  // text layer answered with a Markdown table, the parser threw for want of a
+  // `{`, and those pages produced nothing. Five runs, five tables. The shape is
+  // structural now, and these pin that it is a shape a tool will accept.
+  'the utility tools carry a schema an Anthropic tool accepts'() {
+    for (const [name, schema] of [
+      [EMIT_DETECTION_TOOL_NAME, emitDetectionSchema],
+      [EMIT_ANSWER_KEY_TOOL_NAME, emitAnswerKeySchema],
+    ] as const) {
+      ok(name.length > 0, 'alət adı boşdur')
+      notOk(hasKeyAnywhere(schema, 'nullable'), `${name}: Gemini açar sözü qalıb`)
+      const nodes = objectNodes(schema)
+      ok(nodes.length > 1, `${name}: gözlənilən iç-içə obyektlər, tapılan ${nodes.length}`)
+      for (const node of nodes) {
+        eq(node.additionalProperties, false, `${name}: additionalProperties açıq qalıb`)
+        ok(Array.isArray(node.required), `${name}: required yoxdur`)
+      }
+    }
+  },
+
+  // What the segmenter reads back off a detection. A schema that dropped one of
+  // these would still be valid and still be useless.
+  'the detection tool still names every field the scan path reads'() {
+    const props = emitDetectionSchema.properties as Record<string, unknown>
+    for (const key of ['columns', 'questions']) ok(props[key] !== undefined, `${key} yoxdur`)
+    const item = (props.questions as { items: { properties: Record<string, unknown> } }).items
+    for (const key of ['number', 'column', 'box']) {
+      ok(item.properties[key] !== undefined, `questions[].${key} yoxdur`)
+    }
+  },
+
+  'the answer-key tool still names every field the matcher reads'() {
+    const props = emitAnswerKeySchema.properties as Record<string, unknown>
+    const item = (props.entries as { items: { properties: Record<string, unknown> } }).items
+    for (const key of ['q_no', 'answer']) ok(item.properties[key] !== undefined, `entries[].${key} yoxdur`)
   },
 
   // The flat figure union is deliberate and load bearing: wireFigure and the
