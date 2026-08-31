@@ -236,6 +236,9 @@ function splitColumns(
   return { cols: [best.left, best.right], gutterMid: best.mid }
 }
 
+/** A printed question label: "12." or "12)". The book's own numbering, typed. */
+const FUSED_LABEL = /^\s*\d{1,3}[.)](\s|$)/
+
 interface Anchor {
   number: number
   yTop: number
@@ -480,10 +483,16 @@ export function segmentItems(
   // options are graphics, so each column also knows its share of the page).
   const col0 = cols[0]
   const col0Left = col0?.length ? Math.min(...col0.map((it) => it.x)) : 0
+  // Whether a column prints its question numbers AT ALL. A page is consistent
+  // with itself: where one column labels "13." the other labels "16.".
+  const labelled = cols.map((colItems) => colItems.some((it) => FUSED_LABEL.test(it.str)))
+  const anchoredUnlabelled: number[] = []
+
   cols.forEach((colItems, ci) => {
     if (!colItems.length) return
     const anchors = findAnchors(colItems, profile)
     if (!anchors.length) return
+    if (!labelled[ci]) anchoredUnlabelled.push(ci)
     const geo =
       gutterMid !== null
         ? ci === 0
@@ -492,6 +501,34 @@ export function segmentItems(
         : undefined
     bands.push(...buildBands(anchors, colItems, ci, contentBottom, geo))
   })
+
+  // One column labelled and another not is a page whose text layer is only
+  // half there. The unlabelled column still produced anchors — the anchor
+  // reader cannot tell a question number from a digit inside a formula — and
+  // they were digits: a page numbered 13,14,15 down the left came back
+  // 13,14,15,2,3, with two of its six questions built around numbers nothing
+  // printed. Six pages across two books did exactly this.
+  //
+  // The whole page goes to the scan lane rather than the good column being
+  // kept and the bad one dropped: the questions are all there on the paper, and
+  // the lane that measures from ink can read a column whose numbers are drawn
+  // instead of typed. Keeping half a page would lose the other half silently.
+  //
+  // A book that labels nothing anywhere is untouched — no column is labelled,
+  // so no column is out of step — which is what keeps bare-label books working.
+  if (labelled.some(Boolean) && anchoredUnlabelled.length) {
+    return {
+      pageNumber,
+      width: pageWidth,
+      height: pageHeight,
+      bands: [],
+      notes: [
+        ...notes,
+        'Sütunlardan birində çap olunmuş sual nömrələri yoxdur — səhifə AI yolu ilə emal olunur',
+      ],
+      isScan: true,
+    }
+  }
 
   bands.sort((p, q) => p.col - q.col || p.bbox.y - q.bbox.y)
   if (!bands.length) {
