@@ -115,7 +115,10 @@ export async function applyVerdict(
       level: critical.length ? 'error' : 'warning',
       code: 'verify_mismatch',
       message: `Yenidən yaradılmış sual orijinaldan fərqlənir: ${verdict.differences
-        .map((d) => `${d.field} — ${d.note}`)
+        // A verdict can name a difference and describe none. Said plainly,
+        // because "figure — " reads as a truncation rather than as the model
+        // having nothing to say.
+        .map((d) => `${d.field} — ${d.note.trim() || 'səbəb bildirilmədi'}`)
         .join('; ')
         .slice(0, 500)}`,
     })

@@ -191,11 +191,24 @@ export function parseVerdict(raw: unknown): Verdict {
   const value = (raw ?? {}) as Record<string, unknown>
   const differences = readDifferences(value)
   const critical = differences.some((d) => d.severity === 'critical')
+  // A difference the model reported and then described with NOTHING is not a
+  // small difference, it is an unreadable one — and `minor` is the reading that
+  // hides it behind a green tick. Seen live: a recreation that showed the
+  // question's own formula twice, because the figure box had swallowed the
+  // printed statement, came back as
+  // `{ field: 'other', severity: 'minor', note: '' }`. It passed, and the
+  // review screen displayed it as verified.
+  //
+  // It fails the verdict without being promoted to CRITICAL, because those are
+  // two different questions. Critical buys another paid read, and a read handed
+  // an empty hint is paid to be told the same nothing. This needs a person, and
+  // an unverified row is already how it reaches one.
+  const undescribed = differences.some((d) => !d.note.trim())
   return {
     // Belt and braces: a model that lists a critical difference and then says
     // it matches has contradicted itself, and the difference is the specific
     // claim while the verdict is the summary.
-    matches: value.matches === true && !critical,
+    matches: value.matches === true && !critical && !undescribed,
     confidence: typeof value.confidence === 'number' ? value.confidence : 0,
     differences,
   }

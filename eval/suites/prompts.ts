@@ -101,6 +101,49 @@ export const promptsSuite = suite('prompts', {
     )
   },
 
+  // A verdict that names a difference and then describes NOTHING. Live: a
+  // recreation showing the question's formula twice came back as
+  // {field:'other', severity:'minor', note:''}, passed, and was displayed as
+  // verified. "Minor" is the reading that hides an unreadable verdict.
+  'a difference with no description is not a pass'() {
+    const verdict = parseVerdict({
+      matches: true,
+      confidence: 0.9,
+      difference_fields: ['other'],
+      difference_severities: ['minor'],
+      difference_notes: [''],
+    })
+    eq(verdict.matches, false, 'an undescribed difference fails the verdict')
+    // NOT critical: critical buys another paid read, and a read handed an empty
+    // hint is paid to be told the same nothing. This one needs a person.
+    eq(verdict.differences[0]?.severity, 'minor', 'it is not promoted to critical')
+  },
+
+  'a note of only whitespace counts as no description'() {
+    const verdict = parseVerdict({
+      matches: true,
+      difference_fields: ['stem'],
+      difference_severities: ['minor'],
+      difference_notes: ['   \n  '],
+    })
+    eq(verdict.matches, false, 'whitespace describes nothing')
+  },
+
+  'a described minor difference still passes'() {
+    const verdict = parseVerdict({
+      matches: true,
+      confidence: 0.9,
+      difference_fields: ['stem'],
+      difference_severities: ['minor'],
+      difference_notes: ['sətir sonu fərqli, məzmun eynidir'],
+    })
+    eq(verdict.matches, true, 'a minor difference the model can explain is still a match')
+  },
+
+  'a verdict with no differences at all is unaffected'() {
+    eq(parseVerdict({ matches: true, confidence: 0.95 }).matches, true, 'clean pass stays a pass')
+  },
+
   'no Cyrillic look-alikes hide in the Azerbaijani text'() {
     for (const [name, text] of Object.entries(AZ_PROMPTS)) {
       const cyrillic = [...text].filter((c) => /[Ѐ-ӿ]/.test(c))
