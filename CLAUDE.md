@@ -98,19 +98,41 @@ what each stage needs.
   figure no kind expresses becomes a cleaned cut and nothing else. The type and
   the renderer stay so rows written before the change still open.
 
-  **There IS now an image-generation lane, and it is guarded.** The earlier rule
-  that image generation is gone entirely was replaced by an explicit operator
-  decision after a 1:1 reproduction prompt tested well on real figures. It is
-  opt-in per book (`books.figure_render = 'cut' | 'gen'`, default `cut`) and it
-  never replaces the cut: the cut stays in `ImageFig.src` as the source of truth
-  and as the fallback, and a reproduction lands in `genSrc` — the field the
-  renderers DISPLAY — only after passing a deterministic structural guard
-  (`core/figures/structural-diff.ts`). The guard is loose about where lines end
-  and strict about shaded regions and colour, because a guide stopping short of
-  an axis is harmless while a shading that moved is a different question. The
-  structural half does not read labels, and says `labelsChecked: false` rather
-  than implying a pass. One retry, then the cut is kept with a `gen_rejected` flag. A missing
-  `GEMINI_API_KEY` turns the lane off rather than failing a queue.
+  **There IS now an image-generation lane, and on a `gen` book its output is
+  what the question SHOWS.** The earlier rule that image generation is gone
+  entirely was replaced by an explicit operator decision after a 1:1
+  reproduction prompt tested well on real figures. It is opt-in per book
+  (`books.figure_render = 'cut' | 'gen'`, default `cut`). The cut is never
+  lost — it stays in `ImageFig.src` as the source of truth and as the
+  fallback — but the reproduction lands in `genSrc`, the field the renderers
+  DISPLAY, whether or not the structural guard was satisfied.
+
+  **The guard is a REVIEWER'S SIGNAL, not a gate on what is displayed, and that
+  changed after it was measured against real output.** It compares pixel
+  geometry, and a redraw is not a re-photograph: a reviewed rejection scored
+  0.16 ink overlap against the 0.85 bar while being a faithful and markedly
+  cleaner drawing of the same sets — the circles had moved and resized, which
+  is what redrawing IS. Keeping the cut on that verdict made the lane throw
+  away its best output and keep a watermarked scan, which is the opposite of
+  what the lane is for. An objection now rides along in `genRejected` and as a
+  `gen_unverified` flag, so the row reaches review with the reproduction, the
+  cut and the objection side by side, and the review screen paints that state
+  amber rather than green. What still catches a genuinely wrong drawing is the
+  verification wave, which judges MEANING against the original crop instead of
+  pixels, and the person in the review queue. Only a reproduction that never
+  arrived, or arrived in a format nothing can decode, keeps the cut — with a
+  `gen_failed` flag. A missing `GEMINI_API_KEY` turns the lane off rather than
+  failing a queue.
+
+  **A stored image's FORMAT comes from its bytes, never from its name.** The
+  provider returns JPEG; the lane stored it as `.gen.png` with
+  `contentType: image/png` and the renderer declared it `data:image/png`, so
+  resvg decoded nothing and painted nothing — and the verification wave
+  reported a figure the row actually had as absent, twice, at two repair rounds
+  each. A browser and the guard's canvas both sniff, so only the rasteriser
+  broke, and only for the reproductions the guard had ACCEPTED.
+  `core/figures/image-mime.ts` sniffs and REFUSES rather than defaulting,
+  because that default was the defect.
 
   **The guard compares CONTENT, and every part of it that once compared the
   MEDIUM has been removed.** Its first live run rejected all eight faithful
@@ -132,9 +154,11 @@ what each stage needs.
   engine misreads the cut's own "6" as an "8" and reports a drift that exists
   only inside the OCR; and real labels come back at 88-96 confidence while the
   noise invented from curves and dashes sits at 55-80, so the bar sits above the
-  noise. It refuses when unsure, because a refusal keeps the cut — still the
-  source's own pixels, still correct — while an acceptance puts a cleaner-looking
-  wrong figure in front of a student.
+  noise. It refuses when unsure. A refusal no longer swaps the
+  reproduction back out for the cut — it flags the row and sends it to a
+  person — so the cost of refusing is a reviewer's minute rather than a
+  discarded drawing, and the cost of staying silent is still a
+  cleaner-looking wrong figure in front of a student.
 
   **Where a channel cannot carry a verdict, the guard ABSTAINS and says so.** On
   a figure drawn entirely in colour the black channel is the question number and

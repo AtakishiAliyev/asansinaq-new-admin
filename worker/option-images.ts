@@ -190,13 +190,31 @@ async function runGuardedGeneration(
     ms: Date.now() - started,
   }).catch(() => {})
 
-  if (!result.png) {
+  // On a `gen` book the reproduction is what the question SHOWS, and the
+  // structural guard is a REVIEWER'S SIGNAL rather than a gate on that.
+  //
+  // The guard measures pixel geometry, and a redraw is not a re-photograph: a
+  // reviewed rejection scored 0.16 ink overlap against the 0.85 bar while
+  // being a faithful, cleaner drawing of the same sets — the circles had moved
+  // and resized, which is what redrawing IS. Keeping the cut on that verdict
+  // meant the lane discarded its best output and kept a watermarked scan,
+  // which is the opposite of what it is for.
+  //
+  // What still catches a genuinely wrong drawing is the verification wave,
+  // which compares the rendered question against the original crop and judges
+  // MEANING rather than pixels, plus this flag, which puts the row in front of
+  // a person either way. The cut is never lost: it stays in `src` as the
+  // source of truth and is what the renderers fall back to.
+  const image = result.png ?? result.rejectedPng
+  if (!image) {
+    // Nothing was drawn at all — a provider error or a refusal to draw. Here
+    // the cut really is all there is.
     return {
       flag: {
         level: 'warning',
-        code: 'gen_rejected',
+        code: 'gen_failed',
         message:
-          `Fiqurun 1:1 təkrar çəkilişi qəbul edilmədi (${result.attempts} cəhd): ` +
+          `Fiqur təkrar çəkilə bilmədi (${result.attempts} cəhd): ` +
           `${result.rejection ?? 'səbəb bilinmir'} — orijinal kəsim saxlanıldı`,
       },
     }
@@ -205,12 +223,12 @@ async function runGuardedGeneration(
   // What the provider sent, not what the lane assumed it sent. An unrecognised
   // payload is kept out of the row entirely: the cut is still correct, and a
   // reproduction nothing can decode is worse than no reproduction at all.
-  const mime = sniffImageMime(result.png)
+  const mime = sniffImageMime(image)
   if (!mime) {
     return {
       flag: {
         level: 'warning',
-        code: 'gen_rejected',
+        code: 'gen_failed',
         message: 'Təkrar çəkilişin formatı tanınmadı — orijinal kəsim saxlanıldı',
       },
     }
@@ -219,13 +237,29 @@ async function runGuardedGeneration(
   const path = figureGenPath(row, index, mime)
   const { error } = await db.storage
     .from('question-crops')
-    .upload(path, result.png, { upsert: true, contentType: mime })
+    .upload(path, image, { upsert: true, contentType: mime })
   if (error) {
     return {
       flag: {
         level: 'warning',
-        code: 'gen_rejected',
+        code: 'gen_failed',
         message: `Təkrar çəkiliş saxlanıla bilmədi: ${error.message} — kəsim saxlanıldı`,
+      },
+    }
+  }
+
+  // Shown, and flagged: the reviewer is told exactly what the guard objected to
+  // and can compare it against the cut on the figure strip.
+  if (!result.png) {
+    return {
+      path,
+      flag: {
+        level: 'warning',
+        code: 'gen_unverified',
+        message:
+          `Təkrar çəkiliş göstərilir, lakin quruluş yoxlamasından keçmədi ` +
+          `(${result.attempts} cəhd): ${result.rejection ?? 'səbəb bilinmir'} — ` +
+          `kəsimlə yan-yana gözlə müqayisə edin`,
       },
     }
   }
@@ -373,8 +407,9 @@ export async function attachFigureImages(
           item.genRejected = gen.flag.message
         }
         if (gen.path) {
-          // The cut stays in `src` as the source of truth; the reproduction is
-          // what gets DISPLAYED, and only ever after passing the guard.
+          // The cut stays in `src` as the source of truth and as the fallback;
+          // the reproduction is what gets DISPLAYED. A guard objection rides
+          // along in `genRejected` instead of suppressing the picture.
           item.genSrc = gen.path
         }
       }

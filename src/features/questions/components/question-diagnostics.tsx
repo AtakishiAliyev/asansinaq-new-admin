@@ -15,6 +15,8 @@ const FLAG_HINTS: Record<string, string> = {
   geo_ticks_on_ray: 'şüada bərabər uzunluq işarəsi — paralellik nəzərdə tutulub?',
   geo_empty: 'həndəsə fiqurunda çəkiləcək bir şey yoxdur',
   gen_rejected: '1:1 təkrar çəkiliş qoruyucudan keçmədi — orijinal kəsim saxlanıldı',
+  gen_unverified: 'təkrar çəkiliş göstərilir, quruluş yoxlamasından keçmədi — kəsimlə müqayisə edin',
+  gen_failed: 'təkrar çəkiliş alınmadı — orijinal kəsim saxlanıldı',
   gen_skipped: 'təkrar çəkiliş edilmədi (büdcə) — orijinal kəsim saxlanıldı',
   figure_rerouted: 'seçilmiş fiqur növü bu fiquru ifadə etmir — orijinaldan kəsildi',
   figure_box_unverified: 'fiqurun yeri piksellərdən təsdiqlənmədi — kəsimi yoxlayın',
