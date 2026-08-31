@@ -13,6 +13,7 @@
 import { Resvg } from '@resvg/resvg-js'
 import type { ExtractedOption, ExtractedQuestion } from '@/core/questions/extraction'
 import { renderFigItem } from '@/core/figures/render'
+import { sniffImageMime } from '@/core/figures/image-mime'
 import { esc, num, tag } from '@/core/figures/svg-emit'
 import { mathjaxRenderer } from './tex-mathjax.ts'
 import type { Db } from './db.ts'
@@ -449,8 +450,14 @@ export async function fetchOptionImages(
     if (!path || images.has(path) || path.startsWith('data:')) continue
     const { data } = await db.storage.from('question-crops').download(path)
     if (!data) continue
-    const b64 = Buffer.from(await data.arrayBuffer()).toString('base64')
-    images.set(path, `data:image/png;base64,${b64}`)
+    const bytes = Buffer.from(await data.arrayBuffer())
+    // The declared type has to match the bytes, because the rasteriser believes
+    // it. A `.gen.png` written by the image provider is JPEG, and labelling it
+    // PNG made resvg decode nothing and paint nothing — a figure the row
+    // actually had, absent from the picture the verifier judges.
+    const mime = sniffImageMime(bytes)
+    if (!mime) continue
+    images.set(path, `data:${mime};base64,${bytes.toString('base64')}`)
   }
   return images
 }

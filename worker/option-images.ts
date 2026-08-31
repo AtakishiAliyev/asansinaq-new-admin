@@ -25,6 +25,7 @@ import {
   type Box,
 } from '@/core/segment/option-bands'
 import type { Db, QuestionRow } from './db.ts'
+import { extensionForMime, sniffImageMime, type ImageMime } from '@/core/figures/image-mime'
 import { FIGURE_GEN_OP, guardedReproduction } from './figure-gen.ts'
 import { budgetExhausted, logOp } from './ops.ts'
 import { config } from './config.ts'
@@ -39,9 +40,15 @@ export function figureImagePath(row: QuestionRow, index: number): string {
   return `${row.book_id}/p${row.page_number}_c${row.col}_q${row.q_no}_fig${index}.png`
 }
 
-/** Where a guarded reproduction lives, beside the cut it was drawn from. */
-export function figureGenPath(row: QuestionRow, index: number): string {
-  return figureImagePath(row, index).replace(/\.png$/, '.gen.png')
+/**
+ * Where a guarded reproduction lives, beside the cut it was drawn from.
+ *
+ * The extension comes from the BYTES. The image provider returns JPEG, and a
+ * `.gen.png` holding it is a name that misleads every later reader — including
+ * the one that mattered, the rasteriser the verification wave draws with.
+ */
+export function figureGenPath(row: QuestionRow, index: number, mime: ImageMime): string {
+  return figureImagePath(row, index).replace(/\.png$/, `.gen.${extensionForMime(mime)}`)
 }
 
 /**
@@ -195,10 +202,24 @@ async function runGuardedGeneration(
     }
   }
 
-  const path = figureGenPath(row, index)
+  // What the provider sent, not what the lane assumed it sent. An unrecognised
+  // payload is kept out of the row entirely: the cut is still correct, and a
+  // reproduction nothing can decode is worse than no reproduction at all.
+  const mime = sniffImageMime(result.png)
+  if (!mime) {
+    return {
+      flag: {
+        level: 'warning',
+        code: 'gen_rejected',
+        message: 'Təkrar çəkilişin formatı tanınmadı — orijinal kəsim saxlanıldı',
+      },
+    }
+  }
+
+  const path = figureGenPath(row, index, mime)
   const { error } = await db.storage
     .from('question-crops')
-    .upload(path, result.png, { upsert: true, contentType: 'image/png' })
+    .upload(path, result.png, { upsert: true, contentType: mime })
   if (error) {
     return {
       flag: {
