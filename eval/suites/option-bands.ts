@@ -300,6 +300,49 @@ export const optionBandsSuite = suite('option-bands', {
     ok(result.box[1] > 180, `left edge clears the number (${result.box[1]})`)
   },
 
+  // The live failure the block fixture above could never catch: a printed
+  // number is SEVERAL glyphs, and a blank column ends a run. Measuring runs[0]
+  // measured one digit — 9px where the size test wanted 22-101 — so every
+  // multi-digit number was left in the cut, and "11." was redrawn as part of
+  // the figure. Single digits passed only because one glyph happens to be about
+  // the right size for "8.".
+  'a multi-glyph number is measured as one cluster, not as its first digit'() {
+    const pix = blank(900, 800)
+    // "11." — three marks with ordinary letter spacing between them.
+    fill(pix, 40, 300, 48, 331, BLACK)
+    fill(pix, 57, 300, 65, 331, BLACK)
+    fill(pix, 74, 324, 78, 331, BLACK)
+    fill(pix, 200, 300, 700, 600, BLACK) // the drawing, well clear of it
+    const result = localizeFigureBox(pix, [350, 100, 780, 900], { questionNumber: 11 })
+    ok(result.ok, 'located')
+    if (!result.ok) return
+    ok(result.box[1] > 180, `left edge clears all three marks (${result.box[1]})`)
+  },
+
+  'a multi-glyph number alone on its line is dropped with the line'() {
+    const pix = blank(900, 800)
+    fill(pix, 40, 200, 48, 231, BLACK)
+    fill(pix, 57, 200, 65, 231, BLACK)
+    fill(pix, 74, 224, 78, 231, BLACK)
+    fill(pix, 120, 300, 700, 600, BLACK)
+    const result = localizeFigureBox(pix, [250, 100, 780, 900], { questionNumber: 10 })
+    ok(result.ok, 'located')
+    if (!result.ok) return
+    ok(result.box[0] > 340, `top starts below the number line (${result.box[0]})`)
+  },
+
+  // The cluster stops at the mark count the number can have, so a row of small
+  // marks — a dashed leader, a tick strip — cannot be absorbed into one.
+  'a run of marks longer than the number is not swallowed into it'() {
+    const pix = blank(900, 800)
+    for (let i = 0; i < 6; i++) fill(pix, 40 + i * 17, 300, 48 + i * 17, 331, BLACK)
+    fill(pix, 300, 300, 700, 600, BLACK)
+    const result = localizeFigureBox(pix, [350, 100, 780, 900], { questionNumber: 8 })
+    ok(result.ok, 'located')
+    if (!result.ok) return
+    ok(result.box[1] < 60, `left alone (${result.box[1]})`)
+  },
+
   'a question number on its own line is dropped with the line'() {
     const pix = blank(900, 800)
     fill(pix, 40, 200, 75, 232, BLACK) // "10." alone above the figure

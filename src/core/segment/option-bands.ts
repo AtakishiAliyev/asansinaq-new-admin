@@ -208,8 +208,36 @@ function trimQuestionNumber(
   if (!first) return null
 
   const runs = columnRunsRaw(pix, first, left, right)
-  const candidate = runs[0]
-  if (!candidate) return null
+  const head = runs[0]
+  if (!head) return null
+
+  // A printed number is SEVERAL runs. "11." is three marks separated by
+  // ordinary letter spacing, and a blank column ends a run, so measuring
+  // runs[0] measures one digit: 9px where the size test wanted 22-101, and
+  // every multi-digit number failed it. Single digits passed only because one
+  // glyph happens to be the right size for "8.", which is why the trim looked
+  // like it worked.
+  //
+  // The cluster grows while the gaps stay glyph-sized and stops at the number
+  // of marks the number can have. Absorbing part of the drawing is possible
+  // where it is printed tight against the number, and it is self-limiting: the
+  // cluster then measures too wide, the size test refuses, and the number is
+  // left in. That is the safe direction — an untidy number is visible to a
+  // reviewer, a figure cut into is not.
+  const headRows = rowExtentOf(pix, first, head.left, head.right)
+  if (!headRows) return null
+  const marks = String(expected).length + 1
+  let last = 0
+  while (
+    last + 1 < runs.length &&
+    last + 1 < marks &&
+    runs[last + 1]!.left - runs[last]!.right - 1 <= (headRows.bottom - headRows.top + 1) * 0.6
+  ) {
+    last += 1
+  }
+  const candidate = { left: head.left, right: runs[last]!.right }
+  /** The first run that is NOT part of the number — the drawing, when it shares the line. */
+  const after = runs[last + 1]
 
   // The candidate's OWN rows, not the band's. A number printed beside the
   // drawing shares its rows with the whole figure, so the band's height is the
@@ -233,17 +261,17 @@ function trimQuestionNumber(
   const glyphs = String(expected).length + 1
   if (width < height * 0.3 * glyphs || width > height * 1.4 * glyphs) return null
 
-  if (runs.length === 1) {
+  if (!after) {
     // Alone on its line: everything below is the figure, so drop the line.
     const next = bands[1]
     return next ? { top: next.top, left } : null
   }
   // Beside the figure: it may only be cut away if the rest of the drawing
   // stays clear of it, all the way down.
-  const gap = runs[1]!.left - candidate.right - 1
+  const gap = after.left - candidate.right - 1
   if (gap < spanX * 0.02) return null
   if (contentLeftOf(pix, rows.bottom + 1, region.bottom, candidate.right)) return null
-  return { top: region.top, left: runs[1]!.left }
+  return { top: region.top, left: after.left }
 }
 
 /**
