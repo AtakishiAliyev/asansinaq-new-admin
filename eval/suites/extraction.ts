@@ -1,6 +1,8 @@
 import {
   chooseFigureLane,
+  collapseDoubledCommands,
   fixLeakedNewlines,
+  normalizeTexField,
   stripDollars,
   wireToQuestion,
 } from '@/core/questions/extraction'
@@ -10,6 +12,36 @@ export const extractionSuite = suite('extraction', {
   'a stray dollar inside an option is stripped'() {
     eq(stripDollars('$x+1$'), 'x+1', 'tək dollar cütü')
     eq(stripDollars('x+1'), 'x+1', 'dollarsız mətn dəyişmir')
+  },
+
+  // Live: a stem stored `$s(A \\\\setminus (D \\\\cup E)) = 4$` and rendered as
+  // "s(Asetminus(DcupE))=4". `\\\\` is a line break, so the command became a
+  // break plus bare letters, and the student would have read it that way too.
+  'a command escaped twice is collapsed back into a command'() {
+    eq(
+      collapseDoubledCommands('$s(A \\\\setminus (D \\\\cup E)) = 4$'),
+      '$s(A \\setminus (D \\cup E)) = 4$',
+      'both commands recovered',
+    )
+  },
+
+  // A real line break is followed by space, a newline, `[`, `*` or the end —
+  // never straight into a word — so an array row separator survives.
+  'a genuine line break is left alone'() {
+    // Two characters, spelled once: what LaTeX reads as a line break.
+    const BREAK = '\\\\'
+    eq(collapseDoubledCommands(`a ${BREAK} b`), `a ${BREAK} b`, 'before a space')
+    eq(collapseDoubledCommands(`a${BREAK}\n b`), `a${BREAK}\n b`, 'before a newline')
+    eq(collapseDoubledCommands(`a ${BREAK}[2pt] b`), `a ${BREAK}[2pt] b`, 'with a length')
+    eq(collapseDoubledCommands(`a ${BREAK}`), `a ${BREAK}`, 'at the end')
+  },
+
+  'a single-escaped command is untouched'() {
+    eq(collapseDoubledCommands('$\\setminus$'), '$\\setminus$', 'already correct')
+  },
+
+  'an option carrying a doubled command is repaired too'() {
+    eq(normalizeTexField('$A \\\\cup B$'), 'A \\cup B', 'options go through the same door')
   },
 
   'a leaked newline splits the math block, not the command'() {

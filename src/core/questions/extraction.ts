@@ -66,11 +66,27 @@ export function stripDollars(s: string): string {
   return s.trim().replace(/^\$+\s*/, '').replace(/\s*\$+$/, '')
 }
 
+// A LaTeX command that arrived escaped TWICE.
+//
+// `\\setminus` is not a command. In LaTeX `\\` is a line break, so it typesets
+// as a break followed by the bare letters "setminus", and one live row stored
+// `$s(A \\setminus (D \\cup E)) = 4$` and rendered it as "s(Asetminus(DcupE))=4".
+// The verification wave reported that as a minor difference, which is the right
+// verdict about the wrong thing: the render was faithful to a stem that was
+// already wrong, and the same wrong stem is what a student would have read.
+//
+// Only a `\\` followed by a LETTER is collapsed. A real line break is followed
+// by a space, a newline, `[`, `*` or the end of the string — never straight
+// into a word — so this cannot eat an array's row separator.
+export function collapseDoubledCommands(s: string): string {
+  return s.replace(/\\\\(?=[a-zA-Z])/g, '\\')
+}
+
 // "{e,m}" in KaTeX is invisible grouping — the printed set braces disappear.
 // If the string contains no LaTeX commands at all, its braces must be literal
 // set braces: escape them. (Strings with \frac etc. are left untouched.)
 export function normalizeTexField(s: string): string {
-  const t = stripDollars(s)
+  const t = collapseDoubledCommands(stripDollars(s))
   if (!t.includes('\\') && /[{}]/.test(t)) return t.replace(/([{}])/g, '\\$1')
   return t
 }
@@ -466,7 +482,7 @@ export function wireToQuestion(raw: Record<string, unknown>): ExtractedQuestion 
   normalizeVennShapeIds(items)
   return {
     numberSeen: Number(raw.number_seen ?? 0),
-    stem: fixLeakedNewlines(String(raw.stem ?? '')),
+    stem: fixLeakedNewlines(collapseDoubledCommands(String(raw.stem ?? ''))),
     options: ((raw.options as ExtractedOption[]) ?? []).map((o) => {
       const opt: ExtractedOption = { label: o.label }
       if (o.tex != null) opt.tex = normalizeTexField(String(o.tex))
