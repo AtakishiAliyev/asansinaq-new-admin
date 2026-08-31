@@ -316,6 +316,42 @@ function columnRunsRaw(
 }
 
 /**
+ * White this wide, as a share of the crop, separates a figure from the text
+ * printed beside it.
+ *
+ * Narrower than the option gutter (0.045), and measured rather than chosen: the
+ * gap between a Venn diagram and the "=> s(A) = 7" printed level with it is 23px
+ * on a 790px crop — 2.9% — while the option rule would have needed 36px and
+ * left the formula in. The wider gaps this also splits cost nothing, because
+ * only the OUTERMOST edges of the blocks the hint touches are read, so a
+ * drawing broken into several blocks is still returned whole.
+ */
+const FIGURE_GUTTER = 0.02
+
+/**
+ * Column blocks inside a row range: runs merged across ordinary letter and
+ * stroke gaps, split only where the white is wide enough to be a GUTTER.
+ *
+ * This is what tells a drawing from the formula printed BESIDE it. The two
+ * share their rows, so nothing measured on rows alone can separate them.
+ */
+function columnBlocks(
+  pix: Pixels,
+  region: Band,
+  left: number,
+  right: number,
+  gutter: number,
+): { left: number; right: number }[] {
+  const blocks: { left: number; right: number }[] = []
+  for (const run of columnRunsRaw(pix, region, left, right)) {
+    const previous = blocks[blocks.length - 1]
+    if (previous && run.left - previous.right - 1 <= gutter) previous.right = run.right
+    else blocks.push({ left: run.left, right: run.right })
+  }
+  return blocks
+}
+
+/**
  * How the model laid the options out: how many rows, and how many per row.
  *
  * Structure is the half the model gets right. It knows a page shows five
@@ -534,17 +570,61 @@ export function localizeFigureBox(
   }
 
   let top = Math.min(...chosen.map((b) => b.top))
-  const bottom = Math.max(...chosen.map((b) => b.bottom))
+  let bottom = Math.max(...chosen.map((b) => b.bottom))
   const extent = extentOf(pix, { top, bottom })
   if (!extent) return { ok: false, reason: 'the chosen region holds no content' }
 
+  // HORIZONTALLY the hint is evidence, not just a pointer at a row range.
+  //
+  // Rows chose which block of drawing this is; taking every pixel on those rows
+  // then swallowed whatever else was printed level with it. A figure with
+  // "=> s(A) = 7" beside it came back spanning 184-958 of the grid however
+  // tight the model's box was, so the formula was cut into the figure, redrawn
+  // into the reproduction by the gen lane, and shown a second time underneath
+  // as the extracted stem. The hint cannot place an edge — that is still the
+  // ink's job — but it can say WHICH side of a gutter the figure is on.
+  //
+  // Blocks between two kept blocks are kept by construction, since only the
+  // outermost edges are read: a drawing with a wide gap down its middle cannot
+  // lose its far half here.
+  let leftEdge = extent.left
+  let rightEdge = extent.right
+  if (hint) {
+    const hintLeft = Math.round((hint[1] / 1000) * pix.width)
+    const hintRight = Math.round((hint[3] / 1000) * pix.width)
+    const blocks = columnBlocks(
+      pix,
+      { top, bottom },
+      extent.left,
+      extent.right,
+      Math.max(1, Math.round(FIGURE_GUTTER * pix.width)),
+    )
+    const touched = blocks.filter((b) => b.right >= hintLeft && b.left <= hintRight)
+    // No overlap at all means the hint's x is as wrong as its y can be, and a
+    // guess here would crop the figure to nothing. The full extent stands.
+    if (touched.length) {
+      leftEdge = Math.min(...touched.map((b) => b.left))
+      rightEdge = Math.max(...touched.map((b) => b.right))
+    }
+  }
+
+  // Rows again, now that the columns are the figure's own. Excluding a formula
+  // printed beside the drawing can leave rows that are blank in what remains,
+  // and a box padded out to them carries a white margin the reproduction lane
+  // would faithfully redraw.
+  const narrowed = rowExtentOf(pix, { top, bottom }, leftEdge, rightEdge)
+  if (narrowed) {
+    top = narrowed.top
+    bottom = narrowed.bottom
+  }
+
   // The printed question number is not part of the figure.
-  let left = extent.left
+  let left = leftEdge
   const trimmed = trimQuestionNumber(
     pix,
     { top, bottom },
-    extent.left,
-    extent.right,
+    leftEdge,
+    rightEdge,
     questionNumber,
     Math.max(1, Math.round(maxInnerGap * pix.height)),
   )
@@ -561,7 +641,7 @@ export function localizeFigureBox(
       Math.round((Math.max(0, top - padY) / pix.height) * 1000),
       Math.round((Math.max(0, left - padX) / pix.width) * 1000),
       Math.round((Math.min(pix.height - 1, bottom + padY) / pix.height) * 1000),
-      Math.round((Math.min(pix.width - 1, extent.right + padX) / pix.width) * 1000),
+      Math.round((Math.min(pix.width - 1, rightEdge + padX) / pix.width) * 1000),
     ],
   }
 }

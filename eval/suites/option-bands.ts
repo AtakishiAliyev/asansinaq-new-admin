@@ -293,7 +293,7 @@ export const optionBandsSuite = suite('option-bands', {
     const pix = blank(900, 800)
     fill(pix, 40, 300, 70, 330, BLACK) // "8." at the top left
     fill(pix, 200, 300, 700, 600, BLACK) // the drawing, well clear of it
-    const result = localizeFigureBox(pix, [350, 100, 780, 900], { questionNumber: 8 })
+    const result = localizeFigureBox(pix, [350, 20, 780, 900], { questionNumber: 8 })
     ok(result.ok, 'located')
     if (!result.ok) return
     // 200/900 = 222 — the box starts at the drawing, not at the number's 44.
@@ -313,7 +313,7 @@ export const optionBandsSuite = suite('option-bands', {
     fill(pix, 57, 300, 65, 331, BLACK)
     fill(pix, 74, 324, 78, 331, BLACK)
     fill(pix, 200, 300, 700, 600, BLACK) // the drawing, well clear of it
-    const result = localizeFigureBox(pix, [350, 100, 780, 900], { questionNumber: 11 })
+    const result = localizeFigureBox(pix, [350, 20, 780, 900], { questionNumber: 11 })
     ok(result.ok, 'located')
     if (!result.ok) return
     ok(result.box[1] > 180, `left edge clears all three marks (${result.box[1]})`)
@@ -325,7 +325,7 @@ export const optionBandsSuite = suite('option-bands', {
     fill(pix, 57, 200, 65, 231, BLACK)
     fill(pix, 74, 224, 78, 231, BLACK)
     fill(pix, 120, 300, 700, 600, BLACK)
-    const result = localizeFigureBox(pix, [250, 100, 780, 900], { questionNumber: 10 })
+    const result = localizeFigureBox(pix, [250, 20, 780, 900], { questionNumber: 10 })
     ok(result.ok, 'located')
     if (!result.ok) return
     ok(result.box[0] > 340, `top starts below the number line (${result.box[0]})`)
@@ -337,7 +337,7 @@ export const optionBandsSuite = suite('option-bands', {
     const pix = blank(900, 800)
     for (let i = 0; i < 6; i++) fill(pix, 40 + i * 17, 300, 48 + i * 17, 331, BLACK)
     fill(pix, 300, 300, 700, 600, BLACK)
-    const result = localizeFigureBox(pix, [350, 100, 780, 900], { questionNumber: 8 })
+    const result = localizeFigureBox(pix, [350, 20, 780, 900], { questionNumber: 8 })
     ok(result.ok, 'located')
     if (!result.ok) return
     ok(result.box[1] < 60, `left alone (${result.box[1]})`)
@@ -347,7 +347,7 @@ export const optionBandsSuite = suite('option-bands', {
     const pix = blank(900, 800)
     fill(pix, 40, 200, 75, 232, BLACK) // "10." alone above the figure
     fill(pix, 120, 300, 700, 600, BLACK)
-    const result = localizeFigureBox(pix, [250, 100, 780, 900], { questionNumber: 10 })
+    const result = localizeFigureBox(pix, [250, 20, 780, 900], { questionNumber: 10 })
     ok(result.ok, 'located')
     if (!result.ok) return
     ok(result.box[0] > 340, `top starts below the number line (${result.box[0]})`)
@@ -361,7 +361,7 @@ export const optionBandsSuite = suite('option-bands', {
     // further left below it — so it cannot be cut away without loss.
     fill(pix, 40, 300, 70, 330, BLACK)
     fill(pix, 30, 400, 700, 600, BLACK)
-    const result = localizeFigureBox(pix, [350, 100, 780, 900], { questionNumber: 8 })
+    const result = localizeFigureBox(pix, [350, 20, 780, 900], { questionNumber: 8 })
     ok(result.ok, 'located')
     if (!result.ok) return
     ok(result.box[1] < 60, `nothing was cut (${result.box[1]})`)
@@ -372,7 +372,7 @@ export const optionBandsSuite = suite('option-bands', {
     // Far too wide to be "8." — a legend, or part of the figure.
     fill(pix, 40, 300, 160, 330, BLACK)
     fill(pix, 300, 300, 700, 600, BLACK)
-    const result = localizeFigureBox(pix, [350, 100, 780, 900], { questionNumber: 8 })
+    const result = localizeFigureBox(pix, [350, 20, 780, 900], { questionNumber: 8 })
     ok(result.ok, 'located')
     if (!result.ok) return
     ok(result.box[1] < 60, `left alone (${result.box[1]})`)
@@ -382,10 +382,61 @@ export const optionBandsSuite = suite('option-bands', {
     const pix = blank(900, 800)
     fill(pix, 40, 300, 70, 330, BLACK)
     fill(pix, 200, 300, 700, 600, BLACK)
-    const result = localizeFigureBox(pix, [350, 100, 780, 900])
+    const result = localizeFigureBox(pix, [350, 20, 780, 900])
     ok(result.ok, 'located')
     if (!result.ok) return
     ok(result.box[1] < 60, `no number supplied, no trim (${result.box[1]})`)
+  },
+
+  // A formula printed BESIDE a diagram shares its rows, so nothing measured on
+  // rows alone can separate them: the box came back spanning the full width
+  // however tight the model's box was, the formula was cut into the figure,
+  // the gen lane redrew it, and the reviewer saw the same text twice.
+  'text printed beside a drawing is left out of the figure box'() {
+    const pix = blank(900, 800)
+    fill(pix, 100, 300, 480, 600, BLACK) // the drawing
+    fill(pix, 700, 430, 860, 460, BLACK) // "=> s(A) = 7", level with it
+    const result = localizeFigureBox(pix, [370, 100, 760, 550])
+    ok(result.ok, 'located')
+    if (!result.ok) return
+    // 480/900 = 533 — the box ends at the drawing, not at the formula's 955.
+    ok(result.box[3] < 600, `right edge clears the formula (${result.box[3]})`)
+  },
+
+  // The safe direction: only the hint can authorise dropping a block, and a
+  // hint that reaches the text keeps it. Nothing is cut on a measurement alone.
+  'text the hint reaches is kept, since the box is the model’s claim'() {
+    const pix = blank(900, 800)
+    fill(pix, 100, 300, 480, 600, BLACK)
+    fill(pix, 700, 430, 860, 460, BLACK)
+    const result = localizeFigureBox(pix, [370, 100, 760, 980])
+    ok(result.ok, 'located')
+    if (!result.ok) return
+    ok(result.box[3] > 900, `the hint covered it, so it stays (${result.box[3]})`)
+  },
+
+  // A drawing may have a gap down its middle. Only the outermost kept edges are
+  // read, so a block between two kept blocks cannot be lost.
+  'a gap inside the drawing does not split the figure'() {
+    const pix = blank(900, 800)
+    fill(pix, 100, 300, 250, 600, BLACK)
+    fill(pix, 600, 300, 750, 600, BLACK) // far half, past a wide gutter
+    const result = localizeFigureBox(pix, [370, 100, 760, 850])
+    ok(result.ok, 'located')
+    if (!result.ok) return
+    ok(result.box[3] > 800, `the far half is kept (${result.box[3]})`)
+  },
+
+  // Excluding a formula can leave rows that are blank in what remains, and a
+  // box padded out to them carries a white margin the gen lane would redraw.
+  'rows are re-measured on the columns that survived'() {
+    const pix = blank(900, 800)
+    fill(pix, 700, 200, 860, 232, BLACK) // text alone, above and to the right
+    fill(pix, 100, 400, 480, 600, BLACK) // the drawing, lower and to the left
+    const result = localizeFigureBox(pix, [230, 100, 760, 550])
+    ok(result.ok, 'located')
+    if (!result.ok) return
+    ok(result.box[0] > 470, `top starts at the drawing (${result.box[0]})`)
   },
 
   'a figure box on an empty crop is a refusal'() {
