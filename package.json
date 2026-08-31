@@ -33,7 +33,8 @@
     "types:gen": "node scripts/gen-types.mjs",
     "config:push": "node scripts/config-push.mjs",
     "postinstall": "node scripts/copy-pdfjs-wasm.mjs",
-    "survey:pages": "node --max-old-space-size=4096 --import ./eval/loader.mjs --disable-warning=ExperimentalWarning scripts/page-survey.ts"
+    "survey:pages": "node --max-old-space-size=4096 --import ./eval/loader.mjs --disable-warning=ExperimentalWarning scripts/page-survey.ts",
+    "survey:scan": "node --max-old-space-size=4096 --import ./eval/loader.mjs --disable-warning=ExperimentalWarning scripts/scan-survey.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.120.0",

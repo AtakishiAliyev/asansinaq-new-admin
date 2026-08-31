@@ -207,6 +207,33 @@ function inkCountInRow(
   return count
 }
 
+/**
+ * How much wider a chosen boundary gap must be than the widest gap left inside
+ * a question.
+ *
+ * It started at 1.5, taken from one page where the gaps between questions ran
+ * 130-250px against at most 20 inside one. That page was not representative:
+ * across 36 sampled pages of the three image-only books, every refusal landed
+ * between 1.00 and 1.48 — the chosen gaps were always the widest available,
+ * just not by half again.
+ *
+ * And refusing is not neutral. The fallback is the detector's own boxes, which
+ * are evenly spaced slabs rather than measurements: on the page that started
+ * this, it answered 0-150, 150-350, 350-550 for ink at 62-179, 431-535 and
+ * 764-903. So the comparison is not "a marginal split against no split", it is
+ * "a marginal split against a guess we already know to be wrong".
+ *
+ * Measured over the same 36 pages, clean pages by book: at 1.5, 2 and 3 of 12;
+ * at 1.25, 6 and 6; at 1.15, 7 and 7; at 1.05, 9 and 9. The third book, whose
+ * ink always separated cleanly, stayed at 12 of 12 throughout — lowering this
+ * cannot disturb a page that already passed.
+ *
+ * What still guards the degenerate case is the run count: ink that yields fewer
+ * blocks than there are questions refuses regardless, and identical gaps score
+ * exactly 1.00 and refuse here.
+ */
+const SPLIT_MARGIN = 1.05
+
 /** Ink row-runs inside one column, as pixel rows. */
 function inkRuns(
   img: ImageData,
@@ -299,9 +326,10 @@ export function regroupScanBands(
     const largestRest = rest.length ? Math.max(...rest.map((g) => g.size)) : 0
     // Clearly larger, not merely larger: a split decided by a few pixels is a
     // guess wearing a measurement's clothes.
-    if (smallestChosen < largestRest * 1.5) {
+    if (smallestChosen < largestRest * SPLIT_MARGIN) {
       notes.push(
-        `Sütun ${colBands[0]!.col}: sual sərhədləri mürəkkəbdən aydın seçilmir — AI qutuları saxlanıldı`,
+        `Sütun ${colBands[0]!.col}: sual sərhədləri mürəkkəbdən aydın seçilmir ` +
+          `(${smallestChosen}px / ${largestRest}px = ${(smallestChosen / Math.max(1, largestRest)).toFixed(2)}) — AI qutuları saxlanıldı`,
       )
       continue
     }
