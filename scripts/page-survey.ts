@@ -35,6 +35,8 @@ interface PageRow {
   numbers: number[]
   /** Shortest band as a share of the page's median band. */
   minRatio: number | null
+  /** Tallest band as a share of the median: a band that swallowed a question. */
+  maxRatio: number | null
   flags: string[]
 }
 
@@ -135,6 +137,10 @@ for (const file of targets) {
         bands: seg.bands.length,
         numbers: seg.bands.map((b) => b.number),
         minRatio: median > 0 ? Number((heights[0]! / median).toFixed(2)) : null,
+        maxRatio:
+          median > 0
+            ? Number((heights[heights.length - 1]! / median).toFixed(2))
+            : null,
         flags: [],
       })
     } catch (error) {
@@ -145,6 +151,7 @@ for (const file of targets) {
         bands: 0,
         numbers: [],
         minRatio: null,
+        maxRatio: null,
         flags: [`xəta: ${String(error).slice(0, 60)}`],
       })
     }

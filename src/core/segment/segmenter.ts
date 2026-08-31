@@ -347,15 +347,23 @@ function findAnchors(colItems: SegItem[], profile: SourceProfile): Anchor[] {
   }
 
   // `all` is non-empty by the guard above, so the loop left at least one cluster.
+  //
+  // A PRINTED label outranks position. The leftmost qualifying cluster used to
+  // win, and content digits can sit left of the label: a column whose only
+  // question number was "16." at x=312 had bare digits at x=247, so the gate
+  // closed at 263 and the label never entered the chain — the question came
+  // back numbered 5. Where a column prints its numbers at all, those are the
+  // numbers; the leftmost rule still decides among the printed ones, and a
+  // column that prints none is unaffected.
+  const fusedClusters = clusters.filter((cl) => cl.fused)
   const primary =
-    clusters.find((cl) => cl.fused || cl.count >= 2) ?? clusters[0]!
+    fusedClusters[0] ?? clusters.find((cl) => cl.count >= 2) ?? clusters[0]!
   let kept = chainFrom(primary.minX)
 
   // A degenerate result with other clusters available usually means the
   // reference was hijacked (a stray fused caption left of the real labels):
   // retry each fused cluster — then any cluster — and keep the longest chain.
   if (kept.length <= 1 && clusters.length > 1) {
-    const fusedClusters = clusters.filter((cl) => cl.fused)
     for (const cl of fusedClusters.length ? fusedClusters : clusters) {
       const alt = chainFrom(cl.minX)
       if (alt.length > kept.length) kept = alt
