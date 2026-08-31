@@ -10,6 +10,41 @@ const numbers = (specs: Parameters<typeof items>[0]) =>
   seg(specs).bands.map((b) => b.number)
 
 export const segmenterSuite = suite('segment', {
+  // Two pages of a reviewed book draw their question numbers as vector art, so
+  // the text layer offered none — and the anchor reader, which cannot tell a
+  // question number from a digit inside a formula, chained content digits
+  // instead. It answered 2,3,5,7,8 for a page holding 47 to 52, and one of its
+  // bands was four points tall on an 842pt page.
+  'anchors that produce a band too short to be a question route to the scan lane'() {
+    const page = seg([
+      ...question(1, 50, 60),
+      // Two "anchors" a few points apart: whatever they are, they are not two
+      // questions, and the band between them cannot hold one.
+      ...question(2, 50, 100),
+      ...question(3, 50, 700),
+      // Enough body text that the page is not dismissed on item count alone.
+      { str: 'Bir mətn sətri', x: 50, y: 200, w: 120 },
+      { str: 'Daha bir sətir', x: 50, y: 240, w: 120 },
+      { str: 'Üçüncü sətir', x: 50, y: 420, w: 120 },
+      { str: 'Dördüncü sətir', x: 50, y: 470, w: 120 },
+    ])
+    eq(page.isScan, true, 'səhifə AI yoluna verilməlidir')
+    eq(page.bands.length, 0, 'yarımçıq bandlar ötürülmür')
+    ok(
+      page.notes.some((n) => n.includes('sual nömrələri yoxdur')),
+      `səbəb qeyd olunmalıdır: ${page.notes.join(' | ')}`,
+    )
+  },
+
+  // Judged against the page's own median, so a page of many small questions is
+  // not punished for being dense. Every honest page in the reviewed book had a
+  // shortest band of 42-55% of its median.
+  'a page of evenly sized questions is left alone'() {
+    const page = seg(column(1, 6, 50, 60, 120))
+    eq(page.isScan, false, 'mətn qatı ilə emal olunmalıdır')
+    eq(page.bands.length, 6)
+  },
+
   'single column keeps every question in order'() {
     const page = seg(column(1, 4, 50, 100))
     eq(page.isScan, false, 'isScan')

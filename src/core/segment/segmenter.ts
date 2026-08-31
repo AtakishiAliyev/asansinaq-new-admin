@@ -29,14 +29,38 @@ function itemsFromContent(
   }[]) {
     if (!raw.str || !raw.str.trim()) continue
     const [a, b, , , e, f] = raw.transform
-    out.push({
+    const item: SegItem = {
       str: raw.str,
       x: e,
       yTop: pageHeight - f - raw.height, // baseline → top-left origin
       w: raw.width,
       h: raw.height,
       angle: Math.atan2(b, a),
-    })
+    }
+
+    // One printed token, one item. pdf.js splits a run wherever the PDF's own
+    // text-showing operators do, which has nothing to do with words: a book
+    // whose text layer holds ONLY its question numbers emitted "77." as "7"
+    // then "7.", and the anchor reader — which looks at one item — called that
+    // question 7. Its neighbour became 8, and their bands were built around
+    // numbers the page never printed.
+    //
+    // Only TOUCHING pieces are joined. A space in this typeface is 2pt and up,
+    // so a sub-point gap is not a word boundary, it is one glyph run ending.
+    const previous = out[out.length - 1]
+    if (
+      previous &&
+      previous.angle === item.angle &&
+      Math.abs(previous.yTop - item.yTop) <= 1 &&
+      item.x - (previous.x + previous.w) <= 1 &&
+      item.x >= previous.x
+    ) {
+      previous.str += item.str
+      previous.w = item.x + item.w - previous.x
+      previous.h = Math.max(previous.h, item.h)
+      continue
+    }
+    out.push(item)
   }
   return out
 }
@@ -472,6 +496,38 @@ export function segmentItems(
   bands.sort((p, q) => p.col - q.col || p.bbox.y - q.bbox.y)
   if (!bands.length) {
     notes.push('Sual ankeri tapılmadı — səhifə AI yolu ilə emal oluna bilər')
+  }
+
+  // A band too short to hold a question means the anchors were not question
+  // starts. Two pages of a reviewed book draw their numbers as vector art, so
+  // the text layer offered none — and the anchor reader, which cannot tell a
+  // question number from a digit inside a formula, chained content digits
+  // instead. It answered 2,3,5,7,8 for a page holding 47 to 52, and one of its
+  // bands was FOUR POINTS tall.
+  //
+  // Measured against the page's own median rather than a fixed size, so a page
+  // of many small questions is judged by its own scale. The margin is not
+  // close: across the reviewed book every honest page's shortest band ran
+  // 42-55% of its median, and the two dishonest ones came in at 2.6% and 3.9%.
+  //
+  // The page is then handed to the scan lane rather than dropped. It has
+  // questions on it; what it does not have is a text layer that can find them.
+  const heights = bands.map((b) => b.bbox.h).sort((x, y) => x - y)
+  const median = heights.length ? heights[Math.floor(heights.length / 2)]! : 0
+  const implausible =
+    bands.length > 1 && median > 0 && heights[0]! < median * 0.25
+  if (implausible) {
+    return {
+      pageNumber,
+      width: pageWidth,
+      height: pageHeight,
+      bands: [],
+      notes: [
+        ...notes,
+        'Mətn qatında sual nömrələri yoxdur — tapılan ankerlər mətnin içindəki rəqəmlər idi, səhifə AI yolu ilə emal olunur',
+      ],
+      isScan: true,
+    }
   }
 
   return {
