@@ -101,8 +101,12 @@ what each stage needs.
   **There IS now an image-generation lane, and on a `gen` book its output is
   what the question SHOWS.** The earlier rule that image generation is gone
   entirely was replaced by an explicit operator decision after a 1:1
-  reproduction prompt tested well on real figures. It is opt-in per book
-  (`books.figure_render = 'cut' | 'gen'`, default `cut`). The cut is never
+  reproduction prompt tested well on real figures. Every book is on the lane —
+  `books.figure_render` defaults to `'gen'`, and the `'cut'` setting stays only
+  so a book whose figures reproduce badly can be pulled off it. It shipped
+  defaulting to `'cut'` and no screen ever exposed the switch, so every book
+  imported after the lane was built silently kept the cut and the lane looked
+  like it was failing when it had simply never run. The cut is never
   lost — it stays in `ImageFig.src` as the source of truth and as the
   fallback — but the reproduction lands in `genSrc`, the field the renderers
   DISPLAY, whether or not the structural guard was satisfied.
