@@ -177,6 +177,19 @@ for (const file of targets) {
     const numbering = numberingFlag(p.numbers, previousMax, scannedSince)
     if (numbering) p.flags.push(numbering)
     if (p.minRatio !== null && p.minRatio < 0.25) p.flags.push(`nazik band (${p.minRatio})`)
+    // A page's own numbers are a run: 1..6, 41..48. A hole or a repeat means a
+    // question was missed or two bands were named the same thing, and neither
+    // shows up in a count — [1,2,3,4,5,6,8] has the six the book expects.
+    // This was the tool under-reporting: six real defects sat unflagged, and
+    // adding it costs nothing, since a page holding more questions than usual
+    // is fine as long as they still run consecutively.
+    if (p.numbers.length > 1) {
+      const sorted = [...p.numbers].sort((a, b) => a - b)
+      const repeated = new Set(sorted).size !== sorted.length
+      const holed = sorted[sorted.length - 1]! - sorted[0]! + 1 !== sorted.length
+      if (repeated) p.flags.push('nömrə təkrarlanır')
+      else if (holed) p.flags.push('nömrə buraxılıb')
+    }
     previousMax = Math.max(...p.numbers)
     previousPage = p.n
   }
