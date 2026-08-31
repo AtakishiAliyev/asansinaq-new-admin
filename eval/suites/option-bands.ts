@@ -439,6 +439,45 @@ export const optionBandsSuite = suite('option-bands', {
     ok(result.box[0] > 470, `top starts at the drawing (${result.box[0]})`)
   },
 
+  // The vertical twin of the gutter rule. A band joined the figure on ANY
+  // overlap, so a hint clipping two pixels of the statement line printed above
+  // a drawing took the whole line — and on a `gen` book that line was redrawn
+  // into the picture, then shown again underneath as the extracted stem.
+  'a statement line the hint merely clips is not part of the figure'() {
+    const pix = blank(900, 800)
+    fill(pix, 100, 200, 700, 232, BLACK) // the printed statement, one line
+    fill(pix, 100, 300, 700, 600, BLACK) // the drawing
+    // The hint starts 2px inside the statement line.
+    const result = localizeFigureBox(pix, [288, 100, 760, 800])
+    ok(result.ok, 'located')
+    if (!result.ok) return
+    ok(result.box[0] > 350, `top starts at the drawing (${result.box[0]})`)
+  },
+
+  // Only the model may widen its own claim. A hint that really does cover the
+  // text keeps it, the same way it does horizontally.
+  'a statement line the hint covers is kept'() {
+    const pix = blank(900, 800)
+    fill(pix, 100, 200, 700, 232, BLACK)
+    fill(pix, 100, 300, 700, 600, BLACK)
+    const result = localizeFigureBox(pix, [240, 100, 760, 800])
+    ok(result.ok, 'located')
+    if (!result.ok) return
+    ok(result.box[0] < 260, `the hint covered the line, so it stays (${result.box[0]})`)
+  },
+
+  // Refusing to choose is worse than choosing loosely: if being strict would
+  // leave no band at all, the touching set stands.
+  'a hint that only grazes the drawing still finds it'() {
+    const pix = blank(900, 800)
+    fill(pix, 100, 300, 700, 600, BLACK)
+    // Overlaps the drawing by 3px and nothing else.
+    const result = localizeFigureBox(pix, [360, 100, 379, 800])
+    ok(result.ok, 'located')
+    if (!result.ok) return
+    ok(result.box[2] > 700, `the whole drawing is returned (${result.box[2]})`)
+  },
+
   'a figure box on an empty crop is a refusal'() {
     const result = localizeFigureBox(blank(400, 300), [100, 100, 200, 200])
     ok(!result.ok, 'nothing to snap to')

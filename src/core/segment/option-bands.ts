@@ -555,7 +555,25 @@ export function localizeFigureBox(
   if (hint) {
     const top = toPx(hint[0])
     const bottom = toPx(hint[2])
-    chosen = bands.filter((b) => b.bottom >= top && b.top <= bottom)
+    const touching = bands.filter((b) => b.bottom >= top && b.top <= bottom)
+    // Touching is not belonging. A whole band joined the figure on any overlap
+    // at all, so a hint whose edge clipped two pixels of the statement printed
+    // above a drawing pulled that entire line in — and on a `gen` book the
+    // lane then redrew the question's own formula INTO the picture, where the
+    // reader met it twice: once inside the figure, once underneath as the
+    // extracted stem.
+    //
+    // "Substantial" is symmetric, so neither a tall band under a short hint nor
+    // a short band inside a tall one is punished for its size: half of
+    // whichever is smaller. A hint that genuinely covers the text still keeps
+    // it, exactly as it does horizontally — only the model may widen its own
+    // claim, never a measurement. And if being strict would leave nothing, the
+    // touching set stands: refusing to choose is worse than choosing loosely.
+    const substantial = touching.filter((b) => {
+      const overlap = Math.min(b.bottom, bottom) - Math.max(b.top, top) + 1
+      return overlap >= 0.5 * Math.min(b.bottom - b.top + 1, bottom - top + 1)
+    })
+    chosen = substantial.length ? substantial : touching
     if (!chosen.length) {
       // The hint landed on blank paper, so it says nothing reliable about which
       // block is the figure. The TALLEST block is taken rather than the nearest:
