@@ -8,16 +8,43 @@ import type { Band, PageSeg } from '@/core/segment/types'
 // Pure: the network call lives in the Edge Function, the rendering in the
 // feature — this file only transforms data.
 
-export const scanDetectionSchema = z.object({
-  columns: z.number(),
-  testNo: z.number().optional(),
-  anchors: z.array(
-    z.object({
-      number: z.number(),
-      box: z.tuple([z.number(), z.number(), z.number(), z.number()]),
-    }),
-  ),
-})
+/**
+ * The detection AS IT ARRIVES, mapped to the names this module thinks in.
+ *
+ * The two halves had drifted apart and nothing connected them: the op returns
+ * `questions` and `test_no` — the names its prompt and schema ask for, and the
+ * names sitting in `ops_cache` — while this file required `anchors` and
+ * `testNo`. `anchors` was REQUIRED, so every scan page failed the parse, the
+ * import screen reported "AI aşkarlanması alınmadı", and the page produced
+ * nothing. The call itself had already succeeded and been paid for; the answer
+ * was thrown away at the door, and a cached copy holding all six questions of
+ * the page is what finally showed it.
+ *
+ * `testNo` failed more quietly: it is optional, so a scan page's test number
+ * was not rejected, just silently dropped on every page since the lane shipped.
+ *
+ * Mapped here rather than renamed on either side, because both names are right
+ * where they are: the wire says what the model was asked for, and `anchors` is
+ * what these boxes are used AS once they arrive.
+ */
+export const scanDetectionSchema = z
+  .object({
+    columns: z.number(),
+    test_no: z.number().optional(),
+    questions: z
+      .array(z.object({ number: z.number(), box: z.array(z.number()) }))
+      .default([]),
+  })
+  .transform((wire) => ({
+    columns: wire.columns,
+    testNo: wire.test_no,
+    // A box that is not four numbers is dropped, not fatal. `scanPageSeg`
+    // already clamps, dedupes and discards degenerate boxes, and one malformed
+    // entry costing a page all of its questions is the wrong trade.
+    anchors: wire.questions
+      .filter((q) => q.box.length === 4)
+      .map((q) => ({ number: q.number, box: q.box as [number, number, number, number] })),
+  }))
 
 export type ScanDetection = z.infer<typeof scanDetectionSchema>
 

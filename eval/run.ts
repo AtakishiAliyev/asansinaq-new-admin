@@ -19,6 +19,7 @@ import { imageCleanSuite, optionBandsSuite } from './suites/option-bands.ts'
 import { pageRangeSuite } from './suites/page-range.ts'
 import { repairGuardSuite } from './suites/repair-guard.ts'
 import { renderSuite } from './suites/render.ts'
+import { scanSuite } from './suites/scan.ts'
 import { segmenterSuite } from './suites/segmenter.ts'
 import { divisionRolesSuite, setRefsSuite } from './suites/division-and-sets.ts'
 import { errorsSuite } from './suites/errors.ts'
@@ -31,6 +32,7 @@ import { workerCacheSuite } from './suites/worker-cache.ts'
 
 const SUITES: Suite[] = [
   segmenterSuite,
+  scanSuite,
   svgSafeSuite,
   errorsSuite,
   rateGateSuite,
