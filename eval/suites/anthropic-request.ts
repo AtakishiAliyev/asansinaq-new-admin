@@ -215,10 +215,9 @@ export const anthropicRequestSuite = suite('anthropic-request', {
 
   // The two utility ops used to carry their schema as a sentence — "return only
   // JSON matching this" — because Gemini's responseSchema had no Anthropic
-  // equivalent. Asking is not forcing: every detection call on a book with no
-  // text layer answered with a Markdown table, the parser threw for want of a
-  // `{`, and those pages produced nothing. Five runs, five tables. The shape is
-  // structural now, and these pin that it is a shape a tool will accept.
+  // equivalent. That asking worked, but it guaranteed nothing: the shape rested
+  // on the model volunteering it and on a parser digging a `{` out of the reply.
+  // The shape is structural now, and these pin that it is one a tool accepts.
   'the utility tools carry a schema an Anthropic tool accepts'() {
     for (const [name, schema] of [
       [EMIT_DETECTION_TOOL_NAME, emitDetectionSchema],

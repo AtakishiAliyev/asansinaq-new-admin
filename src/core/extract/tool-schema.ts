@@ -94,19 +94,24 @@ export const emitQuestionSchema: {
 // ---- the two utility ops ----
 //
 // These were built against Gemini's `responseSchema`, which FORCED the output
-// to be JSON of that shape. Anthropic has no equivalent for a plain message, so
-// the translation appended the schema to the prompt and asked politely — and
-// asking is not forcing. On a book whose pages carry no text layer, every
-// detection call answered with a Markdown table instead:
+// to be JSON of that shape. Nothing survived the translation to Anthropic, so
+// the schema was appended to the prompt and JSON was asked for in words.
 //
-//     | Sual | Sütun | Box (ymin, xmin, ymax, xmax) |
-//     | 59   | 0     | [0, 0, 150, 500]             |
+// That asking WORKS in practice — `ops_cache` holds well-formed detections from
+// before these tools existed. What it does not do is guarantee anything: the
+// shape depends on the model volunteering it, on a prompt that has to keep
+// saying so, and on a parser that digs a `{` out of whatever comes back. A
+// forced tool makes the shape structural instead, which is what the extraction
+// wave has always done, and it is the tool definition the Edge Function's own
+// comment said this translation was waiting for.
 //
-// The reading was perfect — six questions, right columns, watermark ignored —
-// and the parser threw on it because there was no `{`, so the page produced
-// nothing. Five runs over three pages, five Markdown tables: not a flake, a
-// default. A forced tool makes the shape structural instead of hoped-for,
-// which is what the extraction wave has always done.
+// A correction worth leaving in place, because it was nearly acted on: a
+// reproduction of the detection call in Node DID come back as a Markdown table
+// five times out of five, and that looked like the cause of pages producing
+// nothing. It was not. The reproduction had omitted the very prompt block being
+// described here, so it measured a request the system never sends. The real
+// defect was a name: the op returns `questions`, and the scan schema required
+// `anchors`. See `core/segment/scan.ts`.
 
 export const EMIT_DETECTION_TOOL_NAME = 'emit_detection'
 
