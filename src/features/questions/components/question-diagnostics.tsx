@@ -82,19 +82,31 @@ export function FlagBadges({ flags }: { flags: Flag[] }) {
   )
 }
 
+// What the badge may claim is exactly what ran.
+//
+// It used to read "iki oxunuş üst-üstə düşür" — two readings agree — which
+// described the layer that was REMOVED when extraction became one structured
+// call. Nothing reads the question twice any more: the recreation is rendered
+// and compared against the original crop, once. A reviewer who reads the old
+// wording trusts a second opinion that was never sought.
 export function VerifiedBadge({ verified }: { verified: boolean }) {
   return verified ? (
     <Badge
       variant="outline"
       className="border-emerald-200 bg-emerald-50 text-emerald-700"
+      title="Yenidən yaradılmış sual şəkil kimi çəkilib orijinal kəsimlə müqayisə olunub və uyğun gəlib. Bu, ikinci müstəqil oxunuş deyil."
     >
       <ShieldCheck />
-      iki oxunuş üst-üstə düşür
+      orijinalla müqayisə olunub — uyğundur
     </Badge>
   ) : (
-    <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-800">
+    <Badge
+      variant="outline"
+      className="border-amber-200 bg-amber-50 text-amber-800"
+      title="Sual ya hələ müqayisə olunmayıb, ya da müqayisə uyğunluğu təsdiqləyə bilməyib — gözlə yoxlayın."
+    >
       <Info />
-      müstəqil təsdiq yoxdur
+      orijinalla uyğunluğu təsdiqlənməyib
     </Badge>
   )
 }
