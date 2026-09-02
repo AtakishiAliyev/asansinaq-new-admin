@@ -21,8 +21,9 @@
 // one: with no caller and its provider key removed, keeping it would have kept
 // a path that could only fail. Git history has all four if a need returns.
 //
-// So this is Anthropic only, end to end, and there is no lane anywhere that
-// generates an image.
+// So this function is Anthropic only, end to end. The one image-generating call
+// in the system is the worker's figure-reproduction lane, which never runs here
+// and whose key never reaches a function secret.
 //
 // A question's answer is never produced here. It comes from the printed key or
 // from the reviewer, so there is deliberately no solve op.

@@ -16,9 +16,8 @@ no legacy code.
 Work only on `main`. `agent-probe` is an abandoned experiment — a
 browser-driven multi-turn agent loop with tools, Gemini support and image
 models inside the loop — kept for reference only. Do not merge it and do not
-base anything on it. Its verify/repair ideas may be consulted when the batch
-verification stage is built; the architecture below replaces that approach
-entirely.
+base anything on it. Its verify/repair ideas informed the verification wave;
+the architecture below replaces that approach entirely.
 
 ## Where work runs
 
@@ -36,8 +35,10 @@ what each stage needs.
   harness's alias loader — no bundler, no build step. It runs on the operator's
   machine today; moving it to a host is an env-var change, so nothing may bake
   in a location.
-- **Anthropic only.** Haiku for text-only questions, Sonnet for questions with
-  figures. **Both model ids come from worker env vars — never hardcode a model**,
+- **Anthropic for every reading.** Haiku for text-only questions, Sonnet for
+  questions with figures and for verification. The one call that is not
+  Anthropic is the figure-reproduction lane below, which draws and never reads.
+  **Every model id comes from worker env vars — never hardcode a model**,
   so a golden-set eval can settle the choice empirically. The system prompt and
   tool schema sit in the cached prefix; the crop image is sent exactly once per
   call. Batch pricing is half of synchronous, which is why nothing paid runs
@@ -58,15 +59,16 @@ what each stage needs.
   block placed AFTER the stable prefix with its own `cache_control` breakpoint —
   a batch is per-book, so within a run the tree caches too, and a book change
   invalidates only that block instead of the whole prompt.
-- **Figures are DSL-first, cleaned-crop as the fallback, and there is no image
-  lane at all.** `core/figures` emits SVG as a string for every kind — no DOM, no
-  React — so the review screen and the worker draw from one implementation. Marks
-  that carry meaning (equal ticks, parallel chevrons, right-angle squares,
-  congruent arcs) are DATA on the figure, not strokes a model happened to draw: a
-  mark that is a field can be linted, compared, edited on the review screen and
-  re-rendered, and one buried in `raw_svg` can only be looked at. Image
-  generation is gone entirely — no automated path, no manual fallback, no
-  provider key — and re-adding one is a decision, not a configuration change.
+- **Figures are DSL-first on a `cut` book, a cleaned cut of the original
+  everywhere else, and a guarded reproduction of that cut on a `gen` book.**
+  `core/figures` emits SVG as a string for every kind — no DOM, no React — so
+  the review screen and the worker draw from one implementation. Marks that
+  carry meaning (equal ticks, parallel chevrons, right-angle squares, congruent
+  arcs) are DATA on the figure, not strokes a model happened to draw: a mark
+  that is a field can be linted, compared, edited on the review screen and
+  re-rendered, and one buried in `raw_svg` can only be looked at. The model is
+  never asked to draw a raster; the only image-generating call in the system is
+  the reproduction lane, and it is handed a cut, not a description.
 
   **Where a kind expresses the figure, the kind wins — ON A `cut` BOOK.** That
   lane is lintable, editable and deeply verifiable, and nothing else is.
@@ -98,18 +100,19 @@ what each stage needs.
   figure no kind expresses becomes a cleaned cut and nothing else. The type and
   the renderer stay so rows written before the change still open.
 
-  **There IS now an image-generation lane, and on a `gen` book its output is
-  what the question SHOWS.** The earlier rule that image generation is gone
-  entirely was replaced by an explicit operator decision after a 1:1
+  **The reproduction lane: on a `gen` book a Gemini 1:1 redraw of the cut is
+  what the question SHOWS.** An explicit operator decision, taken after a
   reproduction prompt tested well on real figures. Every book is on the lane —
-  `books.figure_render` defaults to `'gen'`, and the `'cut'` setting stays only
-  so a book whose figures reproduce badly can be pulled off it. It shipped
-  defaulting to `'cut'` and no screen ever exposed the switch, so every book
-  imported after the lane was built silently kept the cut and the lane looked
-  like it was failing when it had simply never run. The cut is never
-  lost — it stays in `ImageFig.src` as the source of truth and as the
-  fallback — but the reproduction lands in `genSrc`, the field the renderers
-  DISPLAY, whether or not the structural guard was satisfied.
+  `books.figure_render` defaults to `'gen'`, and the `'cut'` setting stays so a
+  book whose figures reproduce badly can be pulled off it with `npm run
+  figure-lane`. The lane is opt-in by absence: without `GEMINI_API_KEY` and
+  `GEMINI_IMAGE_MODEL` the worker keeps the cut and flags the row rather than
+  failing a queue. The cut is never lost — it stays in `ImageFig.src` as the
+  source of truth and as the fallback — but the reproduction lands in `genSrc`,
+  the field the renderers DISPLAY, whether or not the structural guard was
+  satisfied. The lane runs only in the worker: the review screen's single
+  re-run cuts and shows the cut, flags `gen_skipped`, and leaves the redraw to
+  the next queue run.
 
   **The guard is a REVIEWER'S SIGNAL, not a gate on what is displayed, and that
   changed after it was measured against real output.** It compares pixel
@@ -197,14 +200,26 @@ what each stage needs.
   repair that scores worse is rolled back with a `repair_rejected` flag. Whether
   a re-read is an improvement cannot be known at extraction time, and before
   this the row could end up worse than before the repair with the evidence
-  overwritten in the same update.
+  overwritten in the same update. **A repair is not a blind re-read**: the
+  verifier's critical findings travel in the user turn, below every cache
+  breakpoint, as a checklist to test against the picture
+  (`core/extract/repair-notes.ts`). Until they did, a repair was the same crop
+  with the same words and no sampling, and it came back the same — the log
+  showed one row mismatching three times in a row on identical output.
 - **The browser orchestrates exactly one thing: a single-question interactive
   re-run** from the review screen. That is what the `question-ops` Edge Function
   is still for — that, answer-key parsing and page detection, which stay
   interactive because import needs immediate feedback. It is not a batch path,
-  and no batch work may be added to it. Category selection is folded into
-  extraction rather than being its own op: the model has read the question by
-  the time it could answer, so a second call re-sends the crop to learn nothing.
+  and no batch work may be added to it. The re-run writes the row the worker
+  would: it routes figures by the book's lane, measures option and figure boxes
+  against the ink, cuts and cleans them, and builds the payload through the
+  same `core` modules (`kind-eligibility`, `segment/place-boxes`,
+  `questions/row-payload`, `questions/image-paths`). Only the canvas differs.
+  What it cannot do is reproduce a figure or verify: the row lands with its
+  verdict cleared and the worker's next pass compares it. Category selection is
+  folded into extraction rather than being its own op: the model has read the
+  question by the time it could answer, so a second call re-sends the crop to
+  learn nothing.
 - **The worker's CONTROL PLANE is in the UI; the worker is not.** The process
   stays a daemon because its independence from any open tab is the point of the
   batch lane — a run that dies when someone closes a window is what this
@@ -213,15 +228,26 @@ what each stage needs.
   each one. A pause therefore lands BETWEEN passes: a submitted batch is already
   paid for, and abandoning it mid-flight would spend the money and keep nothing.
   Liveness is the AGE of the heartbeat, never a status field — a worker that
-  died cannot report that it died. Pressing Start with no daemon running writes
-  the switch and says so plainly rather than appearing to work.
+  died cannot report that it died. The heartbeat moves at least every twenty
+  seconds inside a long pass, because the panel counts silence past 150
+  seconds as offline and an express run or a figure-heavy poll pass is longer
+  than that. Pressing Start with no daemon running writes the switch and says
+  so plainly rather than appearing to work. Per-book context (key, tree, lane)
+  is read once per pass, never once per process, so a change made in the UI
+  takes effect on the next pass without a restart.
 - **The work list lives in the database.** `questions.queued_at` marks work to
   do and `claimed_at`/`lease_until`/`claimed_by_worker` is a lease, so a worker
   that dies loses at most the batch in flight and a second worker adds
   throughput instead of duplicating spend. Claims go through
   `claim_questions_worker()` (`for update skip locked`); the batch handle
   (`batch_id`, `batch_custom_id`, `batch_stage`) is persisted on the row, so a
-  restart resumes polling instead of resubmitting and paying twice.
+  restart resumes polling instead of resubmitting and paying twice. Both waves
+  take over an expired lease: the extract wave through
+  `claim_questions_worker`, the verify wave through `claimForVerify`, which
+  sweeps its own because a verify claim sets no `queued_at` and the extract
+  sweep never sees it. Re-queueing a row (`enqueue_questions`, or any re-read
+  through `buildRowPayload`) clears its verdict, or the verify wave — which
+  selects on `verified_at is null` — would never look at the new content.
 - Pipeline logic (segmentation, the figure DSL, rendering, lint/verify,
   answer-key parsing) is written as pure, runtime-agnostic modules — no DOM, no
   `import.meta.env` — so the same code runs in the browser, in the worker, in a
@@ -231,18 +257,17 @@ The sibling `exam/` folder is a throwaway MVP kept as reference for its
 algorithms only. Its architecture — API keys in the browser, anon-writable
 tables — is deliberately not carried over.
 
-**Migration status.** Everything above is built except the verification wave.
-The worker runs, the browser is out of the batch path, every figure kind renders
-from `core`, and there is one provider. What is left is M6: rasterising the
-rendered question and comparing it against the original crop, which is also
-where `questions.repair_round` starts being used. Until it lands every row the
-worker writes is `verified: false` and therefore in the Diqqət lane — that is
-correct, not a defect, and a full review queue after a run is expected.
+**Status.** Everything above is built: the worker, the batch and express
+lanes, the verification wave with its repair rounds, the cut lane and the
+guarded reproduction lane, and the control plane. Every row the worker writes
+lands `verified: false` until the wave has ruled on it, so a full Diqqət lane
+right after an extract batch is expected, not a defect; it empties as the
+verify batches come back.
 
 One shim is deliberate and temporary: `parse_answer_key` and `detect_questions`
 still express their requests in the Gemini builder dialect, translated at the
 door by `geminiToAnthropic`. It works, it keeps prompts and eval fixtures in one
-place, and it is scheduled for removal after M6 along with
+place, and it is still scheduled for removal along with
 `core/extract/request-gemini.ts`.
 
 ## Stack
@@ -344,7 +369,11 @@ questions, so cost is a first-class concern, not an afterthought.
   no meaning once image-gen leaves the automated lane.
 - Cost per question is the call count, not the prompt size. One extract plus one
   verify is the budget; anything that adds a third paid call to the batch lane
-  needs a reason written down.
+  needs a reason written down. The reasons written down so far: at most two
+  repair rounds after a critical mismatch, each an extract and a verify, and on
+  a `gen` book up to two Gemini calls per cut figure. The worst case is
+  therefore three reads, three comparisons and six redraws for one question;
+  the log's first-pass verified rate (~94%) is what keeps the average near two.
 - **Prompt cache hits inside a batch are best-effort.** Batch requests may be
   processed spread out or concurrently, so `cache_read_input_tokens` well below
   100% of the prefix is normal and not a defect. The `ops_log` numbers are a
