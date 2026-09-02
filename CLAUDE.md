@@ -73,7 +73,7 @@ what each stage needs.
   **Where a kind expresses the figure, the kind wins — ON A `cut` BOOK.** That
   lane is lintable, editable and deeply verifiable, and nothing else is.
 
-  **On a `gen` book the kind is not consulted at all.** Every detected figure is
+  **On a `gen` book a DRAWN kind is not consulted.** Every drawn figure is
   cut from the original and reproduced from that cut; `rerouteAllToCut` enforces
   it in the pipeline rather than asking the prompt for it. Two reviewed rows
   settled this: both chose `function_graph`, both stayed inside their kind's
@@ -82,6 +82,22 @@ what each stage needs.
   reason the policy is per book and not global: a cut is not lintable, not
   editable and not comparable field by field. The operator trades that for a
   figure that cannot be wrong about the page.
+
+  **Typeset kinds stay specs on any book** (`TYPESET_KINDS`: division scheme,
+  vertical arithmetic, table, number line). They are arithmetic on a grid,
+  exact in the DSL and linted for their roles; cutting one traded that for a
+  scan, and on p412/14 for the wrong region of the scan — the localizer, given
+  no box, took a line of equations and the division scheme the question turned
+  on was gone. A drawn kind that IS rerouted keeps its `origin` on the cut and
+  carries the model's `figure_box` as the cutter's hint.
+
+  **Where the shading is the question, the lane does not draw at all**
+  (`core/figures/gen-policy.ts`). A cut that began as a `venn`, or a stem that
+  asks about the "taralı" / ştrixlənmiş / boyalı region, is shown as the
+  cleaned cut with `genSkipped` saying why. Two rows on one page came back
+  from the lane with the shading moved; the guard passed one and the verifier
+  passed both. A cleaner figure that answers a different question is the
+  lane's whole risk, and on these questions it has nothing to offer against it.
 
   **Where no kind expresses it, the fallback is a CLEANED REGION OF THE ORIGINAL
   CROP, not a free-drawn `raw_svg`.** A model asked to draw something it cannot
@@ -205,7 +221,10 @@ what each stage needs.
   breakpoint, as a checklist to test against the picture
   (`core/extract/repair-notes.ts`). Until they did, a repair was the same crop
   with the same words and no sampling, and it came back the same — the log
-  showed one row mismatching three times in a row on identical output.
+  showed one row mismatching three times in a row on identical output. The
+  verifier is told, in as many words, that a shaded region is a difference
+  and always critical, and a venn's claims list exactly which regions are
+  shaded — it passed two moved shadings with an empty diff before it was.
 - **The browser orchestrates exactly one thing: a single-question interactive
   re-run** from the review screen. That is what the `question-ops` Edge Function
   is still for — that, answer-key parsing and page detection, which stay
