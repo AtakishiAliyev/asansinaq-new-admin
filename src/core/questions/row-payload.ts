@@ -16,6 +16,22 @@ import { lintQuestion, type Flag } from '@/core/questions/lint'
 /** Verdicts a person reached. Nothing the pipeline produces may overwrite one. */
 const REVIEWED = new Set(['approved', 'rejected'])
 
+/**
+ * A read has no verdict yet, so the one the row carried has to go with it.
+ *
+ * `verified: false` alone is not enough. The verify wave selects on
+ * `verified_at is null`, so a row that had passed once, was re-queued and
+ * re-read kept the OLD timestamp beside the NEW content — and the wave never
+ * looked at it again. It sat unverified in the Diqqət lane with no stage able
+ * to move it, and nothing counted it as stuck because, to the idle check, a
+ * row with a verdict date is a row that has been dealt with.
+ */
+const CLEARED_VERDICT = {
+  verified_at: null,
+  verify_confidence: null,
+  verify_diff: null,
+} as const
+
 export interface RowContext {
   /** The printed number, for the number-mismatch check. */
   qNo: number
@@ -120,6 +136,7 @@ export function buildRowPayload(
         status: REVIEWED.has(context.currentStatus) ? context.currentStatus : 'failed',
         flags,
         verified: false,
+        ...CLEARED_VERDICT,
         extraction_error:
           'Crop-dan heç nə oxunmadı — sərhədləri yenidən kəsin və ya əl ilə daxil edin',
       },
@@ -160,10 +177,11 @@ export function buildRowPayload(
       // Pipeline-only timestamp: throughput must not count approvals.
       structured_at: new Date().toISOString(),
       flags,
-      // There is no second opinion. Verification is its own batch wave; until
-      // it exists every row lands unverified and therefore in the Diqqət lane,
-      // because claiming otherwise would auto-approve unread work.
+      // Unread by the verification wave, which is its own pass. Every fresh
+      // read lands unverified and therefore in the Diqqət lane, because
+      // claiming otherwise would auto-approve unread work.
       verified: false,
+      ...CLEARED_VERDICT,
       extraction_error: null,
     },
   }

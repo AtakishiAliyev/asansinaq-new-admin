@@ -18,6 +18,7 @@ import { modelsSuite } from './suites/models.ts'
 import { imageCleanSuite, optionBandsSuite } from './suites/option-bands.ts'
 import { pageRangeSuite } from './suites/page-range.ts'
 import { repairGuardSuite } from './suites/repair-guard.ts'
+import { rowPayloadSuite } from './suites/row-payload.ts'
 import { renderSuite } from './suites/render.ts'
 import { scanSuite } from './suites/scan.ts'
 import { segmenterSuite } from './suites/segmenter.ts'
@@ -51,6 +52,7 @@ const SUITES: Suite[] = [
   setRefsSuite,
   optionBandsSuite,
   repairGuardSuite,
+  rowPayloadSuite,
   classifySuite,
   answerKeySuite,
   compareSuite,
