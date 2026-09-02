@@ -3,9 +3,17 @@ import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
 import { normalizeError } from '@/lib/errors'
 import type { Crop } from '@/core/segment/types'
+import type { FigureDoc } from '@/core/figures/figspec'
+import type { ExtractedOption, ExtractedQuestion } from '@/core/questions/extraction'
+import type { Flag } from '@/core/questions/lint'
 import type { PageResult } from '@/features/import/hooks/use-segmentation'
 import type { Book } from '@/features/books'
 import { questionKeys } from '@/features/questions/api/keys'
+import {
+  attachFigureImages,
+  attachOptionImages,
+  loadCrop,
+} from '@/features/questions/lib/cut'
 import {
   cropKey,
   questionRowSchema,
@@ -19,10 +27,15 @@ const UPSERT_CHUNK = 50
 const SELECT_PAGE = 1000
 
 interface ExistingRow {
+  id: number
   page_number: number
   col: number
   q_no: number
   status: string
+  crop_path: string
+  options: unknown
+  figures: unknown
+  flags: unknown
 }
 
 // The preserve rule is a correctness guard, so it may never ride on a
@@ -37,7 +50,7 @@ async function fetchExistingRows(
   for (let offset = 0; ; offset += SELECT_PAGE) {
     const { data, error } = await supabase
       .from('questions')
-      .select('page_number, col, q_no, status')
+      .select('id, page_number, col, q_no, status, crop_path, options, figures, flags')
       .eq('book_id', bookId)
       .in('page_number', pages)
       .order('page_number')
@@ -76,16 +89,95 @@ export interface SaveCropsInput {
 export interface SaveCropsResult {
   /** freshly saved/refreshed rows, joined back to their in-memory crops */
   saved: { row: QuestionRow; crop: Crop; isScan: boolean; testNo?: number }[]
-  /** natural keys skipped because the row is already structured/reviewed */
+  /** natural keys of rows already structured/reviewed: their crop bytes and
+   *  cut pictures were refreshed, their content left alone */
   skippedKeys: string[]
+  /** how many of those had their crop and cut pictures actually refreshed */
+  refreshed: number
   failed: number
+}
+
+/** The flags a cut writes. Replaced on a refresh, never duplicated. */
+const CUT_FLAG_CODES = new Set([
+  'option_boxes_unverified',
+  'option_boxes_missing',
+  'figure_box_unverified',
+])
+
+/**
+ * Re-cut a structured row's pictures from a freshly rendered crop.
+ *
+ * The row's CONTENT is not touched: stem, options text, figures, verdict and
+ * review all stand. What changes is the pixels behind them — the crop object
+ * is replaced by the new render, and every picture cut from the old crop is
+ * cut again from the new one, at the paths the row already points to. The
+ * boxes are re-measured against the ink rather than reused as they are,
+ * because a re-segmented band can sit a few pixels off the old one.
+ *
+ * This is how a book imported before crops were rendered larger gets the new
+ * resolution without paying to read a single question again.
+ */
+async function refreshCuts(
+  book: Book,
+  existing: ExistingRow,
+  crop: Crop,
+): Promise<void> {
+  const { blob, mime } = dataUrlToBlob(crop.dataUrl)
+  const { error } = await supabase.storage
+    .from('question-crops')
+    .upload(existing.crop_path, blob, { upsert: true, contentType: mime })
+  if (error) throw error
+
+  const figures = existing.figures as FigureDoc | null
+  const options = (Array.isArray(existing.options) ? existing.options : []) as ExtractedOption[]
+  const question: ExtractedQuestion = {
+    numberSeen: existing.q_no,
+    stem: '',
+    // Cleared so the cutters treat them as not yet cut. The paths they write
+    // are the same deterministic ones the row already carries.
+    options: options.map((o) => (o.isImage && o.box && o.image ? { ...o, image: undefined } : o)),
+    figures: figures
+      ? {
+          ...figures,
+          items: figures.items.map((item) =>
+            item.kind === 'image' && item.box ? { ...item, src: '' } : item,
+          ),
+        }
+      : null,
+    illegible: false,
+    clipped: false,
+    foreign: false,
+    confidence: 1,
+    warnings: [],
+  }
+  const hasWork =
+    question.options.some((o) => o.isImage && !o.image) ||
+    (question.figures?.items ?? []).some((i) => i.kind === 'image' && !i.src)
+  if (!hasWork) return
+
+  const rowLike = { book_id: book.id, page_number: crop.pageNumber, col: crop.col, q_no: crop.number }
+  const loaded = await loadCrop(crop.dataUrl)
+  const cut = await attachOptionImages(rowLike, loaded, question)
+  const figureCut = await attachFigureImages(rowLike, loaded, question, 'cut')
+
+  const kept = ((existing.flags ?? []) as Flag[]).filter((f) => !CUT_FLAG_CODES.has(f.code))
+  const { error: updateError } = await supabase
+    .from('questions')
+    .update({
+      options: question.options as never,
+      figures: question.figures as never,
+      flags: [...kept, ...cut.flags, ...figureCut.flags] as never,
+    })
+    .eq('id', existing.id)
+  if (updateError) throw updateError
 }
 
 // Auto-save after a segmentation run: crops are free, so ALL of them persist
 // as status='cropped' rows — the paid structuring step is a separate,
-// operator-selected action. Rows already past 'cropped'/'failed' are left
-// completely untouched (object not re-uploaded either): refreshing them would
-// discard paid extraction or reviewed work.
+// operator-selected action. Rows already past 'cropped'/'failed' keep their
+// content — refreshing it would discard paid extraction or reviewed work —
+// but their crop object and cut pictures are re-rendered, so re-running the
+// import over a worked page is how it gets the current crop resolution.
 async function saveCrops({
   book,
   results,
@@ -98,23 +190,39 @@ async function saveCrops({
       key: cropKey(crop),
     })),
   )
-  if (!entries.length) return { saved: [], skippedKeys: [], failed: 0 }
+  if (!entries.length) return { saved: [], skippedKeys: [], refreshed: 0, failed: 0 }
 
   const pages = [...new Set(entries.map((e) => e.crop.pageNumber))]
   const existingRows = await fetchExistingRows(book.id, pages)
 
-  const protectedKeys = new Set(
+  const protectedRows = new Map(
     existingRows
       .filter((r) => !['cropped', 'failed'].includes(r.status))
-      .map((r) => rowKey(r)),
+      .map((r) => [rowKey(r), r] as const),
   )
-  const saveable = entries.filter((e) => !protectedKeys.has(e.key))
+  const saveable = entries.filter((e) => !protectedRows.has(e.key))
   const skippedKeys = entries
-    .filter((e) => protectedKeys.has(e.key))
+    .filter((e) => protectedRows.has(e.key))
     .map((e) => e.key)
 
-  // Upload crops (deterministic paths → idempotent re-runs).
   let failed = 0
+
+  // Rows past 'cropped' keep their content and get new PIXELS: the crop object
+  // and every picture cut from it are refreshed at the current render scale.
+  // Sequential on purpose — each one decodes a full-size crop and cuts from it.
+  let refreshed = 0
+  for (const entry of entries) {
+    const existing = protectedRows.get(entry.key)
+    if (!existing) continue
+    try {
+      await refreshCuts(book, existing, entry.crop)
+      refreshed++
+    } catch {
+      failed++
+    }
+  }
+
+  // Upload crops (deterministic paths → idempotent re-runs).
   const uploaded: typeof saveable = []
   let cursor = 0
   await Promise.all(
@@ -191,7 +299,7 @@ async function saveCrops({
     }
   }
 
-  return { saved, skippedKeys, failed }
+  return { saved, skippedKeys, refreshed, failed }
 }
 
 export function useSaveCrops() {
@@ -203,8 +311,10 @@ export function useSaveCrops() {
       // reliably matches the queries a save invalidates.
       queryClient.invalidateQueries({ queryKey: questionKeys.all })
       const parts = [`${result.saved.length} sual bazaya yazıldı`]
-      if (result.skippedKeys.length)
-        parts.push(`${result.skippedKeys.length} ötürüldü (artıq emal olunub)`)
+      if (result.refreshed)
+        parts.push(`${result.refreshed} emal olunmuş sualın kəsimi yeniləndi`)
+      const untouched = result.skippedKeys.length - result.refreshed
+      if (untouched > 0) parts.push(`${untouched} ötürüldü (artıq emal olunub)`)
       if (result.failed) parts.push(`${result.failed} alınmadı`)
       ;(result.failed ? toast.warning : toast.success)(parts.join(', '))
     },
