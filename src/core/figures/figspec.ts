@@ -328,6 +328,19 @@ export interface ImageFig {
    * offered to the lane — its book is on `cut`.
    */
   genRejected?: string
+  /**
+   * Why the lane did not ATTEMPT a reproduction of this figure, when it chose
+   * not to. Distinct from `genRejected`: that is a guard's objection to a
+   * drawing that exists, this is a policy that no drawing should be made —
+   * the shading IS the question, and a redraw can only put it at risk.
+   */
+  genSkipped?: string
+  /**
+   * The kind the model chose before the lane rerouted the figure to a cut.
+   * Recorded so a later decision can still ask what the drawing WAS — a cut
+   * that began life as a venn is a set diagram whose shading is the answer.
+   */
+  origin?: string
   note?: string
 }
 

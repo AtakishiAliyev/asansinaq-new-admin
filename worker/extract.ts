@@ -103,7 +103,11 @@ export async function applyResult(
   // The lane decides which figures survive as specs and which become a cut of
   // the original; the rule lives in core because the review screen's re-run
   // writes the same row. The prompt asks; this enforces.
-  const routed = routeFiguresForLane(question.figures?.items ?? [], context.figureLane)
+  const routed = routeFiguresForLane(
+    question.figures?.items ?? [],
+    context.figureLane,
+    question.figureBox,
+  )
   if (question.figures) question.figures = { ...question.figures, items: routed.items }
   const routeFlags: Flag[] = routed.flags
 

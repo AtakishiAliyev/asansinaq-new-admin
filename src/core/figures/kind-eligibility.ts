@@ -103,13 +103,18 @@ export function documentIneligible(items: FigItem[]): Ineligible[] {
  * not something the prompt asks for — two prompt versions in, the model still
  * reached for function_graph on a curve whose coefficient it had to invent.
  *
- * The replacement carries no box. That is deliberate: the model's opinion about
- * this figure has already been shown to be wrong, so the region is left to the
- * pixel localizer, which takes the largest block of drawing on the crop.
+ * The replacement carries the model's FIGURE box as a hint, when it gave one.
+ * The box is not trusted — the localizer treats it as where in the flow to
+ * look and lets the ink decide the rectangle — but without any hint the
+ * localizer takes the largest block of ink on the crop, and on a crop full of
+ * equations that is a line of equations rather than the drawing.
  *
  * Returns the rewritten items and what was rerouted, so the row can say so.
  */
-export function rerouteIneligible(items: FigItem[]): {
+export function rerouteIneligible(
+  items: FigItem[],
+  hint?: [number, number, number, number],
+): {
   items: FigItem[]
   rerouted: Ineligible[]
 } {
@@ -118,13 +123,44 @@ export function rerouteIneligible(items: FigItem[]): {
     const bad = figureIneligible(item)
     if (!bad) return item
     rerouted.push(bad)
-    return { kind: 'image', src: '' } as FigItem
+    return asCut(item, hint)
   })
   return { items: next, rerouted }
 }
 
 /**
- * Send EVERY figure to the cut lane, whatever kind the model chose.
+ * Kinds that are TYPESET rather than drawn.
+ *
+ * A division scheme, a column of arithmetic, a table or a number line is
+ * arithmetic laid out on a grid: the DSL reproduces it exactly, the lint
+ * checks its roles, and there is no stroke a model could get subtly wrong.
+ * Cutting one from the page trades all of that for a scan — and on a gen book
+ * it did worse than that: the model's placement was dropped with the kind, the
+ * localizer took the largest block of ink on the crop, and on p412/14 that was
+ * the first line of equations. The scheme the question turned on was gone, the
+ * verifier said so, and two repair rounds re-read the crop correctly only to
+ * have the pipeline discard the scheme again.
+ */
+export const TYPESET_KINDS: ReadonlySet<string> = new Set([
+  'division_scheme',
+  'vertical_arithmetic',
+  'table',
+  'number_line',
+])
+
+/** A drawn kind, replaced by a cut of the original. The kind it was is kept on
+ *  the cut, and the model's figure box travels along as the cutter's hint. */
+function asCut(item: FigItem, hint?: [number, number, number, number]): FigItem {
+  return {
+    kind: 'image',
+    src: '',
+    origin: item.kind,
+    ...(hint ? { box: hint } : {}),
+  } as FigItem
+}
+
+/**
+ * Send every DRAWN figure to the cut lane, whatever kind the model chose.
  *
  * The policy for books on `figure_render = 'gen'`, and it is a policy about
  * which is the better picture rather than about which kinds are expressible.
@@ -134,25 +170,29 @@ export function rerouteIneligible(items: FigItem[]): {
  * figure cannot be wrong about the page, and a guarded reproduction of that cut
  * is the same figure drawn more clearly.
  *
+ * Typeset kinds are the exception — see `TYPESET_KINDS`. They are not drawings
+ * and the DSL is the better picture of them on any book.
+ *
  * What this gives up is real and worth naming: the DSL is lintable, editable on
  * the review screen and comparable field by field, and a cut is none of those.
  * That trade is the operator's to make per book, which is why it is keyed to
  * the lane and not applied everywhere.
  */
-export function rerouteAllToCut(items: FigItem[]): {
+export function rerouteAllToCut(
+  items: FigItem[],
+  hint?: [number, number, number, number],
+): {
   items: FigItem[]
   rerouted: Ineligible[]
 } {
   const rerouted: Ineligible[] = []
   const next = items.map((item) => {
-    if (item.kind === 'image') return item
+    if (item.kind === 'image' || TYPESET_KINDS.has(item.kind)) return item
     rerouted.push({
       kind: item.kind,
       reason: 'bu kitab fiqurları orijinaldan kəsir (gen lane)',
     })
-    // No box: the model's placement is not trusted here either, and the pixel
-    // localizer takes the largest block of drawing on the crop.
-    return { kind: 'image', src: '' } as FigItem
+    return asCut(item, hint)
   })
   return { items: next, rerouted }
 }
@@ -175,8 +215,10 @@ export function rerouteAllToCut(items: FigItem[]): {
 export function routeFiguresForLane(
   items: FigItem[],
   lane: 'cut' | 'gen',
+  /** The model's figure box, handed to the cutter as a hint. */
+  hint?: [number, number, number, number],
 ): { items: FigItem[]; flags: Flag[] } {
-  const routed = lane === 'gen' ? rerouteAllToCut(items) : rerouteIneligible(items)
+  const routed = lane === 'gen' ? rerouteAllToCut(items, hint) : rerouteIneligible(items, hint)
   const flags: Flag[] =
     lane === 'gen'
       ? []

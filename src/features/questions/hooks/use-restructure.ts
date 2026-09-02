@@ -128,7 +128,11 @@ export function useRestructure() {
         const question = wireToQuestion(wire)
         // The same three steps the worker takes between the answer and the
         // row, in the same order: route by lane, then cut, then build.
-        const routed = routeFiguresForLane(question.figures?.items ?? [], book.figureLane)
+        const routed = routeFiguresForLane(
+          question.figures?.items ?? [],
+          book.figureLane,
+          question.figureBox,
+        )
         if (question.figures) question.figures = { ...question.figures, items: routed.items }
         const loaded = await loadCrop(crop.dataUrl)
         const cut = await attachOptionImages(row, loaded, question)

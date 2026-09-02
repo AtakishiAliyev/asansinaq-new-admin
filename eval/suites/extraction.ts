@@ -191,4 +191,13 @@ export const extractionSuite = suite('extraction', {
       'plain',
     )
   },
+
+  // The top-level figure_box used to be asked for and then dropped. It is the
+  // cutter's hint when a structured figure is rerouted to a cut.
+  'the model\u2019s figure box survives the wire'() {
+    const q = wireToQuestion({ stem: 'x', options: [], figure_box: [120, 40, 600, 960] })
+    deepEq(q.figureBox, [120, 40, 600, 960], 'kept as a box')
+    eq(wireToQuestion({ stem: 'x', options: [], figure_box: [600, 40, 120, 960] }).figureBox, undefined, 'an inverted box is dropped')
+    eq(wireToQuestion({ stem: 'x', options: [] }).figureBox, undefined, 'absent stays absent')
+  },
 })

@@ -266,7 +266,7 @@ export const kindEligibilitySuite = suite('kind-eligibility', {
   // The gen-lane policy: the kind is not consulted at all. Two live rows chose
   // function_graph, stayed inside their kind's competence, and still drew the
   // wrong graph — one with its marked point off the curve.
-  'on a gen book every figure kind is sent to the cut lane'() {
+  'on a gen book every drawn figure kind is sent to the cut lane'() {
     const { items, rerouted } = rerouteAllToCut([
       { kind: 'function_graph', curves: [], points: [] } as never,
       { kind: 'venn', sets: [], shade: [] } as never,
@@ -277,6 +277,39 @@ export const kindEligibilitySuite = suite('kind-eligibility', {
       'both are now cuts awaiting a region',
     )
     eq(rerouted.length, 2, 'and both are reported as rerouted')
+    eq((items[1] as { origin?: string }).origin, 'venn', 'the cut remembers what it was')
+  },
+
+  // p412/14: a division scheme rerouted to a cut lost the scheme — the
+  // localizer took the first line of equations — and two repair rounds could
+  // not fix what the pipeline kept discarding. Typeset kinds are exact in the
+  // DSL and stay there on any book.
+  'on a gen book a typeset kind keeps its spec'() {
+    const scheme = {
+      kind: 'division_scheme',
+      style: 'arithmetic',
+      dividendTex: 'P(x-4)',
+      divisorTex: 'x+a',
+      quotientTex: '',
+      remainderTex: 'b',
+    } as FigItem
+    const { items, rerouted } = rerouteAllToCut([scheme, circle('A', 115)])
+    eq(items[0], scheme, 'the scheme is the same object')
+    eq(items[1]?.kind, 'image', 'the drawing beside it is still cut')
+    eq(rerouted.length, 1, 'only the drawing is reported')
+    const viaLane = routeFiguresForLane([scheme], 'gen')
+    eq(viaLane.items[0], scheme, 'and the lane router agrees')
+  },
+
+  // Without a hint the localizer takes the largest block of ink, which on a
+  // crop full of equations is a line of equations rather than the drawing.
+  'a rerouted figure carries the model\u2019s figure box as the cutter\u2019s hint'() {
+    const hint: [number, number, number, number] = [300, 100, 700, 900]
+    const gen = rerouteAllToCut([circle('A', 115)], hint)
+    eq((gen.items[0] as { box?: unknown }).box, hint, 'gen lane passes it on')
+    const cut = rerouteIneligible([RECT_VENN], hint)
+    eq((cut.items[0] as { box?: unknown }).box, hint, 'so does the eligibility reroute')
+    eq((rerouteAllToCut([circle('A', 115)]).items[0] as { box?: unknown }).box, undefined, 'none given, none invented')
   },
 
   'a figure that is already a cut is left untouched by the gen policy'() {

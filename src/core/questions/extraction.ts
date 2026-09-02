@@ -51,6 +51,13 @@ export interface ExtractedQuestion {
   stem: string
   options: ExtractedOption[]
   figures: FigureDoc | null
+  /**
+   * Where the model said the drawing sits in the crop, `[ymin, xmin, ymax,
+   * xmax]` on a 0-1000 grid. A hint for the cutter when a structured figure
+   * is rerouted to a cut: without it the localizer takes the largest block of
+   * ink, which on a crop full of equations is a line of equations.
+   */
+  figureBox?: [number, number, number, number]
   illegible: boolean
   clipped: boolean
   foreign: boolean
@@ -480,9 +487,11 @@ export function wireToQuestion(raw: Record<string, unknown>): ExtractedQuestion 
   const figuresWire = (raw.figures as Record<string, unknown>[]) ?? []
   const items = mergeVennItems(figuresWire.map(wireFigure).filter((x): x is FigItem => x !== null))
   normalizeVennShapeIds(items)
+  const figureBox = wireBox(raw.figure_box)
   return {
     numberSeen: Number(raw.number_seen ?? 0),
     stem: fixLeakedNewlines(collapseDoubledCommands(String(raw.stem ?? ''))),
+    ...(figureBox ? { figureBox } : {}),
     options: ((raw.options as ExtractedOption[]) ?? []).map((o) => {
       const opt: ExtractedOption = { label: o.label }
       if (o.tex != null) opt.tex = normalizeTexField(String(o.tex))
