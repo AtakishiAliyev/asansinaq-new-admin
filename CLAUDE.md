@@ -26,7 +26,16 @@ is not interactive: it runs as a long-lived worker service. The split is by
 what each stage needs.
 
 - **Segmentation and cropping** run in the browser, in a Web Worker (pdf.js +
-  canvas). Deterministic, no secrets, no per-page cost.
+  canvas). Deterministic, no secrets, no per-page cost. Pages render at
+  `CROP_RENDER_SCALE` (5.5x, the most A4 takes under the canvas cap) because
+  the crop is the source of every picture the bank shows — a figure cut at the
+  old 3x read as a soft scan next to the book. The MODEL never sees that
+  resolution: the worker and the review screen shrink a copy to
+  `MODEL_CROP_MAX_WIDTH` (800px, the width every crop had before) so image
+  tokens are unchanged and an existing crop is sent byte for byte, keeping its
+  cache key. Re-importing a worked page refreshes the crop object and re-cuts
+  the pictures of rows already structured without touching their content —
+  that is how an older book gets the resolution without a paid re-read.
 - **The `worker/` service owns every batch model call.** A long-running
   Node/TypeScript process claims work through the queue RPCs with the service
   role key, builds one structured request per question, submits it to the
