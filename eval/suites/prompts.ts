@@ -7,6 +7,8 @@ import {
   PARSE_ANSWER_KEY_PROMPT,
   FINGERPRINTED_PROMPTS,
   PROMPT_VERSION,
+  REPAIR_NOTES_HEAD,
+  REPAIR_NOTES_TAIL,
   VERIFY_QUESTION_PROMPT,
 } from '@/core/extract/prompts'
 import { extractResponseSchema } from '@/core/extract/schemas'
@@ -17,6 +19,8 @@ const AZ_PROMPTS = {
   EXTRACT_SYSTEM,
   EXTRACT_SYSTEM_RASTER,
   VERIFY_QUESTION_PROMPT,
+  REPAIR_NOTES_HEAD,
+  REPAIR_NOTES_TAIL,
   COMPARE_FIGURES_PROMPT,
   DETECT_QUESTIONS_PROMPT,
   PARSE_ANSWER_KEY_PROMPT,
@@ -39,7 +43,15 @@ export const promptsSuite = suite('prompts', {
     for (const [name, text] of Object.entries(AZ_PROMPTS)) {
       // The reading ops are not fingerprinted on purpose — they do not key
       // ops_cache. Everything the extract and verify waves send must be.
-      if (!['EXTRACT_SYSTEM', 'EXTRACT_SYSTEM_RASTER', 'VERIFY_QUESTION_PROMPT'].includes(name)) {
+      if (
+        ![
+          'EXTRACT_SYSTEM',
+          'EXTRACT_SYSTEM_RASTER',
+          'VERIFY_QUESTION_PROMPT',
+          'REPAIR_NOTES_HEAD',
+          'REPAIR_NOTES_TAIL',
+        ].includes(name)
+      ) {
         continue
       }
       ok(FINGERPRINTED_PROMPTS.includes(text), `${name} is folded into the fingerprint`)
@@ -209,6 +221,15 @@ export const promptsSuite = suite('prompts', {
   },
 
   'the version is bumped whenever these texts change'() {
-    ok(PROMPT_VERSION >= 7)
+    ok(PROMPT_VERSION >= 14)
+  },
+
+  // The repair block is a checklist to TEST, and it has to say so: a model that
+  // copied the verifier's findings into the answer would be inventing content
+  // on a second model's say-so.
+  'the repair notes are framed as a hint to check, not a correction to apply'() {
+    ok(/İPUCUDUR/.test(REPAIR_NOTES_TAIL), 'says it is a hint')
+    ok(/uydurma/.test(REPAIR_NOTES_TAIL), 'forbids invention')
+    ok(/ŞƏKİLDƏ/.test(REPAIR_NOTES_TAIL), 'sends the reader back to the picture')
   },
 })

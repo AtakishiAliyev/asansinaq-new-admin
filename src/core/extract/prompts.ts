@@ -12,7 +12,12 @@
 // squares instead of falling through to hand-written SVG that drops them. Rows
 // stamped 6 and 7 can hold visibly different figures for the same crop, which
 // is exactly what the version is for.
-export const PROMPT_VERSION = 13
+//
+// 14 makes a repair round a different request from the read it replaces: the
+// verifier's critical findings travel in the user turn as a checklist to test
+// against the picture. Rows stamped 13 were repaired by re-reading the same
+// crop with the same words, which produced the same answer.
+export const PROMPT_VERSION = 14
 
 // Prompt texts for the question-recreation pipeline. Shared by the
 // question-ops Edge Function and the Node eval harness — ONE source of truth,
@@ -244,6 +249,19 @@ severity — bunu özün qiymətləndirmə, qaydaya əməl et:
 confidence: öz MÜQAYİSƏNƏ nə qədər əminsən (0-1), sualın çətinliyi deyil.
 Şübhə varsa, fərqi BİLDİR və confidence-i aşağı sal — buraxılmış fərq yanlış xəbərdarlıqdan bahalıdır.`
 
+// ---- repair: the verifier's findings, handed back to the reader ----
+//
+// Sent only on a repair round, after the crop and the hint. Written as a
+// checklist to TEST against the picture, not as corrections to apply: a model
+// that copied the checklist into the answer would be inventing content on the
+// verifier's say-so, and the verifier is not the source either.
+export const REPAIR_NOTES_HEAD = `ƏVVƏLKİ OXUNUŞ YOXLAMADAN KEÇMƏDİ. Yoxlayıcı bizim yenidən yaratdığımız versiyanı orijinal şəkillə müqayisə edib və bu fərqləri tapıb (sahə: orijinalda nə var, bizdə nə çıxıb):`
+
+export const REPAIR_NOTES_TAIL = `Bu siyahı İPUCUDUR, mənbə deyil. Hər bəndi ŞƏKİLDƏ yoxla:
+- şəkil bəndi təsdiq edirsə, həmin hissəni məhz şəkildəki kimi yenidən oxu və yaz;
+- şəkil bəndi təsdiq etmirsə, şəkli əsas götür və siyahıya görə heç nə dəyişmə.
+Fərqi "düzəltmək" üçün heç nə uydurma — qayda eynidir: çapdakının eynisini köçür.`
+
 /**
  * Every prompt whose text reaches a model and whose change must invalidate the
  * cache. A prompt missing from this list can be edited without moving the
@@ -255,6 +273,8 @@ export const FINGERPRINTED_PROMPTS = [
   EXTRACT_SYSTEM,
   EXTRACT_SYSTEM_RASTER,
   VERIFY_QUESTION_PROMPT,
+  REPAIR_NOTES_HEAD,
+  REPAIR_NOTES_TAIL,
 ]
 
 /**

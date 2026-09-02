@@ -13,6 +13,8 @@
 /** The row fields the read depends on. Structural on purpose: core does not
  *  import the worker's database types, and a narrower shape is easier to pass
  *  from a test than a whole row. */
+import { repairNotesFrom } from '@/core/extract/repair-notes'
+
 export interface CacheInputRow {
   q_no: number | null
   figure_kind: string | null
@@ -20,6 +22,8 @@ export interface CacheInputRow {
   test_no: number | null
   /** Which repair attempt this is. Zero for a first read. */
   repair_round: number
+  /** The last verdict's differences, relayed to the model on a repair round. */
+  verify_diff?: unknown
 }
 
 export function extractCacheInput(
@@ -42,5 +46,14 @@ export function extractCacheInput(
     // the same verdict, and the row spends both of its repairs having changed
     // nothing — while every log line reads like the loop is working.
     repairRound: row.repair_round,
+    // What the repair was TOLD is part of what it was asked. Two repairs of the
+    // same round with different findings are different requests.
+    repairNotes: repairNotesFor(row),
   }
+}
+
+/** The notes a repair round sends, or null for a first read. One place, so the
+ *  request and the cache key cannot disagree about what was sent. */
+export function repairNotesFor(row: Pick<CacheInputRow, 'repair_round' | 'verify_diff'>): string | null {
+  return row.repair_round > 0 ? repairNotesFrom(row.verify_diff) : null
 }

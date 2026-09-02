@@ -41,6 +41,21 @@ export const workerCacheSuite = suite('worker-cache', {
     ok(key({ repair_round: 2 }) !== key({ repair_round: 1 }), 'round 2 does not reuse round 1')
   },
 
+  // A repair is asked something a first read is not — the verifier's
+  // findings — and two repairs told different things are different requests.
+  'what a repair round was told is part of the key'() {
+    const told = (note: string) =>
+      JSON.stringify(
+        extractCacheInput(
+          row({ repair_round: 1, verify_diff: [{ field: 'stem', severity: 'critical', note }] }),
+          CROP,
+          CATEGORIES,
+        ),
+      )
+    ok(told('a') !== told('b'), 'different findings, different key')
+    ok(told('a') !== key({ repair_round: 1 }), 'told something differs from told nothing')
+  },
+
   'the book\u2019s category tree is part of the key'() {
     const other = JSON.stringify(extractCacheInput(row(), CROP, [3, 4]))
     ok(other !== key(), 'a different tree can produce a different category')

@@ -32,7 +32,11 @@
 // it to whatever `MODEL_TEXT`/`MODEL_FIGURE` say — core has no env, and which
 // model serves a lane is a question for an eval, not a constant in a library.
 import type Anthropic from '@anthropic-ai/sdk'
-import { EXTRACT_SYSTEM } from '@/core/extract/prompts'
+import {
+  EXTRACT_SYSTEM,
+  REPAIR_NOTES_HEAD,
+  REPAIR_NOTES_TAIL,
+} from '@/core/extract/prompts'
 import { FEWSHOT_FIGURES } from '@/core/extract/fewshot'
 import {
   EMIT_QUESTION_TOOL_NAME,
@@ -69,6 +73,14 @@ export interface AnthropicExtractInput {
   hasFigure: boolean
   /** The book's tree. Empty means "do not attempt a category". */
   categories?: CategoryOption[]
+  /**
+   * On a repair round, the verifier's critical findings about the read being
+   * replaced — see `core/extract/repair-notes.ts`. Absent on a first read.
+   *
+   * Placed LAST in the user turn, below every cache breakpoint, so a repair
+   * shares the whole prefix with the first read and pays only for the notes.
+   */
+  repairNotes?: string
 }
 
 export interface AnthropicRequest {
@@ -157,6 +169,16 @@ export function buildAnthropicExtract(
     source: { type: 'base64', media_type: input.mime, data: input.image },
   })
   content.push({ type: 'text', text: questionText(input) })
+
+  // A repair is not a blind re-read. Without this block the second read was
+  // the first read again — same crop, same words, no sampling — and it came
+  // back the same; see the note on PROMPT_VERSION 14.
+  if (input.repairNotes) {
+    content.push({
+      type: 'text',
+      text: `${REPAIR_NOTES_HEAD}\n${input.repairNotes}\n\n${REPAIR_NOTES_TAIL}`,
+    })
+  }
 
   return {
     lane: input.hasFigure ? 'figure' : 'text',

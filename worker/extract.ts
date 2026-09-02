@@ -5,7 +5,7 @@
 // that happens before submission; `applyResult` is everything that happens
 // after, and it must not depend on anything the submitting process held in
 // memory. The only thing carried between them is the batch handle on the row.
-import { extractCacheInput } from '@/core/extract/cache-input'
+import { extractCacheInput, repairNotesFor } from '@/core/extract/cache-input'
 import { PROMPT_VERSION } from '@/core/extract/prompts'
 import {
   buildAnthropicExtract,
@@ -65,6 +65,10 @@ export function requestFor(
     testNo: row.test_no ?? undefined,
     expectedNumber: row.q_no,
     categories: context.categories,
+    // On a repair round the verifier's findings go back to the reader. The
+    // row still carries them here: `applyVerdict` wrote them when it sent the
+    // row back, and they are cleared only when the new read is written.
+    repairNotes: repairNotesFor(row) ?? undefined,
   })
 }
 

@@ -12,7 +12,8 @@ import {
   emitQuestionSchema,
 } from '@/core/extract/tool-schema'
 import { extractResponseSchema } from '@/core/extract/schemas'
-import { EXTRACT_SYSTEM } from '@/core/extract/prompts'
+import { EXTRACT_SYSTEM, REPAIR_NOTES_HEAD, REPAIR_NOTES_TAIL } from '@/core/extract/prompts'
+import { repairNotesFrom } from '@/core/extract/repair-notes'
 import { FEWSHOT_FIGURES } from '@/core/extract/fewshot'
 import { deepEq, eq, notOk, ok, suite } from '../harness.ts'
 
@@ -114,6 +115,45 @@ export const anthropicRequestSuite = suite('anthropic-request', {
   // The lane changes the model, and the model is part of the cache key — but
   // it must not change the prompt, or the two tiers could never share a
   // baseline in an eval.
+  // A repair used to be the first read again, word for word, and it came back
+  // the same. The findings have to reach the model — and they have to reach it
+  // BELOW every breakpoint, or a repair would invalidate the prefix that every
+  // other question in the batch is sharing.
+  'a repair round carries the verifier\u2019s findings after the crop'() {
+    const notes = repairNotesFrom([
+      { field: 'option_c', severity: 'critical', note: 'orijinalda 12, bizdə 7' },
+      { field: 'stem', severity: 'minor', note: 'sətir sonu' },
+      { field: 'figure', severity: 'critical', note: '' },
+    ])
+    eq(notes, '- option_c: orijinalda 12, bizdə 7', 'only described critical findings are relayed')
+
+    const first = build()
+    const repair = build({ repairNotes: notes! })
+    const blocks = (r: typeof first) => r.params.messages[0]!.content as { type: string; text?: string }[]
+    eq(blocks(first).length + 1, blocks(repair).length, 'exactly one block is added')
+    const last = blocks(repair).at(-1)!
+    ok(last.text?.startsWith(REPAIR_NOTES_HEAD), 'it opens with the repair heading')
+    ok(last.text?.includes('option_c: orijinalda 12'), 'it carries the finding')
+    ok(last.text?.endsWith(REPAIR_NOTES_TAIL), 'and closes with the hint rule')
+    ok(!JSON.stringify(blocks(first)).includes(REPAIR_NOTES_HEAD), 'a first read carries none')
+  },
+
+  'repair notes leave the cached prefix untouched'() {
+    const first = build()
+    const repair = build({ repairNotes: '- stem: fərq' })
+    deepEq(first.params.tools, repair.params.tools, 'alətlər dəyişdi')
+    deepEq(first.params.system, repair.params.system, 'sistem bloku dəyişdi')
+    const tree = (r: typeof first) =>
+      (r.params.messages[0]!.content as { text?: string }[])[0]!.text
+    eq(tree(first), tree(repair), 'kateqoriya ağacı dəyişdi')
+  },
+
+  'findings with nothing to say produce no repair block'() {
+    eq(repairNotesFrom(null), null, 'no verdict, no notes')
+    eq(repairNotesFrom([{ field: 'stem', severity: 'minor', note: 'x' }]), null, 'minor only')
+    eq(repairNotesFrom([{ field: 'figure', severity: 'critical', note: '  ' }]), null, 'undescribed')
+  },
+
   'the figure lane and the text lane send the same prompt'() {
     deepEq(
       build({ hasFigure: true }).params.system,
