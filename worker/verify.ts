@@ -68,7 +68,9 @@ export async function verifyItemFor(
   const images = await fetchOptionImages(db, question)
   const rendered = renderQuestion(question, images)
   const request = buildVerifyRequest({
-    original: { image: crop.image, mime: crop.mime },
+    // The model-width copy, as in extraction: the comparison is about the
+    // question, not the pixels, and the cut behind the render is full size.
+    original: { image: crop.forModel.image, mime: crop.forModel.mime },
     recreation: { image: rendered.png.toString('base64') },
     figureClaims: describeFigure(question.figures),
   })

@@ -84,7 +84,7 @@ async function runOne(
     return {}
   }
   const context = await bookContext(db, row.book_id)
-  const request = requestFor(row, crop, context)
+  const request = requestFor(row, crop.forModel, context)
   const model = modelFor(request.lane)
 
   let wire: Record<string, unknown> | null = null

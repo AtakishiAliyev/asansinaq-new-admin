@@ -474,6 +474,22 @@ function refineBandBounds(
 // and allocates hundreds of MB. Cap the rendered area instead.
 const MAX_CANVAS_AREA_PX = 16_000_000
 
+/**
+ * How large a page is rendered before its questions are cut out.
+ *
+ * Crops are the source of every picture the bank shows: a figure cut, a
+ * picture option, and — where the reproduction lane declines to redraw — the
+ * figure itself. At the previous 3x an A4 page came to ~1785px across, a crop
+ * to ~790px and a figure cut to ~300-470px, which read as a soft scan next to
+ * the book. 5.5x is the most an A4 page can take under MAX_CANVAS_AREA_PX
+ * (595 × 842 pt × 5.5² ≈ 15.1M px); the cap still wins on odd page sizes.
+ *
+ * The model does not see this resolution: the worker and the review screen
+ * shrink a copy to MODEL_CROP_MAX_WIDTH before a request, so image tokens and
+ * cache keys are unchanged. Only the cutters read the full crop.
+ */
+export const CROP_RENDER_SCALE = 5.5
+
 export async function renderCrops(
   page: PDFPageProxy,
   bands: Band[],
@@ -482,7 +498,7 @@ export async function renderCrops(
 ): Promise<CropResult> {
   const base = page.getViewport({ scale: 1 })
   const scale = Math.min(
-    opts.scale ?? 3,
+    opts.scale ?? CROP_RENDER_SCALE,
     Math.sqrt(MAX_CANVAS_AREA_PX / (base.width * base.height)),
   )
   const viewport = page.getViewport({ scale })

@@ -529,7 +529,7 @@ async function submitPass(): Promise<number> {
       continue
     }
     const rowContext = await bookContext(db, row.book_id)
-    const request = requestFor(row, crop, rowContext)
+    const request = requestFor(row, crop.forModel, rowContext)
     const model = modelFor(request.lane)
 
     // An unchanged crop re-run costs nothing. Checked before submission so a
@@ -649,7 +649,7 @@ async function dryRun(): Promise<void> {
       log(`  q${row.id}: crop ${row.crop_path} NOT DOWNLOADABLE — would be released`)
       continue
     }
-    const request = requestFor(row, crop, context)
+    const request = requestFor(row, crop.forModel, context)
     const model = modelFor(request.lane)
     const hit = await cacheGet(
       db,

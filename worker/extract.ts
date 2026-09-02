@@ -20,6 +20,7 @@ import type { Db, QuestionRow } from './db.ts'
 import { answerFor, type BookContext } from './book-context.ts'
 import { modelFor } from './models.ts'
 import { attachFigureImages, attachOptionImages } from './option-images.ts'
+import { shrinkForModel, type CropImage } from './model-crop.ts'
 
 /** A verdict a reviewer reached outranks anything produced here. */
 const REVIEWED = new Set(['approved', 'rejected'])
@@ -34,10 +35,18 @@ export const idFromCustomId = (customId: string): number | null => {
   return m?.[1] ? Number(m[1]) : null
 }
 
-export async function downloadCrop(
-  db: Db,
-  row: QuestionRow,
-): Promise<{ image: string; mime: 'image/png' | 'image/jpeg' } | null> {
+/**
+ * A stored crop, and the copy of it a model is shown.
+ *
+ * The stored bytes are what the cutters read and what the cache key is built
+ * from; `forModel` is the same picture shrunk to the model width, and is the
+ * only thing that goes into a request. See core/segment/model-crop.ts.
+ */
+export interface StoredCrop extends CropImage {
+  forModel: CropImage
+}
+
+export async function downloadCrop(db: Db, row: QuestionRow): Promise<StoredCrop | null> {
   const { data, error } = await db.storage
     .from('question-crops')
     .download(row.crop_path)
@@ -46,7 +55,8 @@ export async function downloadCrop(
   if (error || !data) return null
   const image = Buffer.from(await data.arrayBuffer()).toString('base64')
   const mime = row.crop_mime === 'image/jpeg' ? 'image/jpeg' : 'image/png'
-  return { image, mime }
+  const stored = { image, mime } as const
+  return { ...stored, forModel: await shrinkForModel(stored) }
 }
 
 export function requestFor(

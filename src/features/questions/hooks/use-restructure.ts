@@ -19,6 +19,7 @@ import {
   attachFigureImages,
   attachOptionImages,
   loadCrop,
+  shrinkForModel,
 } from '@/features/questions/lib/cut'
 import { splitDataUrl } from '@/features/questions/lib/image'
 import type { QuestionRow } from '@/features/questions/schemas'
@@ -114,7 +115,9 @@ export function useRestructure() {
       const { row, crop } = entry
       try {
         const book = await contextFor(row.book_id)
-        const { image, mime } = splitDataUrl(crop.dataUrl)
+        // The model reads a copy at the model width; the cutters below read
+        // the stored crop at full resolution.
+        const { image, mime } = splitDataUrl(await shrinkForModel(crop.dataUrl))
         const { wire, model } = await opExtract({
           image,
           mime,

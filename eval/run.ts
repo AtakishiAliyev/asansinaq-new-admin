@@ -14,6 +14,7 @@ import { imageMimeSuite } from './suites/image-mime.ts'
 import { kindEligibilitySuite } from './suites/kind-eligibility.ts'
 import { labelsSuite } from './suites/labels.ts'
 import { lintSuite } from './suites/lint.ts'
+import { modelCropSuite } from './suites/model-crop.ts'
 import { modelsSuite } from './suites/models.ts'
 import { imageCleanSuite, optionBandsSuite } from './suites/option-bands.ts'
 import { pageRangeSuite } from './suites/page-range.ts'
@@ -40,6 +41,7 @@ const SUITES: Suite[] = [
   promptsSuite,
   anthropicRequestSuite,
   modelsSuite,
+  modelCropSuite,
   labelsSuite,
   expressSuite,
   workerCacheSuite,
