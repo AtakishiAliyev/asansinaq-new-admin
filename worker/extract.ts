@@ -161,12 +161,41 @@ export async function applyResult(
   return { status: payload.status, flags: payload.flags }
 }
 
-/** A row the provider could not answer for. */
+/**
+ * A row the provider could not answer for.
+ *
+ * On a REPAIR round the row is not empty: it still carries the read the repair
+ * was meant to improve, and the verdict that sent it back. Marking it failed
+ * would hide a usable question behind a status that says nothing was read, so
+ * it stays structured, unverified, with a flag naming what did not happen.
+ * `verified_at` is set so the wave does not pay to reach the verdict the row
+ * already holds; the reviewer sees that verdict, and the reason, together.
+ */
 export async function markFailed(
   db: Db,
   row: QuestionRow,
   reason: string,
 ): Promise<void> {
+  if (row.repair_round > 0 && row.status === 'structured') {
+    const kept = ((row.flags ?? []) as unknown as Flag[]).filter((f) => f.code !== 'repair_failed')
+    await db
+      .from('questions')
+      .update({
+        verified: false,
+        verified_at: new Date().toISOString(),
+        extraction_error: reason,
+        flags: [
+          ...kept,
+          {
+            level: 'warning',
+            code: 'repair_failed',
+            message: `Təkrar oxunuş alınmadı (${reason.slice(0, 200)}) — əvvəlki oxunuş və onun yoxlama nəticəsi saxlanıldı`,
+          },
+        ] as never,
+      })
+      .eq('id', row.id)
+    return
+  }
   await db
     .from('questions')
     .update({
