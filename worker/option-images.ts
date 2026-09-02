@@ -342,7 +342,7 @@ export async function attachFigureImages(
         // see `reproductionPolicy`. Not a flag — the cut already routes the row
         // to review, and this is a policy rather than a finding — but said on
         // the figure so the reviewer knows the lane chose, not failed.
-        const policy = reproductionPolicy(question.stem, item)
+        const policy = reproductionPolicy(question, item)
         if (!policy.allowed) {
           item.genSkipped = policy.reason
           continue

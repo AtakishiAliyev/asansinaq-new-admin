@@ -210,7 +210,7 @@ export async function attachFigureImages(
     // The same policy the worker applies: where the shading is the question,
     // no reproduction is attempted anywhere. Otherwise the lane would run in
     // the worker, and that is not here — said on the figure either way.
-    const policy = reproductionPolicy(question.stem, item)
+    const policy = reproductionPolicy(question, item)
     if (!policy.allowed) {
       item.genSkipped = policy.reason
     } else {

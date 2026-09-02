@@ -344,7 +344,7 @@ export const kindEligibilitySuite = suite('kind-eligibility', {
   // not draw at all.
   'a set diagram is never handed to the reproduction lane'() {
     const cut: ImageFig = { kind: 'image', src: '', origin: 'venn' }
-    const decision = reproductionPolicy('Kaç eleman vardır?', cut)
+    const decision = reproductionPolicy({ stem: 'Kaç tane?', options: [] }, cut)
     eq(decision.allowed, false, 'a venn by origin is declined')
   },
 
@@ -352,17 +352,59 @@ export const kindEligibilitySuite = suite('kind-eligibility', {
     const cut: ImageFig = { kind: 'image', src: '' }
     for (const stem of [
       'Taralı alan = ?',
-      'Taralı bölgede kaç farklı eleman vardır?',
+      'Taralı bölgede kaç farklı sayı vardır?',
       'Ştrixlənmiş hissənin sahəsi neçədir?',
-      'Boyalı bölgənin çoxluq ifadəsi hansıdır?',
+      'Boyalı bölgənin ifadəsi hansıdır?',
     ]) {
-      eq(reproductionPolicy(stem, cut).allowed, false, stem)
+      eq(reproductionPolicy({ stem, options: [] }, cut).allowed, false, stem)
     }
+  },
+
+  // Five of sixteen on one live page: read straight to `image`, no "taralı"
+  // in the stem (or no stem at all), and options full of set algebra.
+  'set notation in the stem or the options declines the redraw'() {
+    const cut: ImageFig = { kind: 'image', src: '' }
+    const opts = (...tex: string[]) => tex.map((t) => ({ tex: t }))
+    eq(
+      reproductionPolicy({ stem: '', options: opts('A - B', 'B - A', 'A \\cap B') }, cut).allowed,
+      false,
+      'TeX operators in the options',
+    )
+    eq(
+      reproductionPolicy({ stem: '', options: opts('C\\cup(A\\cup B)', 'C-(A\\cup B)') }, cut).allowed,
+      false,
+      'a stemless question with set options',
+    )
+    eq(
+      reproductionPolicy(
+        { stem: '$\\Rightarrow [(A\\backslash B)\\cap C] = ?$', options: opts('\\{6, 8\\}') },
+        cut,
+      ).allowed,
+      false,
+      'set algebra in the stem',
+    )
+    eq(
+      reproductionPolicy({ stem: 'A, B ve C kümeleri verilmiştir.', options: [] }, cut).allowed,
+      false,
+      'the word for set',
+    )
   },
 
   'a plain drawing may still be reproduced'() {
     const cut: ImageFig = { kind: 'image', src: '', origin: 'geometry' }
-    eq(reproductionPolicy('m(ABC) kaç derecedir?', cut).allowed, true, 'geometry is allowed')
-    eq(reproductionPolicy('f(x) grafiği verilmiştir.', { kind: 'image', src: '' }).allowed, true, 'a graph is allowed')
+    const opts = (...tex: string[]) => tex.map((t) => ({ tex: t }))
+    eq(
+      reproductionPolicy({ stem: 'm(ABC) kaç derecedir?', options: opts('30°', '45°') }, cut).allowed,
+      true,
+      'geometry is allowed',
+    )
+    eq(
+      reproductionPolicy(
+        { stem: 'f(x) grafiği verilmiştir. f(2) = ?', options: opts('1', '2', '3') },
+        { kind: 'image', src: '' },
+      ).allowed,
+      true,
+      'a graph is allowed',
+    )
   },
 })
