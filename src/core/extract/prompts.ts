@@ -21,7 +21,12 @@
 // 15 teaches the verifier to compare SHADED regions. Two rows whose redraw had
 // moved the shading passed with an empty diff, because nothing in the prompt
 // said a coloured region was a thing to compare.
-export const PROMPT_VERSION = 15
+//
+// 16 shows the verifier each reproduced figure beside its cut at full size.
+// Four moved shadings in forty-five rows still passed at 15: the figure was a
+// third of the page in the render, and which side of a line a colour sits on
+// is not a comparison to make on a thumbnail.
+export const PROMPT_VERSION = 16
 
 // Prompt texts for the question-recreation pipeline. Shared by the
 // question-ops Edge Function and the Node eval harness — ONE source of truth,
@@ -203,6 +208,11 @@ Qaydalar:
 export const VERIFY_QUESTION_PROMPT = `İki şəkil verilir:
 (1) ORİJİNAL — kitabdan kəsilmiş sual (watermark ola bilər).
 (2) YENİDƏN YARADILMIŞ — bizim sistemin həmin sualdan çıxardığı məlumatla çəkdiyi versiya.
+
+Bəzən əlavə şəkillər də verilir: (3) orijinal fiqurun kəsimi və (4) bizim həmin fiqur üçün
+çəkilişimiz, hər ikisi böyüdülmüş (fiqur birdən çoxdursa (5)-(6) və s.). Belə cüt varsa, fiqurla
+bağlı hər müqayisəni — xüsusən boyalı bölgələri — bu böyüdülmüş cütdə apar, (1)-(2)-dəki kiçik
+təsvirdə yox.
 
 Vəzifən: yenidən yaradılmış versiya orijinal sualı DÜZGÜN təkrarlayırmı?
 

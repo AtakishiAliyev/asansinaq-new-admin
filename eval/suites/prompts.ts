@@ -12,7 +12,12 @@ import {
   VERIFY_QUESTION_PROMPT,
 } from '@/core/extract/prompts'
 import { extractResponseSchema } from '@/core/extract/schemas'
-import { describeFigure, parseVerdict, verdictSchema } from '@/core/extract/verify-request'
+import {
+  buildVerifyRequest,
+  describeFigure,
+  parseVerdict,
+  verdictSchema,
+} from '@/core/extract/verify-request'
 import { figureEditPrompt } from '@/core/extract/figure-gen-prompt'
 import { deepEq, eq, ok, suite } from '../harness.ts'
 
@@ -222,7 +227,27 @@ export const promptsSuite = suite('prompts', {
   },
 
   'the version is bumped whenever these texts change'() {
-    ok(PROMPT_VERSION >= 15)
+    ok(PROMPT_VERSION >= 16)
+  },
+
+  // Four moved shadings passed at a third of the page. The figure pair goes
+  // in at full size, labelled, and the prompt says to compare THERE.
+  'a reproduced figure is shown beside its cut at full size'() {
+    const png = { image: 'AAAA', mime: 'image/png' as const }
+    const jpg = { image: 'BBBB', mime: 'image/jpeg' as const }
+    const request = buildVerifyRequest({
+      original: png,
+      recreation: { image: 'CCCC' },
+      figurePairs: [{ cut: png, reproduction: jpg }],
+    })
+    const content = request.params.messages[0]!.content as { type: string; text?: string }[]
+    eq(content.filter((b) => b.type === 'image').length, 4, 'two pages and one pair')
+    ok(content.some((b) => b.text?.startsWith('(3) ORİJİNAL FİQUR 1')), 'the cut is labelled')
+    ok(content.some((b) => b.text?.startsWith('(4) BİZİM ÇƏKİLİŞİMİZ 1')), 'the reproduction is labelled')
+    ok(content.some((b) => /böyüdülmüş cütdə tutuşdur/.test(b.text ?? '')), 'and the comparison is sent there')
+    ok(/böyüdülmüş cütdə apar/.test(VERIFY_QUESTION_PROMPT), 'the system prompt says so too')
+    const bare = buildVerifyRequest({ original: png, recreation: { image: 'CCCC' } })
+    eq((bare.params.messages[0]!.content as unknown[]).filter((b) => (b as { type: string }).type === 'image').length, 2, 'no pair, no extra images')
   },
 
   // Two live rows whose redraw had moved the shading passed with an empty

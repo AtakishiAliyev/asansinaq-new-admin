@@ -90,6 +90,19 @@ export interface VerifyInput {
   recreation: { image: string }
   /** What the recreated figure claims, from `describeFigure`. */
   figureClaims?: string | null
+  /**
+   * Each reproduced figure beside the cut it was drawn from, at full size.
+   *
+   * The whole-question render shows the figure at a third of the page, and
+   * four moved shadings in forty-five reviewed rows passed at that size. A
+   * shaded region is a question of which side of a line the colour is on,
+   * and that is a comparison the model makes on two large pictures of the
+   * figure alone, not two small ones of the whole page.
+   */
+  figurePairs?: {
+    cut: { image: string; mime: 'image/png' | 'image/jpeg' }
+    reproduction: { image: string; mime: 'image/png' | 'image/jpeg' }
+  }[]
 }
 
 export interface VerifyRequest {
@@ -159,6 +172,39 @@ export function buildVerifyRequest(input: VerifyInput): VerifyRequest {
                       input.figureClaims +
                       '\n\nOrijinalda olub bu siyahıda OLMAYAN xətt, bucaq və ya işarə varsa, ' +
                       'bu da fərqdir — xüsusən sualın soruşduğu bucağın işarələnməsi.',
+                  },
+                ]
+              : []),
+            ...(input.figurePairs ?? []).flatMap((pair, i) => [
+              {
+                type: 'text' as const,
+                text: `(${3 + i * 2}) ORİJİNAL FİQUR ${i + 1} — kitabdan kəsilmiş, böyüdülmüş:`,
+              },
+              {
+                type: 'image' as const,
+                source: { type: 'base64' as const, media_type: pair.cut.mime, data: pair.cut.image },
+              },
+              {
+                type: 'text' as const,
+                text: `(${4 + i * 2}) BİZİM ÇƏKİLİŞİMİZ ${i + 1} — bu, (2)-dəki fiqurun özüdür, böyüdülmüş:`,
+              },
+              {
+                type: 'image' as const,
+                source: {
+                  type: 'base64' as const,
+                  media_type: pair.reproduction.mime,
+                  data: pair.reproduction.image,
+                },
+              },
+            ]),
+            ...(input.figurePairs?.length
+              ? [
+                  {
+                    type: 'text' as const,
+                    text:
+                      'Fiqurun BOYALI bölgələrini, xətlərini və yazılarını məhz bu böyüdülmüş cütdə tutuşdur: ' +
+                      'orijinal fiqurda boyalı olan hər bölgə bizim çəkilişdə də boyalıdır? Orijinalda ağ olan ' +
+                      'hər bölgə bizdə də ağdır? Bölgəni fiqurun formaları ilə ifadə edib hər ikisində yoxla.',
                   },
                 ]
               : []),
