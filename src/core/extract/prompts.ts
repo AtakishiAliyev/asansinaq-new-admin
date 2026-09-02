@@ -17,7 +17,11 @@
 // verifier's critical findings travel in the user turn as a checklist to test
 // against the picture. Rows stamped 13 were repaired by re-reading the same
 // crop with the same words, which produced the same answer.
-export const PROMPT_VERSION = 14
+//
+// 15 teaches the verifier to compare SHADED regions. Two rows whose redraw had
+// moved the shading passed with an empty diff, because nothing in the prompt
+// said a coloured region was a thing to compare.
+export const PROMPT_VERSION = 15
 
 // Prompt texts for the question-recreation pipeline. Shared by the
 // question-ops Edge Function and the Node eval harness — ONE source of truth,
@@ -218,6 +222,10 @@ FƏRQ SAYILAN (hər birini ayrıca bildir):
 - fiqurun struktur olaraq fərqli olması: əskik/artıq nöqtə, xətt, parça;
 - fiqurdakı İŞARƏLƏRİN əskik olması və ya səhv yerdə olması — bərabərlik cizgiləri,
   paralellik oxları, düz bucaq kvadratı, bərabər bucaq qövsləri;
+- BOYALI / ştrixlənmiş bölgənin fərqli olması: orijinalda boyalı olan bir bölgə yenidən
+  yaradılmışda ağdırsa, ya da orijinalda ağ olan bir bölgə boyanıbsa — bu, başqa sualdır.
+  Çoxluq diaqramlarında və "taralı alan" suallarında boyalı bölgə CAVABIN özüdür;
+- fiqurda orijinalda OLMAYAN ləkə, cızıq, rəqəm və ya simvolun peyda olması;
 - sualın SORUŞDUĞU kəmiyyətin (adətən α) yenidən yaradılmış fiqurda ümumiyyətlə
   işarələnməməsi — bu, sualı həll edilməz edir və mütləq bildirilməlidir;
 - orijinalda olan mətnin/fiqurun tamamilə itməsi;
@@ -238,11 +246,16 @@ FİQURU ADDIM-ADDIM YOXLA (fərqi "görməyə" güvənmə, SAY):
    düz bucaq kvadratları. Hər birini yenidən yaradılmışda tap. Tapa bilmirsənsə, o fərqdir.
 3. Sualın soruşduğu kəmiyyət (α və s.) orijinalda harada işarələnib? Yenidən yaradılmışda
    həmin yerdə varmı?
+4. BOYALI bölgələri fiqurun formaları ilə ifadə et və tutuşdur: orijinalda hansı bölgələr
+   boyalıdır (məs. "B-nin A-dan kənar hissəsi", "A üçbucağının C dairəsindən kənar hissəsi")?
+   Yenidən yaradılmışda EYNİ bölgələr boyalıdır, artıq boyanmış və ya boyanmamış bölgə yoxdur?
+   Fiqurun içində orijinalda olmayan ləkə və ya cızıq varmı?
 
 severity — bunu özün qiymətləndirmə, qaydaya əməl et:
 - FİQURDA hər hansı əskik və ya artıq xətt, parça, şüa, bucaq və ya işarə → HƏMİŞƏ "critical",
   hətta sualı yenə də həll etmək mümkün görünsə belə. Fiqur məlumatdır: orada nə itibsə,
   bizim çıxardığımız məlumatdan itib, və bunu yalnız insan yoxlaya bilər.
+- BOYALI bölgənin fərqli olması, artıq və ya əskik boyanmış hissə → HƏMİŞƏ "critical".
 - stem-də və ya variantlarda rəqəm/məzmun fərqi → "critical".
 - yalnız yazılış tərzi ilə bağlı, mənanı dəyişməyən xırdalıq → "minor".
 

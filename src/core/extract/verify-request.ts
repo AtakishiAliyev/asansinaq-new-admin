@@ -276,6 +276,8 @@ function readDifferences(value: Record<string, unknown>): Verdict['differences']
 export function describeFigure(figure: unknown): string | null {
   const items = (figure as { items?: unknown[] } | null)?.items
   if (!Array.isArray(items)) return null
+  const venn = describeVenn(items)
+  if (venn) return venn
   const geo = items.find(
     (i) => (i as { kind?: string }).kind === 'geometry',
   ) as
@@ -323,5 +325,30 @@ export function describeFigure(figure: unknown): string | null {
     )
   }
 
+  return lines.join('\n')
+}
+
+/**
+ * What a venn CLAIMS: which sets it draws and which regions it shades.
+ *
+ * The shading is the answer on these questions, and "is region X shaded in
+ * the original?" is a check the verifier can make, where "spot the difference
+ * between two shadings" was one it missed twice on a single live page.
+ */
+function describeVenn(items: unknown[]): string | null {
+  const venn = items.find((i) => (i as { kind?: string }).kind === 'venn') as
+    | { shapes?: { id: string; label?: string }[]; shaded?: string[]; universe?: { label?: string } }
+    | undefined
+  if (!venn) return null
+  const lines: string[] = []
+  const names = (venn.shapes ?? []).map((s) => s.label ?? s.id)
+  lines.push(`Çoxluqlar (${names.length}): ${names.join(', ')}`)
+  if (venn.universe?.label) lines.push(`Universal çoxluq: ${venn.universe.label}`)
+  const shaded = venn.shaded ?? []
+  lines.push(
+    shaded.length
+      ? `Boyalı bölgə(lər): ${shaded.join(' ; ')} — YALNIZ bunlar boyalıdır, qalan hər bölgə ağdır`
+      : 'Boyalı bölgə YOXDUR — heç bir bölgə boyanmayıb',
+  )
   return lines.join('\n')
 }

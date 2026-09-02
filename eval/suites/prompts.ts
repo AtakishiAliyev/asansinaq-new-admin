@@ -12,7 +12,7 @@ import {
   VERIFY_QUESTION_PROMPT,
 } from '@/core/extract/prompts'
 import { extractResponseSchema } from '@/core/extract/schemas'
-import { parseVerdict, verdictSchema } from '@/core/extract/verify-request'
+import { describeFigure, parseVerdict, verdictSchema } from '@/core/extract/verify-request'
 import { deepEq, eq, ok, suite } from '../harness.ts'
 
 const AZ_PROMPTS = {
@@ -221,7 +221,33 @@ export const promptsSuite = suite('prompts', {
   },
 
   'the version is bumped whenever these texts change'() {
-    ok(PROMPT_VERSION >= 14)
+    ok(PROMPT_VERSION >= 15)
+  },
+
+  // Two live rows whose redraw had moved the shading passed with an empty
+  // diff. The prompt has to name shading as a difference, as a step, and as
+  // critical — a verifier that is not told to look does not look.
+  'the verifier is told to compare shaded regions'() {
+    ok(/BOYALI \/ ştrixlənmiş bölgənin fərqli olması/.test(VERIFY_QUESTION_PROMPT), 'listed as a difference')
+    ok(/4\. BOYALI bölgələri/.test(VERIFY_QUESTION_PROMPT), 'a step in the figure checklist')
+    ok(/BOYALI bölgənin fərqli olması.*"critical"/.test(VERIFY_QUESTION_PROMPT), 'and always critical')
+  },
+
+  'a venn\u2019s claims name exactly what is shaded'() {
+    const claims = describeFigure({
+      items: [
+        {
+          kind: 'venn',
+          shapes: [{ id: 'A', label: 'A' }, { id: 'B', label: 'B' }],
+          shaded: ['A∩B'],
+        },
+      ],
+    })
+    ok(claims?.includes('Çoxluqlar (2): A, B'), 'the sets')
+    ok(claims?.includes('Boyalı bölgə(lər): A∩B'), 'the shaded region')
+    ok(claims?.includes('qalan hər bölgə ağdır'), 'and that nothing else is')
+    const none = describeFigure({ items: [{ kind: 'venn', shapes: [{ id: 'A' }], shaded: [] }] })
+    ok(none?.includes('Boyalı bölgə YOXDUR'), 'no shading is a claim too')
   },
 
   // The repair block is a checklist to TEST, and it has to say so: a model that
