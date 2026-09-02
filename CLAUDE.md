@@ -60,7 +60,11 @@ what each stage needs.
   two prompt iterations did not move them onto the rows. The localizer refuses
   rather than guesses — a cell count that does not match the option count is a
   flag, because a confidently wrong box deletes an option and nothing downstream
-  can tell that from an option the book never printed.
+  can tell that from an option the book never printed. A figure cut never
+  carries the question's words: a short wide single-block band is a line of
+  text and a column of stacked short bands is a block of text, and both are
+  left out of the box even when the model's hint covers them — captions
+  ("a. b. c.") are narrow marks and stay.
 - **Extraction is ONE structured call per question.** A forced `tool_use` with a
   strict schema returns stem, options, figure spec, category and confidence
   together. No repair round-trip in the extract wave, no separate option-box
@@ -111,7 +115,11 @@ what each stage needs.
   `figureEditPrompt`), the edited drawing is stored beside the earlier ones as
   `.gen<n>.<ext>`, judged by the same guard, and the wave rules on it next
   pass. `MAX_GEN_EDITS` (2) rounds, then the reproduction is dropped and the
-  cut is shown. Which provider takes which round is `FIGURE_EDIT_PROVIDERS`
+  cut is shown. The guard's COLOUR objection triggers the first edit on its
+  own, before the wave, because it is deterministic and about the one thing
+  a redraw must not change; ink drift stays a reviewer's signal. The wave
+  itself sees every reproduced figure beside its cut at full size, since a
+  moved shading is invisible at a third of the page. Which provider takes which round is `FIGURE_EDIT_PROVIDERS`
   (default `gemini,openai`) filtered by which keys exist:
   `OPENAI_API_KEY` + `OPENAI_IMAGE_MODEL` are optional and, like Gemini's,
   never hardcoded. `genProvider` and `genRound` on the figure tell the
