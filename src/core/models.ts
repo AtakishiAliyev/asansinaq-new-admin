@@ -32,6 +32,11 @@ const RATES: [RegExp, Rate][] = [
   // stopped being true the day either number moved. Re-check this row whenever
   // GEMINI_IMAGE_MODEL changes; unlike the text lanes, image pricing differs
   // sharply between models.
+  // The Pro tier of the same lane is priced several times higher per image.
+  // Listed BEFORE the generic row, which would otherwise match it and price a
+  // Pro drawing as a Flash one — the direction the budget guard must never
+  // err in. Re-check both rows whenever GEMINI_IMAGE_MODEL changes.
+  [/gemini.*pro.*image/i, { input: 2, output: 120 }],
   [/gemini.*image|imagen|nano-banana/i, { input: 0.3, output: 30 }],
   // The corrective-edit provider. Image input and output are both billed as
   // tokens; the input rate here is the IMAGE input rate, which is the one an

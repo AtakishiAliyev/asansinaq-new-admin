@@ -88,7 +88,13 @@ export async function editReproduction(
     cached: false,
     ms: Date.now() - started,
   }).catch(() => {})
-  if (!result.png) return { provider, failure: result.error ?? 'şəkil qaytarılmadı' }
+  if (!result.png) {
+    // Said in the log as well as on the row: an edit that fails on every call
+    // is a misconfigured provider, and the row's flag alone does not show
+    // that it is EVERY call.
+    console.warn(`[q${row.id}] figure ${index} edit via ${provider} failed: ${result.error ?? 'no image'}`)
+    return { provider, failure: result.error ?? 'şəkil qaytarılmadı' }
+  }
 
   const mime = sniffImageMime(result.png)
   if (!mime) return { provider, failure: 'qaytarılan şəklin formatı tanınmadı' }

@@ -48,4 +48,12 @@ export const modelsSuite = suite('models', {
     const batch = estimateCost('claude-sonnet-5', usage(1000, 500), true)
     ok(Math.abs(batch * 2 - sync) < 1e-12, `batch must halve, got ${batch} vs ${sync}`)
   },
+
+  // A Pro image model must not be priced as the Flash one: the generic gemini
+  // row would match it, and the budget guard would stop guarding.
+  'a pro image model is priced above the flash one'() {
+    const flash = estimateCost('gemini-3.1-flash-image', { input: 500, cacheWrite: 0, cacheRead: 0, output: 1290 })
+    const pro = estimateCost('gemini-3-pro-image', { input: 500, cacheWrite: 0, cacheRead: 0, output: 1290 })
+    ok(pro > flash * 2, `pro ($${pro.toFixed(4)}) is well above flash ($${flash.toFixed(4)})`)
+  },
 })
