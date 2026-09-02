@@ -19,6 +19,20 @@ import { config } from './config.ts'
  * the window it expects to need.
  */
 export const LEASE = '02:00:00'
+/** The same window, for the one claim that is written as a table update. */
+const LEASE_MS = 2 * 60 * 60 * 1000
+
+/**
+ * "Nobody live is holding this row", as a PostgREST filter.
+ *
+ * The worker lane always writes `lease_until`, so an expired lease is one whose
+ * expiry has passed. Rows never claimed have no `claimed_at` at all. What this
+ * does NOT cover is a claim with `claimed_at` and no `lease_until` — the old
+ * browser lane's shape — which the browser no longer produces and the verify
+ * wave was never meant to take over.
+ */
+export const unheld = (): string =>
+  `claimed_at.is.null,lease_until.lt.${new Date().toISOString()}`
 
 /** Whichever book has waited longest — workers drain one book at a time so the
  *  category tree stays put and its cache block keeps hitting. */
@@ -80,6 +94,43 @@ export async function finish(db: Db, ids: number[]): Promise<number> {
   })
   if (error) throw new Error(`finish failed: ${error.message}`)
   return Number(data ?? 0)
+}
+
+/**
+ * Take a lease on specific rows for the verify wave.
+ *
+ * The extract wave claims by queue order through `claim_questions_worker`;
+ * verification already knows which rows it wants, so it asks for those. Same
+ * lease, same worker id, same protection against two workers paying for one
+ * comparison.
+ *
+ * It takes over an EXPIRED lease as well as an absent one, which is what the
+ * extract RPC does and what this did not: a verify claim sets no `queued_at`,
+ * so the extract sweep never touched it, and a worker that died holding a
+ * verify batch — or came back under a new WORKER_ID — left its rows claimed
+ * forever. Nothing reported them: to the idle check a structured, unverified
+ * row is work waiting, so the daemon spun on rows no stage could take. The
+ * batch handle of the dead holder is dropped with its lease; the comparison it
+ * bought is lost, which is the same price the extract wave pays for a death.
+ */
+export async function claimForVerify(db: Db, ids: number[]): Promise<number[]> {
+  if (!ids.length) return []
+  const { data, error } = await db
+    .from('questions')
+    .update({
+      claimed_at: new Date().toISOString(),
+      claimed_by_worker: config.WORKER_ID,
+      claimed_by: null,
+      lease_until: new Date(Date.now() + LEASE_MS).toISOString(),
+      batch_id: null,
+      batch_custom_id: null,
+      batch_stage: null,
+    })
+    .in('id', ids)
+    .or(unheld())
+    .select('id')
+  if (error) throw new Error(`verify claim failed: ${error.message}`)
+  return (data ?? []).map((r) => r.id)
 }
 
 /**

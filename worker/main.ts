@@ -57,12 +57,14 @@ import {
 import {
   attachBatch,
   claim,
+  claimForVerify,
   finish,
   inFlight,
   nextQueuedBook,
   requeue,
   release,
   renew,
+  unheld,
 } from './queue.ts'
 
 const POLL_MS = 60_000
@@ -323,15 +325,16 @@ async function pollPass(): Promise<number> {
 async function verifyPass(): Promise<number> {
   if (await budgetExhausted(db)) return 0
 
-  // Structured, never ruled on, and not already held by anyone. The partial
-  // index on (status, verified_at) covers exactly this.
+  // Structured, never ruled on, and not held by anyone LIVE. The partial
+  // index on (status, verified_at) covers exactly this. A row whose holder's
+  // lease has run out counts as unheld — see `claimForVerify` for why the
+  // verify wave has to sweep its own expired leases.
   const { data: candidates } = await db
     .from('questions')
     .select('*')
     .eq('status', 'structured')
     .is('verified_at', null)
-    .is('batch_id', null)
-    .is('claimed_at', null)
+    .or(unheld())
     // A row waiting on a repair has not been re-extracted yet, so verifying it
     // again compares the same output to the same crop and reaches the same
     // verdict at full price.
@@ -372,7 +375,13 @@ async function verifyPass(): Promise<number> {
 
   // Claimed only once there is something to submit, so a render failure does
   // not take a lease with it.
-  const held = await claimSpecific(submitted.map((s) => s.id))
+  let held: number[]
+  try {
+    held = await claimForVerify(db, submitted.map((s) => s.id))
+  } catch (error) {
+    log(String(error))
+    return 0
+  }
   const live = submitted.filter((s) => held.includes(s.id))
   if (!live.length) return 0
 
@@ -391,32 +400,6 @@ async function verifyPass(): Promise<number> {
   return live.length
 }
 
-/**
- * Take a lease on specific rows.
- *
- * The extract wave claims by queue order; verification already knows which rows
- * it wants, so it asks for those. Same lease, same worker id, same protection
- * against two workers paying for one comparison.
- */
-async function claimSpecific(ids: number[]): Promise<number[]> {
-  const { data, error } = await db
-    .from('questions')
-    .update({
-      claimed_at: new Date().toISOString(),
-      claimed_by_worker: config.WORKER_ID,
-      lease_until: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
-    })
-    .in('id', ids)
-    .is('claimed_at', null)
-    .select('id')
-  if (error) {
-    log(`verify claim failed: ${error.message}`)
-    return []
-  }
-  return (data ?? []).map((r) => r.id)
-}
-
-/** Claim work and put it in front of the provider. */
 /** How many questions are waiting, for the express/batch decision. */
 async function queuedCount(): Promise<number> {
   const { count } = await db
