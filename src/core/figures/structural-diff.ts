@@ -48,6 +48,12 @@ export interface StructuralDiff {
   /** Always false: no OCR engine, so labels are the verify wave's job. */
   labelsChecked: false
   passed: boolean
+  /**
+   * Whether the COLOUR checks alone passed. Ink drifts on any redraw and its
+   * objections are a reviewer's signal; a shaded region that moved, grew or
+   * changed hue is a different question, and that objection is acted on.
+   */
+  colourPassed: boolean
   reasons: string[]
 }
 
@@ -665,6 +671,7 @@ export function compareStructure(
   if (inkMeasurable && inkIoU < t.minInkIoU) {
     reasons.push(`ink layout differs (overlap ${inkIoU.toFixed(2)} < ${t.minInkIoU})`)
   }
+  const inkReasons = reasons.length
   if (colourIoU < t.minColourIoU) {
     reasons.push(`shaded regions differ (overlap ${colourIoU.toFixed(2)} < ${t.minColourIoU})`)
   }
@@ -685,6 +692,7 @@ export function compareStructure(
     elements: { inCut: cutElements.length, matched },
     labelsChecked: false,
     passed: reasons.length === 0,
+    colourPassed: reasons.length === inkReasons,
     reasons,
   }
 }

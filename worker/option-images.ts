@@ -25,6 +25,7 @@ import { figureImagePath, optionImagePath } from '@/core/questions/image-paths'
 import type { Db, QuestionRow } from './db.ts'
 import { extensionForMime, sniffImageMime, type ImageMime } from '@/core/figures/image-mime'
 import { FIGURE_GEN_OP, guardedReproduction } from './figure-gen.ts'
+import { editReproduction } from './figure-edit.ts'
 import { budgetExhausted, logOp } from './ops.ts'
 import { config } from './config.ts'
 
@@ -127,7 +128,7 @@ async function runGuardedGeneration(
   row: QuestionRow,
   index: number,
   cut: { png: Buffer; pixels: Pixels },
-): Promise<{ path?: string; flag?: Flag }> {
+): Promise<{ path?: string; flag?: Flag; colourObjection?: string }> {
   if (await budgetExhausted(db).catch(() => true)) {
     return {
       flag: {
@@ -221,10 +222,17 @@ async function runGuardedGeneration(
   }
 
   // Shown, and flagged: the reviewer is told exactly what the guard objected to
-  // and can compare it against the cut on the figure strip.
+  // and can compare it against the cut on the figure strip. A COLOUR objection
+  // is also returned on its own: unlike ink drift it means a region moved, and
+  // the caller sends the drawing straight back for an edit.
   if (!result.png) {
+    const colourObjection =
+      result.diff && !result.diff.colourPassed
+        ? result.diff.reasons.filter((r) => /shaded|colour/.test(r)).join('; ')
+        : undefined
     return {
       path,
+      ...(colourObjection ? { colourObjection } : {}),
       flag: {
         level: 'warning',
         code: 'gen_unverified',
@@ -351,6 +359,29 @@ export async function attachFigureImages(
           item.genSrc = gen.path
           item.genProvider = config.GEMINI_IMAGE_MODEL ?? 'gemini'
           item.genRound = 0
+        }
+        // The guard's colour verdict is deterministic, free and about the one
+        // thing a redraw must not change, so it does not wait for the
+        // verification wave: the drawing goes back for an edit right here,
+        // with the guard's own words as the brief. Four of forty-five reviewed
+        // reproductions had moved a shaded region and every one had passed
+        // the verifier.
+        if (gen.path && gen.colourObjection) {
+          const edit = await editReproduction(db, row, index, item, gen.colourObjection)
+          if (edit.path) {
+            item.genSrc = edit.path
+            item.genProvider = edit.provider
+            item.genRound = 1
+            if (edit.rejection) item.genRejected = edit.rejection
+            else delete item.genRejected
+            flags.push({
+              level: 'warning',
+              code: 'gen_edited',
+              message:
+                `Fiqur ${index + 1}: qoruyucunun rəng etirazına görə ${edit.provider} ilə düzəldildi` +
+                (edit.rejection ? `; qoruyucu yenə etiraz etdi: ${edit.rejection}` : ' — kəsimlə müqayisə edin'),
+            })
+          }
         }
       }
     } catch (error) {
