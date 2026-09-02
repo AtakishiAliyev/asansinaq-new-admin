@@ -13,6 +13,7 @@ import {
 } from '@/core/extract/prompts'
 import { extractResponseSchema } from '@/core/extract/schemas'
 import { describeFigure, parseVerdict, verdictSchema } from '@/core/extract/verify-request'
+import { figureEditPrompt } from '@/core/extract/figure-gen-prompt'
 import { deepEq, eq, ok, suite } from '../harness.ts'
 
 const AZ_PROMPTS = {
@@ -257,5 +258,15 @@ export const promptsSuite = suite('prompts', {
     ok(/İPUCUDUR/.test(REPAIR_NOTES_TAIL), 'says it is a hint')
     ok(/uydurma/.test(REPAIR_NOTES_TAIL), 'forbids invention')
     ok(/ŞƏKİLDƏ/.test(REPAIR_NOTES_TAIL), 'sends the reader back to the picture')
+  },
+
+  // The edit brief must carry the verifier's words and be narrow: a model told
+  // to fix the shading will restyle the axes too unless told not to.
+  'the edit prompt carries the findings and forbids anything else'() {
+    const prompt = figureEditPrompt('- figure: C-nin üçbucağın içindəki hissəsi boyanıb')
+    ok(prompt.includes('C-nin üçbucağın içindəki hissəsi boyanıb'), 'the finding is in the brief')
+    ok(/Fix ONLY what the reviewer listed/.test(prompt), 'narrow')
+    ok(/Do not redraw the figure from scratch/.test(prompt), 'not a redraw')
+    ok(/IMAGE 1 is the ORIGINAL/.test(prompt), 'names the source of truth')
   },
 })

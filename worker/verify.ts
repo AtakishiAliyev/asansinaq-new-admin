@@ -21,7 +21,9 @@ import {
 import type { ExtractedQuestion } from '@/core/questions/extraction'
 import { decideRepair, parseStoredVersion } from '@/core/questions/repair-guard'
 import { reproductionBlamed } from '@/core/questions/verdict-blame'
+import { MAX_GEN_EDITS } from '@/core/figures/gen-policy'
 import type { FigureDoc, ImageFig } from '@/core/figures/figspec'
+import { editProviderFor, editReproduction } from './figure-edit.ts'
 import type { Flag } from '@/core/questions/lint'
 import type { Db, QuestionRow } from './db.ts'
 import { config } from './config.ts'
@@ -108,19 +110,56 @@ export async function applyVerdict(
 
   // A complaint about the drawing, while the drawing on show is a
   // reproduction, is a complaint about the reproduction. Re-reading the crop
-  // cannot answer it; dropping the redraw can, for free. The cut takes its
-  // place and the wave rules on THAT next pass — see verdict-blame.ts.
+  // cannot answer it. What can: handing the cut, the drawing and the complaint
+  // back to an image model as an edit, up to MAX_GEN_EDITS times — and past
+  // that, dropping the redraw so the cut takes its place. Either way the wave
+  // rules again next pass on what the row now shows — see verdict-blame.ts.
   const blamed = verdict.matches ? [] : reproductionBlamed(row.figures, verdict.differences)
   if (blamed.length) {
     const doc = row.figures as unknown as FigureDoc
     const why = critical.map((d) => d.note.trim()).filter(Boolean).join('; ').slice(0, 400)
-    const items = doc.items.map((item, index) => {
-      if (!blamed.includes(index) || item.kind !== 'image') return item
-      const { genSrc: _dropped, ...rest } = item as ImageFig
-      return { ...rest, genRejected: `Yoxlayıcı rədd etdi: ${why || 'səbəb bildirilmədi'}` }
-    })
+    const notes: string[] = []
+    const items: FigureDoc['items'] = []
+    for (const [index, item] of doc.items.entries()) {
+      if (!blamed.includes(index) || item.kind !== 'image') {
+        items.push(item)
+        continue
+      }
+      const figure = item as ImageFig
+      const round = figure.genRound ?? 0
+      const edit =
+        round < MAX_GEN_EDITS && editProviderFor(round)
+          ? await editReproduction(db, row, index, figure, why || 'the reproduction differs from the original figure')
+          : null
+      if (edit?.path) {
+        const { genRejected: _cleared, ...rest } = figure
+        items.push({
+          ...rest,
+          genSrc: edit.path,
+          genProvider: edit.provider,
+          genRound: round + 1,
+          ...(edit.rejection ? { genRejected: edit.rejection } : {}),
+        })
+        notes.push(
+          `Fiqur ${index + 1}: yoxlayıcının qeydinə görə ${edit.provider} ilə düzəldildi (${round + 1}. cəhd)` +
+            (edit.rejection ? `; qoruyucu etiraz etdi: ${edit.rejection}` : ''),
+        )
+        continue
+      }
+      // No edit possible, or the last one is spent: the cut is the figure.
+      const { genSrc: _dropped, genProvider: _who, ...rest } = figure
+      items.push({ ...rest, genRejected: `Yoxlayıcı rədd etdi: ${why || 'səbəb bildirilmədi'}` })
+      notes.push(
+        `Fiqur ${index + 1}: təkrar çəkiliş atıldı, kəsim göstərilir` +
+          (edit?.failure ? ` (${edit.failure})` : round >= MAX_GEN_EDITS ? ` (${MAX_GEN_EDITS} düzəliş cəhdi bitdi)` : ''),
+      )
+    }
+    const edited = items.some((it, i) => blamed.includes(i) && it.kind === 'image' && Boolean((it as ImageFig).genSrc))
     const kept = ((row.flags ?? []) as unknown as Flag[]).filter(
-      (f) => !['verify_mismatch', 'verify_low_confidence', 'gen_unverified', 'gen_rejected_by_verifier'].includes(f.code),
+      (f) =>
+        !['verify_mismatch', 'verify_low_confidence', 'gen_unverified', 'gen_rejected_by_verifier', 'gen_edited'].includes(
+          f.code,
+        ),
     )
     await db
       .from('questions')
@@ -130,15 +169,15 @@ export async function applyVerdict(
           ...kept,
           {
             level: 'warning',
-            code: 'gen_rejected_by_verifier',
-            message: `Təkrar çəkiliş yoxlayıcıdan keçmədi və atıldı, kəsim göstərilir: ${why || 'səbəb bildirilmədi'}`.slice(0, 500),
+            code: edited ? 'gen_edited' : 'gen_rejected_by_verifier',
+            message: `${notes.join(' · ')} — yoxlayıcı: ${why || 'səbəb bildirilmədi'}`.slice(0, 500),
           },
         ] as never,
         verified: false,
         verify_confidence: clamp01(verdict.confidence),
         verify_diff: verdict.differences as never,
-        // Unruled again on purpose: the wave has judged the redraw, not the
-        // cut, and the cut is what the row now shows.
+        // Unruled again on purpose: the wave has judged the previous drawing,
+        // and what the row shows now is a different picture.
         verified_at: null,
         prev_version: null,
       })

@@ -69,6 +69,12 @@ function FigureLaneRow({
   // A fourth state: the lane CHOSE not to draw. Neither green (nothing was
   // checked) nor amber (nothing went wrong) — the cut is the figure, by policy.
   const declined = !shown && !objection && item.genSkipped
+  // Who drew what is on screen, and whether it is a corrective edit: a
+  // reviewer weighs a second provider's second attempt differently from a
+  // first drawing.
+  const drawnBy = shown
+    ? ` · ${item.genProvider ?? 'gemini'}${item.genRound ? `, ${item.genRound}. düzəliş` : ''}`
+    : ''
   return (
     <div
       className={cn(
@@ -87,12 +93,12 @@ function FigureLaneRow({
             {passed ? (
               <span className="inline-flex items-center gap-1 text-emerald-600">
                 <ShieldCheck className="size-3" /> 1:1 təkrar çəkiliş —
-                göstərilir
+                göstərilir{drawnBy}
               </span>
             ) : shown ? (
               <span className="inline-flex items-center gap-1 text-amber-600">
                 <CircleSlash className="size-3" /> göstərilir — qoruyucudan
-                keçmədi
+                keçmədi{drawnBy}
               </span>
             ) : declined ? (
               <span className="inline-flex items-center gap-1">

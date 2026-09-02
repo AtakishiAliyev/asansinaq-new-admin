@@ -100,15 +100,22 @@ what each stage needs.
   on was gone. A drawn kind that IS rerouted keeps its `origin` on the cut and
   carries the model's `figure_box` as the cutter's hint.
 
-  **Where the shading is the question, the lane does not draw at all**
-  (`core/figures/gen-policy.ts`). A cut that began as a `venn`, a stem that
-  asks about the "taralı" / ştrixlənmiş / boyalı region, or set notation
-  anywhere in the stem or the options, is shown as the cleaned cut with
-  `genSkipped` saying why. **And where the verifier faults only the figure
-  while a reproduction is on show, the reproduction is dropped** rather than
-  the crop re-read (`core/questions/verdict-blame.ts`): the cut takes its
-  place and the wave rules on it next pass, for the price of one comparison
-  instead of a repair round. Two rows on one page came back
+  **Every cut figure on a `gen` book is reproduced, and a faulted
+  reproduction is EDITED, not re-read.** An earlier rule declined the redraw
+  where the shading was the question; the operator overruled it once crops
+  were rendered large enough for the reproduction to come out clean. What
+  survives of it is the verifier's veto (`core/questions/verdict-blame.ts`):
+  when every critical difference is in the figure while a reproduction is on
+  show, the crop is not re-read. The cut, the drawing and the verifier's words
+  go back to an image model as a corrective edit (`worker/figure-edit.ts`,
+  `figureEditPrompt`), the edited drawing is stored beside the earlier ones as
+  `.gen<n>.<ext>`, judged by the same guard, and the wave rules on it next
+  pass. `MAX_GEN_EDITS` (2) rounds, then the reproduction is dropped and the
+  cut is shown. Which provider takes which round is `FIGURE_EDIT_PROVIDERS`
+  (default `gemini,openai`) filtered by which keys exist:
+  `OPENAI_API_KEY` + `OPENAI_IMAGE_MODEL` are optional and, like Gemini's,
+  never hardcoded. `genProvider` and `genRound` on the figure tell the
+  reviewer who drew what is on screen and whether it is an edit. Two rows on one page came back
   from the lane with the shading moved; the guard passed one and the verifier
   passed both. A cleaner figure that answers a different question is the
   lane's whole risk, and on these questions it has nothing to offer against it.

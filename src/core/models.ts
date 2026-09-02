@@ -33,6 +33,10 @@ const RATES: [RegExp, Rate][] = [
   // GEMINI_IMAGE_MODEL changes; unlike the text lanes, image pricing differs
   // sharply between models.
   [/gemini.*image|imagen|nano-banana/i, { input: 0.3, output: 30 }],
+  // The corrective-edit provider. Image input and output are both billed as
+  // tokens; the input rate here is the IMAGE input rate, which is the one an
+  // edit request is dominated by. Re-check whenever OPENAI_IMAGE_MODEL moves.
+  [/gpt-image|dall-e/i, { input: 10, output: 40 }],
 ]
 
 /**

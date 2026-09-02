@@ -11,9 +11,9 @@ import {
   rerouteIneligible,
   routeFiguresForLane,
 } from '@/core/figures/kind-eligibility'
-import { reproductionPolicy } from '@/core/figures/gen-policy'
-import type { FigItem, ImageFig } from '@/core/figures/figspec'
-import { eq, ok, suite } from '../harness.ts'
+import { MAX_GEN_EDITS, parseProviderOrder, pickEditProvider } from '@/core/figures/gen-policy'
+import type { FigItem } from '@/core/figures/figspec'
+import { deepEq, eq, ok, suite } from '../harness.ts'
 
 const circle = (id: string, cx: number): FigItem =>
   ({
@@ -339,72 +339,20 @@ export const kindEligibilitySuite = suite('kind-eligibility', {
     eq(routed.flags.length, 0, 'policy is not a finding')
   },
 
-  // p307/11 and p308/13: the redraw moved the shading, one guard passed it and
-  // the verifier passed both. Where the shading is the question the lane does
-  // not draw at all.
-  'a set diagram is never handed to the reproduction lane'() {
-    const cut: ImageFig = { kind: 'image', src: '', origin: 'venn' }
-    const decision = reproductionPolicy({ stem: 'Kaç tane?', options: [] }, cut)
-    eq(decision.allowed, false, 'a venn by origin is declined')
+  // The edit schedule: the operator's order, filtered by who has a key, the
+  // last available provider repeating past the end, none meaning no edit.
+  'edit rounds walk the configured providers and repeat the last one'() {
+    eq(pickEditProvider(0, ['gemini', 'openai'], ['gemini', 'openai']), 'gemini', 'first edit')
+    eq(pickEditProvider(1, ['gemini', 'openai'], ['gemini', 'openai']), 'openai', 'second edit')
+    eq(pickEditProvider(1, ['gemini', 'openai'], ['gemini']), 'gemini', 'no second key: gemini again')
+    eq(pickEditProvider(0, ['openai', 'gemini'], ['gemini']), 'gemini', 'order skips what has no key')
+    eq(pickEditProvider(0, ['gemini'], []), null, 'no keys, no edit')
+    ok(MAX_GEN_EDITS >= 1, 'at least one edit is scheduled')
   },
 
-  'a stem that asks about the shaded region declines the redraw'() {
-    const cut: ImageFig = { kind: 'image', src: '' }
-    for (const stem of [
-      'Taralı alan = ?',
-      'Taralı bölgede kaç farklı sayı vardır?',
-      'Ştrixlənmiş hissənin sahəsi neçədir?',
-      'Boyalı bölgənin ifadəsi hansıdır?',
-    ]) {
-      eq(reproductionPolicy({ stem, options: [] }, cut).allowed, false, stem)
-    }
-  },
-
-  // Five of sixteen on one live page: read straight to `image`, no "taralı"
-  // in the stem (or no stem at all), and options full of set algebra.
-  'set notation in the stem or the options declines the redraw'() {
-    const cut: ImageFig = { kind: 'image', src: '' }
-    const opts = (...tex: string[]) => tex.map((t) => ({ tex: t }))
-    eq(
-      reproductionPolicy({ stem: '', options: opts('A - B', 'B - A', 'A \\cap B') }, cut).allowed,
-      false,
-      'TeX operators in the options',
-    )
-    eq(
-      reproductionPolicy({ stem: '', options: opts('C\\cup(A\\cup B)', 'C-(A\\cup B)') }, cut).allowed,
-      false,
-      'a stemless question with set options',
-    )
-    eq(
-      reproductionPolicy(
-        { stem: '$\\Rightarrow [(A\\backslash B)\\cap C] = ?$', options: opts('\\{6, 8\\}') },
-        cut,
-      ).allowed,
-      false,
-      'set algebra in the stem',
-    )
-    eq(
-      reproductionPolicy({ stem: 'A, B ve C kümeleri verilmiştir.', options: [] }, cut).allowed,
-      false,
-      'the word for set',
-    )
-  },
-
-  'a plain drawing may still be reproduced'() {
-    const cut: ImageFig = { kind: 'image', src: '', origin: 'geometry' }
-    const opts = (...tex: string[]) => tex.map((t) => ({ tex: t }))
-    eq(
-      reproductionPolicy({ stem: 'm(ABC) kaç derecedir?', options: opts('30°', '45°') }, cut).allowed,
-      true,
-      'geometry is allowed',
-    )
-    eq(
-      reproductionPolicy(
-        { stem: 'f(x) grafiği verilmiştir. f(2) = ?', options: opts('1', '2', '3') },
-        { kind: 'image', src: '' },
-      ).allowed,
-      true,
-      'a graph is allowed',
-    )
+  'the provider order is read leniently and defaults to both'() {
+    deepEq(parseProviderOrder('openai, Gemini'), ['openai', 'gemini'], 'case and spaces')
+    deepEq(parseProviderOrder('dalle,gemini'), ['gemini'], 'unknown names dropped')
+    deepEq(parseProviderOrder(undefined), ['gemini', 'openai'], 'the default order')
   },
 })

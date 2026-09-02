@@ -75,6 +75,16 @@ const envSchema = z.object({
    */
   GEMINI_API_KEY: z.string().min(1).optional(),
   GEMINI_IMAGE_MODEL: z.string().min(1).optional(),
+
+  /**
+   * A second image provider, for the corrective-edit rounds. Optional for
+   * the same reason: without it the edits go back to Gemini, and without
+   * either the verifier's veto simply drops the reproduction.
+   */
+  OPENAI_API_KEY: z.string().min(1).optional(),
+  OPENAI_IMAGE_MODEL: z.string().min(1).optional(),
+  /** Which provider takes which edit round, in order: e.g. "gemini,openai". */
+  FIGURE_EDIT_PROVIDERS: z.string().optional(),
 })
 
 const parsed = envSchema.safeParse(process.env)

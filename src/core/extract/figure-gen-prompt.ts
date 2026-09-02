@@ -34,3 +34,34 @@ MUST NOT:
 Draw lines cleanly and text legibly, but change NOTHING about what is drawn.
 Pay particular attention to where lines END: a guide that touches an axis in the
 original must touch it in your reproduction.`
+
+/**
+ * The instruction for a CORRECTIVE edit.
+ *
+ * Two images go with it: the original cut, and the reproduction the verifier
+ * faulted. The verifier's own words are the brief, and the brief is narrow on
+ * purpose — a model told "fix the shading" will happily re-letter the axes
+ * while it is at it, and every such improvement is a new difference for the
+ * next verdict to find.
+ */
+export function figureEditPrompt(findings: string): string {
+  return `Two images are attached.
+IMAGE 1 is the ORIGINAL figure from a printed exam question. It is the source of truth.
+IMAGE 2 is our reproduction of IMAGE 1. A reviewer compared them and found that IMAGE 2 differs from IMAGE 1 in these respects:
+
+${findings}
+
+Produce a corrected version of IMAGE 2 that matches IMAGE 1 in exactly those respects.
+
+MUST:
+- Fix ONLY what the reviewer listed, by copying how IMAGE 1 has it.
+- Keep every other line, label, colour, position and proportion of IMAGE 2 exactly as it is.
+- Keep every shaded region exactly where IMAGE 1 shades it, and nothing shaded where IMAGE 1 leaves white.
+
+MUST NOT:
+- Do not redraw the figure from scratch, restyle it, re-letter it, or "improve" it.
+- Do not add anything not present in IMAGE 1, and do not remove anything IMAGE 1 has.
+- Do not write any text that is not printed in IMAGE 1.
+
+Return only the corrected figure on a white background.`
+}

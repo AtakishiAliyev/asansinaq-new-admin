@@ -26,7 +26,6 @@ import { cleanCrop, type Pixels } from '@/core/segment/image-clean'
 import type { Box } from '@/core/segment/option-bands'
 import { boxToRect, placeFigureBox, placeOptionBoxes } from '@/core/segment/place-boxes'
 import { modelCropSize } from '@/core/segment/model-crop'
-import { reproductionPolicy } from '@/core/figures/gen-policy'
 
 export interface LoadedCrop {
   image: HTMLImageElement
@@ -207,16 +206,10 @@ export async function attachFigureImages(
       continue
     }
     if (lane !== 'gen') continue
-    // The same policy the worker applies: where the shading is the question,
-    // no reproduction is attempted anywhere. Otherwise the lane would run in
-    // the worker, and that is not here — said on the figure either way.
-    const policy = reproductionPolicy(question, item)
-    if (!policy.allowed) {
-      item.genSkipped = policy.reason
-    } else {
-      item.genSkipped = 'Təkrar çəkiliş yalnız worker-də işləyir — reproduksiya üçün sualı növbəyə salın'
-      awaitingWorker++
-    }
+    // The lane would run in the worker, and that is not here — said on the
+    // figure so the reviewer knows what a re-queue would add.
+    item.genSkipped = 'Təkrar çəkiliş yalnız worker-də işləyir — reproduksiya üçün sualı növbəyə salın'
+    awaitingWorker++
   }
 
   // A reviewer looking at a gen book expects a reproduction and would

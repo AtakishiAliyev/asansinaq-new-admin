@@ -8,7 +8,8 @@
 // The provider is reached over plain HTTPS rather than through an SDK. The one
 // thing needed here is a POST with an image and a prompt, and a dependency that
 // has to be approved, versioned and audited is a poor trade for a fetch call.
-import { FIGURE_REPRODUCE_PROMPT } from '@/core/extract/figure-gen-prompt'
+import { FIGURE_REPRODUCE_PROMPT, figureEditPrompt } from '@/core/extract/figure-gen-prompt'
+import type { GenProvider } from '@/core/figures/gen-policy'
 import { compareLabels, type LabelDiff } from '@/core/figures/labels'
 import { compareStructure, type StructuralDiff } from '@/core/figures/structural-diff'
 import { readLabels } from './figure-ocr.ts'
@@ -33,6 +34,43 @@ export interface GenerationResult {
  * is an enhancement over something that already works.
  */
 export async function reproduceFigure(cutPng: Buffer): Promise<GenerationResult> {
+  return geminiDraw([cutPng], FIGURE_REPRODUCE_PROMPT)
+}
+
+/** Which providers have a key AND a model id in this worker's environment. */
+export function availableProviders(): GenProvider[] {
+  const out: GenProvider[] = []
+  if (config.GEMINI_API_KEY && config.GEMINI_IMAGE_MODEL) out.push('gemini')
+  if (config.OPENAI_API_KEY && config.OPENAI_IMAGE_MODEL) out.push('openai')
+  return out
+}
+
+/** The model id a provider draws with, for the ledger. */
+export function providerModel(provider: GenProvider): string {
+  return (provider === 'gemini' ? config.GEMINI_IMAGE_MODEL : config.OPENAI_IMAGE_MODEL) ?? `${provider}(unset)`
+}
+
+/**
+ * A corrective edit: the cut, the faulted drawing and the verifier's words go
+ * to the provider, which returns the drawing with those faults fixed.
+ *
+ * Returns rather than throws, like `reproduceFigure`: an edit that could not
+ * be made leaves the caller to decide what is shown, and that is not a reason
+ * to fail a question.
+ */
+export async function editFigure(
+  provider: GenProvider,
+  cutPng: Buffer,
+  currentImage: Buffer,
+  findings: string,
+): Promise<GenerationResult> {
+  const prompt = figureEditPrompt(findings)
+  return provider === 'openai'
+    ? openaiEdit([cutPng, currentImage], prompt)
+    : geminiDraw([cutPng, currentImage], prompt)
+}
+
+async function geminiDraw(images: Buffer[], prompt: string): Promise<GenerationResult> {
   if (!config.GEMINI_API_KEY || !config.GEMINI_IMAGE_MODEL) {
     return { png: null, error: 'no Gemini key or model configured', usage: { input: 0, output: 0 } }
   }
@@ -53,8 +91,10 @@ export async function reproduceFigure(cutPng: Buffer): Promise<GenerationResult>
           {
             role: 'user',
             parts: [
-              { inline_data: { mime_type: 'image/png', data: cutPng.toString('base64') } },
-              { text: FIGURE_REPRODUCE_PROMPT },
+              ...images.map((img) => ({
+                inline_data: { mime_type: sniffMime(img), data: img.toString('base64') },
+              })),
+              { text: prompt },
             ],
           },
         ],
@@ -96,6 +136,87 @@ export async function reproduceFigure(cutPng: Buffer): Promise<GenerationResult>
     return { png: null, error: `no image returned${said ? `: ${said}` : ''}`, usage }
   }
   return { png: Buffer.from(base64, 'base64'), usage }
+}
+
+/** JPEG or PNG, from the bytes — the provider is told what it is handed. */
+function sniffMime(image: Buffer): 'image/png' | 'image/jpeg' {
+  return image[0] === 0xff && image[1] === 0xd8 ? 'image/jpeg' : 'image/png'
+}
+
+/**
+ * The OpenAI images edit endpoint: the reference images and the brief go as
+ * a multipart form, the drawing comes back base64. Model id from config, as
+ * everywhere; the request shape is the documented one and carries nothing
+ * model-specific.
+ */
+async function openaiEdit(images: Buffer[], prompt: string): Promise<GenerationResult> {
+  if (!config.OPENAI_API_KEY || !config.OPENAI_IMAGE_MODEL) {
+    return { png: null, error: 'no OpenAI key or model configured', usage: { input: 0, output: 0 } }
+  }
+  const form = new FormData()
+  form.append('model', config.OPENAI_IMAGE_MODEL)
+  form.append('prompt', prompt)
+  images.forEach((img, i) => {
+    const mime = sniffMime(img)
+    form.append('image[]', new Blob([new Uint8Array(img)], { type: mime }), `image${i + 1}.${mime === 'image/jpeg' ? 'jpg' : 'png'}`)
+  })
+
+  let response: Response
+  try {
+    response = await fetch('https://api.openai.com/v1/images/edits', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${config.OPENAI_API_KEY}` },
+      body: form,
+    })
+  } catch (error) {
+    return { png: null, error: `request failed: ${String(error)}`, usage: { input: 0, output: 0 } }
+  }
+  if (!response.ok) {
+    const body = await response.text().catch(() => '')
+    return {
+      png: null,
+      error: `provider ${response.status}: ${body.slice(0, 300)}`,
+      usage: { input: 0, output: 0 },
+    }
+  }
+  const json = (await response.json()) as {
+    data?: { b64_json?: string }[]
+    usage?: { input_tokens?: number; output_tokens?: number }
+  }
+  const base64 = json.data?.[0]?.b64_json
+  const usage = { input: json.usage?.input_tokens ?? 0, output: json.usage?.output_tokens ?? 0 }
+  if (!base64) return { png: null, error: 'no image returned', usage }
+  return { png: Buffer.from(base64, 'base64'), usage }
+}
+
+export interface Judgement {
+  passed: boolean
+  diff: StructuralDiff
+  labels: LabelDiff | null
+  rejection: string | null
+}
+
+/**
+ * The guard, applied to ONE drawing: structure against the cut, then the
+ * writing if the structure held. Shared by the first drawing and every edit,
+ * so a reviewer reads the same objection whoever drew the picture.
+ */
+export async function judgeDrawing(
+  cutPng: Buffer,
+  cutPixels: Pixels,
+  drawing: Buffer,
+  decode: (png: Buffer) => Promise<Pixels | null>,
+): Promise<Judgement | null> {
+  const generated = await decode(drawing)
+  if (!generated) return null
+  const diff = compareStructure(cutPixels, generated)
+  let labels: LabelDiff | null = null
+  if (diff.passed) labels = compareLabels(await readLabels(cutPng), await readLabels(drawing))
+  const passed = diff.passed && Boolean(labels?.passed)
+  const rejection = passed
+    ? null
+    : [...diff.reasons, ...(labels && !labels.passed ? [`yazı itib: ${labels.missing.join(', ')}`] : [])].join('; ')
+  return { passed, diff, labels, rejection }
 }
 
 export interface GuardedGeneration {

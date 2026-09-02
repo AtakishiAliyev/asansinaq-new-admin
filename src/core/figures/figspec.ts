@@ -335,6 +335,15 @@ export interface ImageFig {
    * the shading IS the question, and a redraw can only put it at risk.
    */
   genSkipped?: string
+  /** Which image model drew the reproduction on show — a reviewer reads a
+   *  drawing differently knowing who drew it. */
+  genProvider?: string
+  /**
+   * How many times the reproduction has been EDITED after the verifier
+   * faulted it. Zero for a first drawing. Capped by MAX_GEN_EDITS; past the
+   * cap the reproduction is dropped and the cut is shown.
+   */
+  genRound?: number
   /**
    * The kind the model chose before the lane rerouted the figure to a cut.
    * Recorded so a later decision can still ask what the drawing WAS — a cut
