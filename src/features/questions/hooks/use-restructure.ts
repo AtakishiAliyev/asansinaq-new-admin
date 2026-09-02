@@ -4,23 +4,40 @@ import type { Crop } from '@/core/segment/types'
 import type { ExtractedQuestion } from '@/core/questions/extraction'
 import { wireToQuestion } from '@/core/questions/extraction'
 import { buildRowPayload } from '@/core/questions/row-payload'
+import { routeFiguresForLane } from '@/core/figures/kind-eligibility'
 import type { Flag } from '@/core/questions/lint'
 import { PROMPT_VERSION } from '@/core/extract/prompts'
 import { opExtract, OpError } from '@/features/questions/api/question-ops'
 import { fetchBookAnswerKeys } from '@/features/questions/api/answer-keys'
-import { fetchBookCategories } from '@/features/questions/api/book-categories'
+import {
+  fetchBookCategories,
+  fetchBookFigureLane,
+} from '@/features/questions/api/book-categories'
 import type { CategoryOption } from '@/features/questions/api/book-categories'
 import { toCropEntries } from '@/features/questions/lib/crop-entry'
-import { cropRegion, splitDataUrl } from '@/features/questions/lib/image'
+import {
+  attachFigureImages,
+  attachOptionImages,
+  loadCrop,
+} from '@/features/questions/lib/cut'
+import { splitDataUrl } from '@/features/questions/lib/image'
 import type { QuestionRow } from '@/features/questions/schemas'
 
 // Re-running ONE question, on demand, from the review screen.
 //
 // This is the only orchestration left in the browser, and it is deliberately
 // the same shape as the worker's: one structured call, the crop sent once, the
-// answer written through the same core payload builder. It is not a second
-// pipeline — a re-run that produced a different row than the batch would make
-// the review screen a place where questions quietly changed meaning.
+// figures routed by the book's lane, the pictures measured and cut, the answer
+// written through the same core payload builder. It is not a second pipeline —
+// a re-run that produced a different row than the batch would make the review
+// screen a place where questions quietly changed meaning, and for a while it
+// did: the re-run skipped the routing and the figure cut, so a `kind: image`
+// figure came back with nothing behind it.
+//
+// Two things stay with the worker. The reproduction lane needs a provider key
+// that must never reach a tab, so a gen book's re-run shows the cut and says
+// so. And verification is a worker wave: the row is written with its verdict
+// cleared, and the worker's next pass compares it against the crop.
 //
 // What it is NOT is the queue. Draining thousands of questions belongs to
 // `worker/`, where a batch costs half as much and is not bounded by an Edge
@@ -49,38 +66,7 @@ interface BookContext {
   answerKeys: Map<string, string>
   answerKeysRead: boolean
   categories: CategoryOption[]
-}
-
-/** Cut a picture option out of the crop and store it. Deterministic and free —
- *  the same step the worker does, with the browser's canvas instead of Node's. */
-async function attachOptionImages(
-  row: QuestionRow,
-  crop: Crop,
-  question: ExtractedQuestion,
-): Promise<number> {
-  const wanted = question.options.filter((o) => o.isImage && o.box && !o.image)
-  let produced = 0
-  for (const option of wanted) {
-    try {
-      const dataUrl = await cropRegion(crop.dataUrl, option.box!)
-      const { image, mime } = splitDataUrl(dataUrl)
-      const bytes = Uint8Array.from(atob(image), (c) => c.charCodeAt(0))
-      const path = `${row.book_id}/p${row.page_number}_c${row.col}_q${row.q_no}_opt${option.label}.png`
-      const { error } = await supabase.storage
-        .from('question-crops')
-        .upload(path, new Blob([bytes], { type: mime }), {
-          upsert: true,
-          contentType: mime,
-        })
-      if (error) throw new Error(error.message)
-      option.image = path
-      produced++
-    } catch {
-      // Left without an image on purpose: lint then reports the option as
-      // empty, which is true, rather than the row carrying a broken path.
-    }
-  }
-  return produced
+  figureLane: 'cut' | 'gen'
 }
 
 export function useRestructure() {
@@ -106,7 +92,7 @@ export function useRestructure() {
     const contextFor = async (bookId: number): Promise<BookContext> => {
       const hit = context.get(bookId)
       if (hit) return hit
-      const [keys, categories] = await Promise.all([
+      const [keys, categories, figureLane] = await Promise.all([
         fetchBookAnswerKeys(bookId)
           .then((answerKeys) => ({ answerKeys, answerKeysRead: true }))
           .catch(() => ({
@@ -114,8 +100,10 @@ export function useRestructure() {
             answerKeysRead: false,
           })),
         fetchBookCategories(bookId).catch(() => [] as CategoryOption[]),
+        // Unreadable means `cut`, exactly as the worker resolves it.
+        fetchBookFigureLane(bookId).catch((): 'cut' | 'gen' => 'cut'),
       ])
-      const resolved = { ...keys, categories }
+      const resolved = { ...keys, categories, figureLane }
       context.set(bookId, resolved)
       return resolved
     }
@@ -138,7 +126,13 @@ export function useRestructure() {
         })
 
         const question = wireToQuestion(wire)
-        const cropped = await attachOptionImages(row, crop, question)
+        // The same three steps the worker takes between the answer and the
+        // row, in the same order: route by lane, then cut, then build.
+        const routed = routeFiguresForLane(question.figures?.items ?? [], book.figureLane)
+        if (question.figures) question.figures = { ...question.figures, items: routed.items }
+        const loaded = await loadCrop(crop.dataUrl)
+        const cut = await attachOptionImages(row, loaded, question)
+        const figureCut = await attachFigureImages(row, loaded, question, book.figureLane)
         const payload = buildRowPayload(question, wire, {
           qNo: crop.number,
           currentStatus: row.status,
@@ -149,7 +143,8 @@ export function useRestructure() {
             null,
           answerKeysRead: book.answerKeysRead,
           categoryIds: book.categories.map((c) => c.id),
-          croppedOptionImages: cropped,
+          croppedOptionImages: cut.produced,
+          cutFlags: [...cut.flags, ...figureCut.flags, ...routed.flags],
           model,
           promptVersion: PROMPT_VERSION,
         })

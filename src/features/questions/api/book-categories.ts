@@ -34,3 +34,18 @@ export async function fetchBookCategories(
     parentId: c.parent_id,
   }))
 }
+
+/**
+ * Which figure lane the book is on. The worker reads the same column and
+ * resolves the same way: unknown or unreadable means `cut`, the lane that
+ * cannot be wrong about the page.
+ */
+export async function fetchBookFigureLane(bookId: number): Promise<'cut' | 'gen'> {
+  const { data, error } = await supabase
+    .from('books')
+    .select('figure_render')
+    .eq('id', bookId)
+    .maybeSingle()
+  if (error) throw error
+  return data?.figure_render === 'gen' ? 'gen' : 'cut'
+}

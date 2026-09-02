@@ -6,6 +6,7 @@
 // content survived a re-read and kept the verify wave away from the row for
 // good.
 import { buildRowPayload, type RowContext } from '@/core/questions/row-payload'
+import { figureImagePath, optionImagePath } from '@/core/questions/image-paths'
 import type { ExtractedQuestion } from '@/core/questions/extraction'
 import { eq, ok, suite } from '../harness.ts'
 
@@ -83,5 +84,13 @@ export const rowPayloadSuite = suite('row-payload', {
       context({ categoryIds: [1, 2] }),
     )
     eq(update.ai_category_id, null, 'an invented id is not filed')
+  },
+
+  // Both writers store to this path and the renderers read from it; a second
+  // copy of the pattern was one character from a broken picture.
+  'cut pictures are stored under one convention'() {
+    const row = { book_id: 22, page_number: 5, col: 1, q_no: 12 }
+    eq(optionImagePath(row, 'C'), '22/p5_c1_q12_optC.png')
+    eq(figureImagePath(row, 0), '22/p5_c1_q12_fig0.png')
   },
 })

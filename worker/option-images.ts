@@ -19,26 +19,18 @@ import type { ExtractedOption, ExtractedQuestion } from '@/core/questions/extrac
 import type { ImageFig } from '@/core/figures/figspec'
 import type { Flag } from '@/core/questions/lint'
 import { cleanCrop, type Pixels } from '@/core/segment/image-clean'
-import {
-  localizeFigureBox,
-  localizeOptionBoxes,
-  type Box,
-} from '@/core/segment/option-bands'
+import type { Box } from '@/core/segment/option-bands'
+import { boxToRect, placeFigureBox, placeOptionBoxes } from '@/core/segment/place-boxes'
+import { figureImagePath, optionImagePath } from '@/core/questions/image-paths'
 import type { Db, QuestionRow } from './db.ts'
 import { extensionForMime, sniffImageMime, type ImageMime } from '@/core/figures/image-mime'
 import { FIGURE_GEN_OP, guardedReproduction } from './figure-gen.ts'
 import { budgetExhausted, logOp } from './ops.ts'
 import { config } from './config.ts'
 
-/** Where crops and generated images live, by convention shared with the UI. */
-export function optionImagePath(row: QuestionRow, label: string): string {
-  return `${row.book_id}/p${row.page_number}_c${row.col}_q${row.q_no}_opt${label}.png`
-}
-
-/** Same convention, for a figure the vector kinds could not express. */
-export function figureImagePath(row: QuestionRow, index: number): string {
-  return `${row.book_id}/p${row.page_number}_c${row.col}_q${row.q_no}_fig${index}.png`
-}
+// Where cut pictures live: `core/questions/image-paths.ts`, shared with the
+// review screen so both writers store to the path the renderers read.
+export { figureImagePath, optionImagePath }
 
 /**
  * Where a guarded reproduction lives, beside the cut it was drawn from.
@@ -60,26 +52,6 @@ export function figureGenPath(row: QuestionRow, index: number, mime: ImageMime):
  * between trying a better cleaner and paying to read every crop again.
  */
 const rawTwin = (path: string): string => path.replace(/\.png$/, '.raw.png')
-
-/**
- * `[ymin, xmin, ymax, xmax]` on a 0-1000 grid → pixels on this image.
- *
- * Rounded outward and clamped: a box that runs a pixel past the edge should
- * yield the edge, not throw, and a box rounded to nothing should still be one
- * pixel rather than an invalid canvas.
- */
-function toRect(
-  box: [number, number, number, number],
-  width: number,
-  height: number,
-): { sx: number; sy: number; sw: number; sh: number } {
-  const [ymin, xmin, ymax, xmax] = box
-  const sx = Math.max(0, Math.min(width - 1, Math.floor((xmin / 1000) * width)))
-  const sy = Math.max(0, Math.min(height - 1, Math.floor((ymin / 1000) * height)))
-  const sw = Math.max(1, Math.min(width - sx, Math.ceil(((xmax - xmin) / 1000) * width)))
-  const sh = Math.max(1, Math.min(height - sy, Math.ceil(((ymax - ymin) / 1000) * height)))
-  return { sx, sy, sw, sh }
-}
 
 /**
  * Fills in `image` for every option that declared a picture and said where it
@@ -110,7 +82,7 @@ async function cutAndStore(
   box: Box,
   path: string,
 ): Promise<{ png: Buffer; pixels: Pixels } | null> {
-  const { sx, sy, sw, sh } = toRect(box, source.width, source.height)
+  const { sx, sy, sw, sh } = boxToRect(box, source.width, source.height)
   const canvas = createCanvas(sw, sh)
   const ctx = canvas.getContext('2d')
   // Painted white first: a JPEG source has no alpha, but a PNG region can, and
@@ -276,40 +248,14 @@ export async function attachOptionImages(
   if (!wanted.length) return { produced: 0, failed: 0, flags: [] }
 
   const { pix, image: source } = await pixelsOf(crop)
-  const flags: Flag[] = []
 
-  // The model's boxes are a HINT about where to look. It says which options are
-  // pictures and in what order, which it is good at, and where they sit, which
-  // it is measurably bad at — on one live page its five boxes spanned 355-680
-  // while the rows were at 552-999, so the first cut was blank paper.
-  const hint = wanted.map((o) => o.box).filter((b): b is Box => !!b)
-  const located = localizeOptionBoxes(pix, wanted.length, hint.length ? hint : undefined)
-
-  if (located.ok) {
-    for (const [index, option] of wanted.entries()) option.box = located.boxes[index]!
-  } else {
-    // Refused, not guessed. Falling back to the model's boxes is right — they
-    // are sometimes correct — but the row is flagged either way, because a cut
-    // nothing measured is a cut nobody has checked.
-    flags.push({
-      level: 'warning',
-      code: 'option_boxes_unverified',
-      message: `Variant şəkillərinin yeri ölçülə bilmədi (${located.reason}) — kəsimləri gözlə yoxlayın`,
-    })
-    if (hint.length !== wanted.length) {
-      return {
-        produced: 0,
-        failed: wanted.length,
-        flags: [
-          {
-            level: 'error',
-            code: 'option_boxes_missing',
-            message: 'Variant şəkilləri üçün nə ölçülmüş, nə də modelin verdiyi qutu var',
-          },
-        ],
-      }
-    }
+  // Measured, not requested: see `placeOptionBoxes` for why the model's boxes
+  // are only a hint, and what the row says when nothing could be measured.
+  const placed = placeOptionBoxes(pix, wanted.map((o) => o.box))
+  for (const [index, option] of wanted.entries()) {
+    option.box = placed.boxes[index] ?? undefined
   }
+  const flags: Flag[] = placed.flags
 
   let produced = 0
   let failed = 0
@@ -371,22 +317,14 @@ export async function attachFigureImages(
       // Same rule as the option boxes: the model's coordinates are a hint about
       // WHERE IN THE FLOW to look, and the ink decides the rectangle. On p311/16
       // the hint was taken at face value and the cut held the wrong region.
-      // The printed number is not part of the drawing — see trimQuestionNumber.
-      const located = localizeFigureBox(pix, item.box ?? null, { questionNumber: row.q_no })
-      if (located.ok) {
-        item.box = located.box
-      } else {
-        flags.push({
-          level: 'warning',
-          code: 'figure_box_unverified',
-          message: `Fiqurun yeri ölçülə bilmədi (${located.reason}) — kəsimi gözlə yoxlayın`,
-        })
-        if (!item.box) {
-          failed++
-          continue
-        }
+      const placed = placeFigureBox(pix, item.box ?? null, row.q_no)
+      flags.push(...placed.flags)
+      if (!placed.box) {
+        failed++
+        continue
       }
-      const { sw, sh } = toRect(item.box!, source.width, source.height)
+      item.box = placed.box
+      const { sw, sh } = boxToRect(item.box!, source.width, source.height)
       const path = figureImagePath(row, index)
       const cut = await cutAndStore(db, source, item.box!, path)
       item.src = path

@@ -9,6 +9,7 @@ import {
   documentIneligible,
   figureIneligible,
   rerouteIneligible,
+  routeFiguresForLane,
 } from '@/core/figures/kind-eligibility'
 import type { FigItem } from '@/core/figures/figspec'
 import { eq, ok, suite } from '../harness.ts'
@@ -283,5 +284,24 @@ export const kindEligibilitySuite = suite('kind-eligibility', {
     const { items, rerouted } = rerouteAllToCut([original])
     eq(items[0], original, 'the same object, not a rebuilt one')
     eq(rerouted.length, 0, 'nothing to report')
+  },
+
+  // The lane decides, and the row says why — in ONE place, because the worker
+  // and the review screen's re-run both write the row and the re-run used to
+  // skip this step entirely.
+  'a cut book reroutes only what the kind cannot hold, and says so'() {
+    const good = circle('A', 115)
+    const routed = routeFiguresForLane([good, RECT_VENN], 'cut')
+    eq(routed.items[0], good, 'an eligible figure is left alone')
+    eq(routed.items[1]?.kind, 'image', 'an ineligible one becomes a cut')
+    eq(routed.flags.length, 1, 'one finding')
+    eq(routed.flags[0]?.code, 'figure_rerouted', 'named for the reviewer')
+    eq(routed.flags[0]?.level, 'warning', 'a warning: the row is usable')
+  },
+
+  'a gen book cuts everything and flags nothing'() {
+    const routed = routeFiguresForLane([circle('A', 115), RECT_VENN], 'gen')
+    ok(routed.items.every((i) => i.kind === 'image'), 'every figure is a cut')
+    eq(routed.flags.length, 0, 'policy is not a finding')
   },
 })

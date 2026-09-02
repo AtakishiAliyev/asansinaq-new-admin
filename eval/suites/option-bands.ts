@@ -19,6 +19,7 @@ import {
   inventedInk,
   type Pixels,
 } from '@/core/segment/image-clean'
+import { boxToRect, placeFigureBox, placeOptionBoxes } from '@/core/segment/place-boxes'
 import { eq, ok, suite } from '../harness.ts'
 
 function blank(width: number, height: number): Pixels {
@@ -567,5 +568,39 @@ export const imageCleanSuite = suite('image-clean', {
     const snapshot = new Uint8ClampedArray(pix.data)
     cleanCrop(pix)
     eq(pix.data.join(','), snapshot.join(','), 'the original is untouched')
+  },
+
+  // The placement the worker and the review screen both use, pinned where the
+  // localizer refuses: the two callers must agree about what the row says.
+  'when nothing can be measured, the model\u2019s boxes are used and the row says so'() {
+    const hint: Box = [100, 100, 300, 900]
+    const placed = placeOptionBoxes(blank(200, 200), [hint, hint])
+    eq(placed.boxes.length, 2, 'one entry per option')
+    eq(placed.boxes[0], hint, 'the hint survives unchecked')
+    eq(placed.flags[0]?.code, 'option_boxes_unverified', 'and is flagged')
+    eq(placed.flags[0]?.level, 'warning', 'as a warning: the cut may be right')
+  },
+
+  'with no boxes from anywhere nothing is cut, and that is an error'() {
+    const placed = placeOptionBoxes(blank(200, 200), [undefined, undefined])
+    ok(placed.boxes.every((b) => b === null), 'nothing to cut')
+    eq(placed.flags.length, 1, 'one flag, not two')
+    eq(placed.flags[0]?.code, 'option_boxes_missing')
+    eq(placed.flags[0]?.level, 'error')
+  },
+
+  'a figure with an unmeasurable crop keeps its hint and a warning'() {
+    const hint: Box = [50, 50, 500, 900]
+    const placed = placeFigureBox(blank(200, 200), hint, 8)
+    eq(placed.box, hint)
+    eq(placed.flags[0]?.code, 'figure_box_unverified')
+    eq(placeFigureBox(blank(200, 200), null, 8).box, null, 'no hint, no box')
+  },
+
+  'a box past the edge yields the edge, and a box rounded to nothing yields a pixel'() {
+    eq(boxToRect([0, 0, 1000, 1000], 100, 50).sw, 100)
+    eq(boxToRect([990, 990, 1200, 1200], 100, 50).sh, 1)
+    const tiny = boxToRect([500, 500, 500.1, 500.1], 100, 50)
+    ok(tiny.sw >= 1 && tiny.sh >= 1, 'never a zero-size canvas')
   },
 })

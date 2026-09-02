@@ -21,6 +21,7 @@
 // Anything a kind cannot hold belongs in `kind=image`: a cleaned cut of the
 // original, which cannot be wrong about what the page shows.
 import type { FigItem } from '@/core/figures/figspec'
+import type { Flag } from '@/core/questions/lint'
 
 export interface Ineligible {
   /** Which kind over-reached. */
@@ -154,4 +155,37 @@ export function rerouteAllToCut(items: FigItem[]): {
     return { kind: 'image', src: '' } as FigItem
   })
   return { items: next, rerouted }
+}
+
+/**
+ * The figures a row keeps, given the lane its book is on, and what the row
+ * says about it.
+ *
+ * On a `cut` book a kind that cannot hold its figure is REPLACED by a cut of
+ * the original, not merely flagged — leaving the spec in place is what made a
+ * whole round useless: the lint fired and the row still carried a venn drawn
+ * out of rectangles. On a `gen` book every figure is cut by policy, so flagging
+ * them would put every figure question in the review queue and say nothing.
+ *
+ * In core because two runtimes write the row after a read — the worker and
+ * the review screen's single re-run — and the browser used to skip this step
+ * entirely, leaving a gen book's re-run rows with DSL figures the book's policy
+ * had ruled out.
+ */
+export function routeFiguresForLane(
+  items: FigItem[],
+  lane: 'cut' | 'gen',
+): { items: FigItem[]; flags: Flag[] } {
+  const routed = lane === 'gen' ? rerouteAllToCut(items) : rerouteIneligible(items)
+  const flags: Flag[] =
+    lane === 'gen'
+      ? []
+      : routed.rerouted.map((bad) => ({
+          level: 'warning',
+          code: 'figure_rerouted',
+          message:
+            `kind="${bad.kind}" bu fiqura uyğun deyil (${bad.reason}) — ` +
+            'fiqur orijinaldan kəsildi',
+        }))
+  return { items: routed.items, flags }
 }
