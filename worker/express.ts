@@ -208,13 +208,19 @@ export async function runExpress(
   rows: QuestionRow[],
   log: (message: string) => void,
   onWire: (row: QuestionRow, wire: Record<string, unknown>) => void = () => {},
+  /** Called as each question finishes, so a long run can keep saying it is
+   *  alive. Best-effort: a failure here must not fail the question. */
+  onProgress: (finished: number, total: number) => Promise<void> = async () => {},
 ): Promise<ExpressOutcome> {
-  const parts = await mapLimit(rows, config.EXPRESS_CONCURRENCY, (row) =>
-    runOne(db, row, log, onWire).catch((error): Partial<ExpressOutcome> => {
+  let finished = 0
+  const parts = await mapLimit(rows, config.EXPRESS_CONCURRENCY, async (row) => {
+    const part = await runOne(db, row, log, onWire).catch((error): Partial<ExpressOutcome> => {
       log(`q${row.id} express failed: ${String(error)}`)
       return { failed: 1, done: [row.id] }
-    }),
-  )
+    })
+    await onProgress(++finished, rows.length).catch(() => {})
+    return part
+  })
   return {
     structured: parts.reduce((a, p) => a + (p.structured ?? 0), 0),
     failed: parts.reduce((a, p) => a + (p.failed ?? 0), 0),

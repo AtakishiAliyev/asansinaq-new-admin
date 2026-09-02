@@ -119,9 +119,30 @@ const DAEMON = process.argv.includes('--daemon') || process.env.WORKER_DAEMON ==
 
 /** What the worker is doing, as the control panel will phrase it. */
 let activity = 'starting'
+let lastBeat = 0
 async function setActivity(text: string, state: DesiredState = 'running'): Promise<void> {
   activity = text
+  lastBeat = Date.now()
   await beat(db, { activity, state, spendToday: await spendToday(db).catch(() => undefined) })
+}
+
+/**
+ * How often a long pass says it is still alive.
+ *
+ * The panel counts a worker offline after 150 seconds of silence, and a beat
+ * once per pass was not enough: an express run of 54 questions took 197
+ * seconds, and the poll pass cuts, reproduces and OCRs every figure of a
+ * batch before it beats again. A healthy worker went "offline" in the UI in
+ * the middle of its own run — and a restart is the natural thing to do about
+ * an offline worker, which is the one thing a run in progress cannot afford.
+ */
+const PULSE_MS = 20_000
+
+/** Beat with progress, but no more often than PULSE_MS. Cheap enough to call
+ *  after every row. */
+async function pulse(text: string): Promise<void> {
+  if (Date.now() - lastBeat < PULSE_MS) return
+  await setActivity(text).catch(() => {})
 }
 
 let stopping = false
@@ -285,6 +306,9 @@ async function pollPass(): Promise<number> {
         failed++
         done.push(row.id)
       }
+      // Cutting and reproducing figures happens inside applyResult, row by
+      // row, so a figure-heavy batch is minutes of silence without this.
+      await pulse(`batch ${batchId}: ${done.length}/${batchRows.length} nəticə yazılır`)
     }
 
     // Anything the provider never mentioned goes back to the queue rather than
@@ -353,6 +377,7 @@ async function verifyPass(): Promise<number> {
       if (!item) continue
       items.push(item)
       submitted.push({ id: row.id, customId: item.customId })
+      await pulse(`yoxlama üçün ${items.length}/${rows.length} sual render olunur`)
     } catch (error) {
       // A row that cannot be RENDERED cannot be verified, and that is a real
       // defect rather than a reason to stall the wave: it is marked so a
@@ -450,7 +475,9 @@ async function expressPass(): Promise<number> {
   )
   await setActivity(`express: ${rows.length} sual işlənir (sinxron)`)
 
-  const outcome = await runExpress(db, rows, log, noteFigureKinds)
+  const outcome = await runExpress(db, rows, log, noteFigureKinds, (finished, total) =>
+    pulse(`express: ${finished}/${total} sual işlənib`),
+  )
 
   const missing = rows.filter((r) => !outcome.done.includes(r.id)).map((r) => r.id)
   await finish(db, outcome.done)
