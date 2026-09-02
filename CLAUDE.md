@@ -101,9 +101,14 @@ what each stage needs.
   carries the model's `figure_box` as the cutter's hint.
 
   **Where the shading is the question, the lane does not draw at all**
-  (`core/figures/gen-policy.ts`). A cut that began as a `venn`, or a stem that
-  asks about the "taralı" / ştrixlənmiş / boyalı region, is shown as the
-  cleaned cut with `genSkipped` saying why. Two rows on one page came back
+  (`core/figures/gen-policy.ts`). A cut that began as a `venn`, a stem that
+  asks about the "taralı" / ştrixlənmiş / boyalı region, or set notation
+  anywhere in the stem or the options, is shown as the cleaned cut with
+  `genSkipped` saying why. **And where the verifier faults only the figure
+  while a reproduction is on show, the reproduction is dropped** rather than
+  the crop re-read (`core/questions/verdict-blame.ts`): the cut takes its
+  place and the wave rules on it next pass, for the price of one comparison
+  instead of a repair round. Two rows on one page came back
   from the lane with the shading moved; the guard passed one and the verifier
   passed both. A cleaner figure that answers a different question is the
   lane's whole risk, and on these questions it has nothing to offer against it.
