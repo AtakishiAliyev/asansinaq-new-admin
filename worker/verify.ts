@@ -20,6 +20,9 @@ import {
 } from '@/core/extract/verify-request'
 import type { ExtractedQuestion } from '@/core/questions/extraction'
 import { decideRepair, parseStoredVersion } from '@/core/questions/repair-guard'
+import { reproductionBlamed } from '@/core/questions/verdict-blame'
+import type { FigureDoc, ImageFig } from '@/core/figures/figspec'
+import type { Flag } from '@/core/questions/lint'
 import type { Db, QuestionRow } from './db.ts'
 import { config } from './config.ts'
 import { downloadCrop } from './extract.ts'
@@ -102,6 +105,47 @@ export async function applyVerdict(
   verdict: Verdict,
 ): Promise<VerifyOutcome> {
   const critical = verdict.differences.filter((d) => d.severity === 'critical')
+
+  // A complaint about the drawing, while the drawing on show is a
+  // reproduction, is a complaint about the reproduction. Re-reading the crop
+  // cannot answer it; dropping the redraw can, for free. The cut takes its
+  // place and the wave rules on THAT next pass — see verdict-blame.ts.
+  const blamed = verdict.matches ? [] : reproductionBlamed(row.figures, verdict.differences)
+  if (blamed.length) {
+    const doc = row.figures as unknown as FigureDoc
+    const why = critical.map((d) => d.note.trim()).filter(Boolean).join('; ').slice(0, 400)
+    const items = doc.items.map((item, index) => {
+      if (!blamed.includes(index) || item.kind !== 'image') return item
+      const { genSrc: _dropped, ...rest } = item as ImageFig
+      return { ...rest, genRejected: `Yoxlayıcı rədd etdi: ${why || 'səbəb bildirilmədi'}` }
+    })
+    const kept = ((row.flags ?? []) as unknown as Flag[]).filter(
+      (f) => !['verify_mismatch', 'verify_low_confidence', 'gen_unverified', 'gen_rejected_by_verifier'].includes(f.code),
+    )
+    await db
+      .from('questions')
+      .update({
+        figures: { ...doc, items } as never,
+        flags: [
+          ...kept,
+          {
+            level: 'warning',
+            code: 'gen_rejected_by_verifier',
+            message: `Təkrar çəkiliş yoxlayıcıdan keçmədi və atıldı, kəsim göstərilir: ${why || 'səbəb bildirilmədi'}`.slice(0, 500),
+          },
+        ] as never,
+        verified: false,
+        verify_confidence: clamp01(verdict.confidence),
+        verify_diff: verdict.differences as never,
+        // Unruled again on purpose: the wave has judged the redraw, not the
+        // cut, and the cut is what the row now shows.
+        verified_at: null,
+        prev_version: null,
+      })
+      .eq('id', row.id)
+    return { verdict, repairing: false }
+  }
+
   // Another read is only worth paying for when there is a concrete, critical
   // difference to feed back. A minor difference, or a low-confidence pass with
   // nothing named, is a reviewer's call rather than a second attempt.

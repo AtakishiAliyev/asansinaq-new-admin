@@ -10,7 +10,8 @@ import {
   parseStoredVersion,
   type StoredVersion,
 } from '@/core/questions/repair-guard'
-import { eq, ok, suite } from '../harness.ts'
+import { reproductionBlamed } from '@/core/questions/verdict-blame'
+import { deepEq, eq, ok, suite } from '../harness.ts'
 
 const version = (over: Partial<StoredVersion> = {}): StoredVersion => ({
   stem: 'əvvəlki',
@@ -147,5 +148,41 @@ export const repairGuardSuite = suite('repair-guard', {
       verified: false,
     })
     ok(parsed !== null, 'a figureless version parks like any other')
+  },
+
+  // p302/8: the read was right, the redraw had moved the shading, and the
+  // pipeline re-read the crop twice to reach the same verdict. When every
+  // critical difference is in the figure and the figure on show is a
+  // reproduction, the reproduction is what has to go.
+  'a verdict that only faults a reproduced figure blames the reproduction'() {
+    const figures = { v: 1, items: [{ kind: 'image', src: 'c.png', genSrc: 'c.gen.jpg' }] }
+    deepEq(
+      reproductionBlamed(figures, [{ field: 'figure_marks', severity: 'critical' }]),
+      [0],
+      'the shown reproduction is named',
+    )
+  },
+
+  'a verdict that also faults the text is not the reproduction\u2019s fault'() {
+    const figures = { v: 1, items: [{ kind: 'image', src: 'c.png', genSrc: 'c.gen.jpg' }] }
+    deepEq(
+      reproductionBlamed(figures, [
+        { field: 'figure', severity: 'critical' },
+        { field: 'stem', severity: 'critical' },
+      ]),
+      [],
+      'a stem difference needs a re-read',
+    )
+    deepEq(
+      reproductionBlamed(figures, [{ field: 'figure', severity: 'minor' }]),
+      [],
+      'a minor difference triggers nothing',
+    )
+  },
+
+  'with no reproduction on show there is nothing to blame'() {
+    const cutOnly = { v: 1, items: [{ kind: 'image', src: 'c.png' }] }
+    deepEq(reproductionBlamed(cutOnly, [{ field: 'figure', severity: 'critical' }]), [], 'a cut is the source')
+    deepEq(reproductionBlamed(null, [{ field: 'figure', severity: 'critical' }]), [], 'no figures at all')
   },
 })
