@@ -329,6 +329,16 @@ function columnRunsRaw(
 const FIGURE_GUTTER = 0.02
 
 /**
+ * A chosen band this much shorter than the tallest band on the crop is a
+ * caption, not a figure. Text lines run 4-6% of a crop's height and a drawing
+ * 30-50%, so the two populations sit far apart; 0.35 leaves room for a short,
+ * wide diagram without letting a heading pass for one.
+ */
+const CAPTION_RATIO = 0.35
+/** How far a caption may sit from the drawing it labels, as a share of height. */
+const CAPTION_GAP = 0.06
+
+/**
  * Column blocks inside a row range: runs merged across ordinary letter and
  * stroke gaps, split only where the white is wide enough to be a GUTTER.
  *
@@ -550,7 +560,9 @@ export function localizeFigureBox(
   if (!bands.length) return { ok: false, reason: 'crop holds no content at all' }
 
   const toPx = (v: number) => Math.round((v / 1000) * pix.height)
+  const height = (b: Band) => b.bottom - b.top + 1
   let chosen: Band[] = []
+  let hintIsCaption = false
 
   if (hint) {
     const top = toPx(hint[0])
@@ -574,6 +586,24 @@ export function localizeFigureBox(
       return overlap >= 0.5 * Math.min(b.bottom - b.top + 1, bottom - top + 1)
     })
     chosen = substantial.length ? substantial : touching
+    // A hint that landed on a CAPTION. On p313/8 the model boxed the "a. b.
+    // c." labels printed above three drawings; every chosen band was a line
+    // of text, and the cut came back as two letters on white. A figure is a
+    // block of drawing, and the tallest band on the crop is that block: when
+    // nothing chosen comes near its height, the tallest band is the figure
+    // and the chosen text is its caption — kept when it sits right beside it.
+    // The hint is then not trusted horizontally either: its x-range covered
+    // the labels of two panels out of three, and narrowing to it would have
+    // cut the third panel away.
+    const tallest = bands.reduce((a, b) => (height(b) > height(a) ? b : a))
+    if (chosen.length && Math.max(...chosen.map(height)) < CAPTION_RATIO * height(tallest)) {
+      const gapPx = Math.round(CAPTION_GAP * pix.height)
+      const beside = chosen.filter(
+        (b) => b !== tallest && Math.max(tallest.top - b.bottom, b.top - tallest.bottom) <= gapPx,
+      )
+      chosen = [tallest, ...beside]
+      hintIsCaption = true
+    }
     if (!chosen.length) {
       // The hint landed on blank paper, so it says nothing reliable about which
       // block is the figure. The TALLEST block is taken rather than the nearest:
@@ -607,7 +637,7 @@ export function localizeFigureBox(
   // lose its far half here.
   let leftEdge = extent.left
   let rightEdge = extent.right
-  if (hint) {
+  if (hint && !hintIsCaption) {
     const hintLeft = Math.round((hint[1] / 1000) * pix.width)
     const hintRight = Math.round((hint[3] / 1000) * pix.width)
     const blocks = columnBlocks(

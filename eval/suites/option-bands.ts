@@ -75,6 +75,23 @@ function iqPage(): Pixels {
   return pix
 }
 
+/**
+ * p313/8 to scale: three drawings side by side under "a. b. c." captions, a
+ * two-line stem, two rows of options. The model's box covered the caption
+ * line and two of the three panels.
+ */
+function captionedPanels(): Pixels {
+  const pix = blank(900, 700)
+  for (const x of [220, 520, 820]) fill(pix, x, 60, x + 40, 90, BLACK) // a. b. c.
+  fill(pix, 100, 120, 320, 380, RED) // panel a
+  fill(pix, 400, 120, 620, 380, BLACK) // panel b
+  fill(pix, 700, 120, 880, 380, RED) // panel c
+  fill(pix, 80, 430, 850, 470, BLACK) // stem line 1
+  fill(pix, 80, 490, 700, 530, BLACK) // stem line 2
+  fill(pix, 80, 600, 850, 640, BLACK) // options
+  return pix
+}
+
 const MODEL_HINT: Box[] = [
   [355, 140, 420, 460],
   [420, 140, 485, 460],
@@ -602,5 +619,28 @@ export const imageCleanSuite = suite('image-clean', {
     eq(boxToRect([990, 990, 1200, 1200], 100, 50).sh, 1)
     const tiny = boxToRect([500, 500, 500.1, 500.1], 100, 50)
     ok(tiny.sw >= 1 && tiny.sh >= 1, 'never a zero-size canvas')
+  },
+
+  // The hint boxed the captions. The cut must be the drawings under them —
+  // all three, whatever the hint's x-range said — with the captions kept.
+  'a hint that landed on a caption yields the drawing beneath, whole'() {
+    const result = localizeFigureBox(captionedPanels(), [75, 241, 137, 553], { questionNumber: 8 })
+    ok(result.ok, 'a box was found')
+    if (!result.ok) return
+    const [ymin, xmin, ymax, xmax] = result.box
+    ok(ymax >= 540, `reaches the bottom of the panels (${ymax})`)
+    ok(ymin <= 90, `keeps the captions above them (${ymin})`)
+    ok(xmin <= 115, `starts at panel a (${xmin})`)
+    ok(xmax >= 975, `and reaches panel c, outside the hint (${xmax})`)
+    ok(ymax < 600, `without the stem below (${ymax})`)
+  },
+
+  'a hint that covers the drawing is still trusted horizontally'() {
+    const result = localizeFigureBox(captionedPanels(), [150, 100, 560, 380], { questionNumber: 8 })
+    ok(result.ok, 'a box was found')
+    if (!result.ok) return
+    const [, xmin, , xmax] = result.box
+    ok(xmax < 500, `narrowed to the panel the hint named (${xmax})`)
+    ok(xmin <= 115, `from its left edge (${xmin})`)
   },
 })
