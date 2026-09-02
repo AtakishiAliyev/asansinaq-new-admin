@@ -82,6 +82,21 @@ async function fetchCategories(
 
 const cache = new Map<number, BookContext>()
 
+/**
+ * Drop what is cached, so the next pass reads the book afresh.
+ *
+ * The cache is per PASS, not per process. The worker is a daemon that runs
+ * for weeks, and a context held for its lifetime is a context that never sees
+ * a change: a book switched from `gen` to `cut` in the UI, a category added,
+ * an answer key imported after the queue had started. Each of those kept
+ * applying yesterday's answer until someone restarted the daemon, and the log
+ * shows exactly that — SIGTERMs clustered right after live runs. Within a pass
+ * the cache still saves fifty lookups of the same three rows.
+ */
+export function forgetBookContexts(): void {
+  cache.clear()
+}
+
 export async function bookContext(db: Db, bookId: number): Promise<BookContext> {
   const hit = cache.get(bookId)
   if (hit) return hit

@@ -27,7 +27,7 @@ import {
   type DesiredState,
 } from './control.ts'
 import { db, type QuestionRow } from './db.ts'
-import { bookContext } from './book-context.ts'
+import { bookContext, forgetBookContexts } from './book-context.ts'
 import { batchResults, batchState, submitBatch, type BatchItem } from './batch.ts'
 import {
   applyResult,
@@ -671,6 +671,10 @@ while (!stopping) {
 
   try {
     await setActivity('növbə yoxlanılır')
+    // A pass reads each book once; the next pass reads it again. The lane
+    // switch, the tree and the key are all things an operator changes while
+    // the daemon is up, and a restart must not be the way they take effect.
+    forgetBookContexts()
     // Always first, and in both modes: a batch submitted before the queue got
     // small enough for express is still out there, still paid for, and still
     // has to be collected.
