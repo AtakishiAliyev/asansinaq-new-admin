@@ -92,6 +92,26 @@ function captionedPanels(): Pixels {
   return pix
 }
 
+/** p305/14 to scale: the stem's last line printed right above the drawing,
+ *  and a model box that clipped it. */
+function textAboveFigure(): Pixels {
+  const pix = blank(900, 700)
+  fill(pix, 80, 60, 700, 100, BLACK) // "şeması ile gösterilmiştir."
+  fill(pix, 200, 140, 700, 420, RED) // the drawing
+  fill(pix, 80, 500, 850, 540, BLACK) // options
+  return pix
+}
+
+/** p303/1 to scale: five lines of set definitions down the left, the
+ *  diagram on the right, and a generous model box across both. */
+function textBesideFigure(): Pixels {
+  const pix = blank(900, 700)
+  for (const top of [100, 150, 200, 250, 300]) fill(pix, 60, top, 380, top + 30, BLACK)
+  fill(pix, 500, 90, 850, 350, RED) // the diagram
+  fill(pix, 80, 450, 850, 490, BLACK) // options
+  return pix
+}
+
 const MODEL_HINT: Box[] = [
   [355, 140, 420, 460],
   [420, 140, 485, 460],
@@ -472,16 +492,19 @@ export const optionBandsSuite = suite('option-bands', {
     ok(result.box[0] > 350, `top starts at the drawing (${result.box[0]})`)
   },
 
-  // Only the model may widen its own claim. A hint that really does cover the
-  // text keeps it, the same way it does horizontally.
-  'a statement line the hint covers is kept'() {
+  // This used to be the opposite: a hint that covered the line kept it, on
+  // the rule that only the model may widen its own claim. Four live figures
+  // then carried the sentence printed above them into the reproduction, where
+  // the reader met it twice. The question's words are never the figure's, so
+  // a wide single-block line goes even when the hint covers it whole.
+  'a statement line the hint covers is still left out'() {
     const pix = blank(900, 800)
     fill(pix, 100, 200, 700, 232, BLACK)
     fill(pix, 100, 300, 700, 600, BLACK)
     const result = localizeFigureBox(pix, [240, 100, 760, 800])
     ok(result.ok, 'located')
     if (!result.ok) return
-    ok(result.box[0] < 260, `the hint covered the line, so it stays (${result.box[0]})`)
+    ok(result.box[0] > 350, `the line is text, not figure (${result.box[0]})`)
   },
 
   // Refusing to choose is worse than choosing loosely: if being strict would
@@ -642,5 +665,28 @@ export const imageCleanSuite = suite('image-clean', {
     const [, xmin, , xmax] = result.box
     ok(xmax < 500, `narrowed to the panel the hint named (${xmax})`)
     ok(xmin <= 115, `from its left edge (${xmin})`)
+  },
+
+  // The hint clipped the stem line above the drawing. A line of text is one
+  // wide block; a caption is a few narrow marks. Only the drawing is cut.
+  'a stem line the hint clipped above the drawing is left out'() {
+    const result = localizeFigureBox(textAboveFigure(), [60, 200, 620, 800], { questionNumber: 14 })
+    ok(result.ok, 'a box was found')
+    if (!result.ok) return
+    const [ymin, , ymax] = result.box
+    ok(ymin > 150, `starts below the text line (${ymin})`)
+    ok(ymax >= 590 && ymax < 700, `covers the drawing and not the options (${ymax})`)
+  },
+
+  // Set definitions printed level with the diagram share its rows. Several
+  // short bands stacked in one column is text, and the diagram stands alone.
+  'a block of text beside the drawing is left out even under a wide hint'() {
+    const result = localizeFigureBox(textBesideFigure(), [100, 30, 520, 980], { questionNumber: 1 })
+    ok(result.ok, 'a box was found')
+    if (!result.ok) return
+    const [ymin, xmin, ymax, xmax] = result.box
+    ok(xmin > 500, `starts at the diagram, not the text (${xmin})`)
+    ok(xmax >= 930, `and reaches its right edge (${xmax})`)
+    ok(ymin < 140 && ymax > 480, `full height of the diagram (${ymin}-${ymax})`)
   },
 })

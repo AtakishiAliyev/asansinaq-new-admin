@@ -69,25 +69,42 @@ const isContent = (d: Uint8ClampedArray, i: number): boolean => {
 
 /** Rows carrying content, merged into bands. */
 export function contentBands(pix: Pixels, options: LocalizeOptions = {}): Band[] {
+  return bandsWithin(pix, { top: 0, bottom: pix.height - 1 }, 0, pix.width - 1, options)
+}
+
+/**
+ * Rows carrying content inside one rectangle of the crop, merged into bands.
+ *
+ * `contentBands` over the whole crop; the same scan over a column block is how
+ * a block of TEXT is told from a block of drawing — text is several short
+ * bands, a drawing is one tall one.
+ */
+function bandsWithin(
+  pix: Pixels,
+  rows: Band,
+  left: number,
+  right: number,
+  options: LocalizeOptions = {},
+): Band[] {
   const { rowThreshold, minBandHeight, maxInnerGap } = { ...DEFAULTS, ...options }
   const minRun = Math.max(2, Math.round(minBandHeight * pix.height))
   const maxGap = Math.max(1, Math.round(maxInnerGap * pix.height))
   const need = Math.max(1, Math.round(rowThreshold * pix.width))
 
-  const occupied: boolean[] = []
-  for (let y = 0; y < pix.height; y++) {
+  const occupied = new Map<number, boolean>()
+  for (let y = rows.top; y <= rows.bottom; y++) {
     let hits = 0
-    for (let x = 0; x < pix.width; x++) {
+    for (let x = left; x <= right; x++) {
       if (isContent(pix.data, (y * pix.width + x) * 4)) hits++
       if (hits >= need) break
     }
-    occupied.push(hits >= need)
+    occupied.set(y, hits >= need)
   }
 
   const bands: Band[] = []
   let start = -1
-  for (let y = 0; y <= pix.height; y++) {
-    const on = occupied[y] === true
+  for (let y = rows.top; y <= rows.bottom + 1; y++) {
+    const on = occupied.get(y) === true
     if (on && start < 0) start = y
     if (!on && start >= 0) {
       const previous = bands[bands.length - 1]
@@ -337,6 +354,24 @@ const FIGURE_GUTTER = 0.02
 const CAPTION_RATIO = 0.35
 /** How far a caption may sit from the drawing it labels, as a share of height. */
 const CAPTION_GAP = 0.06
+/**
+ * A short band holding a single ink block this wide is a LINE OF TEXT, not a
+ * caption: a caption is a few narrow marks ("a.   b.   c."), a stem line is
+ * one continuous run across a third of the crop or more. Four live figures on
+ * one page carried the line printed above them — "şeması ile gösterilmiştir.",
+ * "C = {x | x = 3k, k ∈ Z}" — because the model's box had clipped it and the
+ * hint kept it, and the reproduction lane then drew the sentence into the
+ * figure, where the reader met it twice.
+ */
+const TEXT_LINE_WIDTH = 0.35
+/**
+ * A column block that is text rather than drawing: at least this many bands
+ * stacked inside it, none taller than this share of the block's rows. Five
+ * lines of set definitions printed beside a diagram look exactly like that;
+ * a diagram is one tall band, or two.
+ */
+const TEXT_BLOCK_MIN_LINES = 3
+const TEXT_BLOCK_MAX_LINE = 0.25
 
 /**
  * Column blocks inside a row range: runs merged across ordinary letter and
@@ -604,6 +639,22 @@ export function localizeFigureBox(
       chosen = [tallest, ...beside]
       hintIsCaption = true
     }
+    // A LINE OF TEXT the hint clipped, above or below the drawing, is not
+    // part of it: a short band whose ink is one wide continuous block.
+    // Captions survive this — their blocks are narrow — and so does anything
+    // near the drawing's own height.
+    if (chosen.length > 1) {
+      const body = chosen.reduce((a, b) => (height(b) > height(a) ? b : a))
+      const gutterPx = Math.max(1, Math.round(FIGURE_GUTTER * pix.width))
+      chosen = chosen.filter((b) => {
+        if (b === body || height(b) >= CAPTION_RATIO * height(body)) return true
+        const ext = extentOf(pix, b)
+        if (!ext) return false
+        const blocks = columnBlocks(pix, b, ext.left, ext.right, gutterPx)
+        const widest = Math.max(...blocks.map((k) => k.right - k.left + 1))
+        return widest < TEXT_LINE_WIDTH * pix.width
+      })
+    }
     if (!chosen.length) {
       // The hint landed on blank paper, so it says nothing reliable about which
       // block is the figure. The TALLEST block is taken rather than the nearest:
@@ -637,16 +688,31 @@ export function localizeFigureBox(
   // lose its far half here.
   let leftEdge = extent.left
   let rightEdge = extent.right
+  const gutter = Math.max(1, Math.round(FIGURE_GUTTER * pix.width))
+  let blocks = columnBlocks(pix, { top, bottom }, extent.left, extent.right, gutter)
+
+  // A block of TEXT printed level with the drawing — set definitions down the
+  // left, the diagram on the right — shares its rows and so survives every
+  // row test. It does not survive a look at its own rows: several short bands
+  // stacked in one column is text. Dropped only while a drawing remains, so
+  // this can never empty the figure.
+  const drawing = blocks.filter((b) => {
+    const lines = bandsWithin(pix, { top, bottom }, b.left, b.right)
+    const rowsHigh = bottom - top + 1
+    const textLike =
+      lines.length >= TEXT_BLOCK_MIN_LINES &&
+      lines.every((l) => height(l) <= TEXT_BLOCK_MAX_LINE * rowsHigh)
+    return !textLike
+  })
+  if (drawing.length && drawing.length < blocks.length) {
+    blocks = drawing
+    leftEdge = Math.min(...blocks.map((b) => b.left))
+    rightEdge = Math.max(...blocks.map((b) => b.right))
+  }
+
   if (hint && !hintIsCaption) {
     const hintLeft = Math.round((hint[1] / 1000) * pix.width)
     const hintRight = Math.round((hint[3] / 1000) * pix.width)
-    const blocks = columnBlocks(
-      pix,
-      { top, bottom },
-      extent.left,
-      extent.right,
-      Math.max(1, Math.round(FIGURE_GUTTER * pix.width)),
-    )
     const touched = blocks.filter((b) => b.right >= hintLeft && b.left <= hintRight)
     // No overlap at all means the hint's x is as wrong as its y can be, and a
     // guess here would crop the figure to nothing. The full extent stands.
