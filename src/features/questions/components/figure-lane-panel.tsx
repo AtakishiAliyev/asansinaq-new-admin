@@ -27,9 +27,9 @@ export function FigureLanePanel({
     .filter(
       (entry): entry is { item: ImageFig; index: number } =>
         entry.item.kind === 'image' &&
-        // Only figures the lane touched. A book on `cut` has neither field, and
-        // showing it an empty third column would imply a failure.
-        Boolean(entry.item.genSrc || entry.item.genRejected),
+        // Only figures the lane touched. A book on `cut` has none of these
+        // fields, and showing it an empty third column would imply a failure.
+        Boolean(entry.item.genSrc || entry.item.genRejected || entry.item.genSkipped),
     )
   if (!lane.length) return null
 
@@ -66,11 +66,14 @@ function FigureLaneRow({
   const shown = Boolean(item.genSrc)
   const objection = item.genRejected
   const passed = shown && !objection
+  // A fourth state: the lane CHOSE not to draw. Neither green (nothing was
+  // checked) nor amber (nothing went wrong) — the cut is the figure, by policy.
+  const declined = !shown && !objection && item.genSkipped
   return (
     <div
       className={cn(
         'rounded-md border p-2',
-        passed ? 'border-emerald-600/40' : 'border-amber-600/40',
+        passed ? 'border-emerald-600/40' : declined ? 'border-border' : 'border-amber-600/40',
       )}
     >
       <div className="grid gap-2 sm:grid-cols-3">
@@ -90,6 +93,11 @@ function FigureLaneRow({
               <span className="inline-flex items-center gap-1 text-amber-600">
                 <CircleSlash className="size-3" /> göstərilir — qoruyucudan
                 keçmədi
+              </span>
+            ) : declined ? (
+              <span className="inline-flex items-center gap-1">
+                <ImageOff className="size-3" /> təkrar çəkiliş edilmədi — kəsim
+                göstərilir
               </span>
             ) : (
               <span className="inline-flex items-center gap-1 text-amber-600">
@@ -111,7 +119,12 @@ function FigureLaneRow({
               {objection}
             </p>
           ) : null}
-          {!shown && !objection ? (
+          {declined ? (
+            <p className="text-muted-foreground rounded border border-dashed p-2 text-xs">
+              {item.genSkipped}
+            </p>
+          ) : null}
+          {!shown && !objection && !declined ? (
             <p className="text-muted-foreground rounded border border-dashed p-2 text-xs">
               səbəb qeyd olunmayıb
             </p>

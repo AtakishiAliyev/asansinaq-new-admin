@@ -11,7 +11,8 @@ import {
   rerouteIneligible,
   routeFiguresForLane,
 } from '@/core/figures/kind-eligibility'
-import type { FigItem } from '@/core/figures/figspec'
+import { reproductionPolicy } from '@/core/figures/gen-policy'
+import type { FigItem, ImageFig } from '@/core/figures/figspec'
 import { eq, ok, suite } from '../harness.ts'
 
 const circle = (id: string, cx: number): FigItem =>
@@ -336,5 +337,32 @@ export const kindEligibilitySuite = suite('kind-eligibility', {
     const routed = routeFiguresForLane([circle('A', 115), RECT_VENN], 'gen')
     ok(routed.items.every((i) => i.kind === 'image'), 'every figure is a cut')
     eq(routed.flags.length, 0, 'policy is not a finding')
+  },
+
+  // p307/11 and p308/13: the redraw moved the shading, one guard passed it and
+  // the verifier passed both. Where the shading is the question the lane does
+  // not draw at all.
+  'a set diagram is never handed to the reproduction lane'() {
+    const cut: ImageFig = { kind: 'image', src: '', origin: 'venn' }
+    const decision = reproductionPolicy('Kaç eleman vardır?', cut)
+    eq(decision.allowed, false, 'a venn by origin is declined')
+  },
+
+  'a stem that asks about the shaded region declines the redraw'() {
+    const cut: ImageFig = { kind: 'image', src: '' }
+    for (const stem of [
+      'Taralı alan = ?',
+      'Taralı bölgede kaç farklı eleman vardır?',
+      'Ştrixlənmiş hissənin sahəsi neçədir?',
+      'Boyalı bölgənin çoxluq ifadəsi hansıdır?',
+    ]) {
+      eq(reproductionPolicy(stem, cut).allowed, false, stem)
+    }
+  },
+
+  'a plain drawing may still be reproduced'() {
+    const cut: ImageFig = { kind: 'image', src: '', origin: 'geometry' }
+    eq(reproductionPolicy('m(ABC) kaç derecedir?', cut).allowed, true, 'geometry is allowed')
+    eq(reproductionPolicy('f(x) grafiği verilmiştir.', { kind: 'image', src: '' }).allowed, true, 'a graph is allowed')
   },
 })

@@ -24,6 +24,7 @@ import { boxToRect, placeFigureBox, placeOptionBoxes } from '@/core/segment/plac
 import { figureImagePath, optionImagePath } from '@/core/questions/image-paths'
 import type { Db, QuestionRow } from './db.ts'
 import { extensionForMime, sniffImageMime, type ImageMime } from '@/core/figures/image-mime'
+import { reproductionPolicy } from '@/core/figures/gen-policy'
 import { FIGURE_GEN_OP, guardedReproduction } from './figure-gen.ts'
 import { budgetExhausted, logOp } from './ops.ts'
 import { config } from './config.ts'
@@ -337,6 +338,15 @@ export async function attachFigureImages(
       // stored and already the figure at this point, so everything below can
       // fail in any way and leave a working question behind.
       if (lane === 'gen' && cut) {
+        // Declined up front where a redraw could only put the answer at risk:
+        // see `reproductionPolicy`. Not a flag — the cut already routes the row
+        // to review, and this is a policy rather than a finding — but said on
+        // the figure so the reviewer knows the lane chose, not failed.
+        const policy = reproductionPolicy(question.stem, item)
+        if (!policy.allowed) {
+          item.genSkipped = policy.reason
+          continue
+        }
         const gen = await runGuardedGeneration(db, row, index, cut)
         if (gen.flag) {
           flags.push(gen.flag)

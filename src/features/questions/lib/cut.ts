@@ -25,6 +25,7 @@ import type { Flag } from '@/core/questions/lint'
 import { cleanCrop, type Pixels } from '@/core/segment/image-clean'
 import type { Box } from '@/core/segment/option-bands'
 import { boxToRect, placeFigureBox, placeOptionBoxes } from '@/core/segment/place-boxes'
+import { reproductionPolicy } from '@/core/figures/gen-policy'
 
 export interface LoadedCrop {
   image: HTMLImageElement
@@ -160,6 +161,7 @@ export async function attachFigureImages(
   const flags: Flag[] = []
   let produced = 0
   let failed = 0
+  let awaitingWorker = 0
   for (const { item, index } of wanted) {
     const placed = placeFigureBox(crop.pix, item.box ?? null, row.q_no)
     flags.push(...placed.flags)
@@ -177,13 +179,24 @@ export async function attachFigureImages(
       produced++
     } catch {
       failed++
+      continue
+    }
+    if (lane !== 'gen') continue
+    // The same policy the worker applies: where the shading is the question,
+    // no reproduction is attempted anywhere. Otherwise the lane would run in
+    // the worker, and that is not here — said on the figure either way.
+    const policy = reproductionPolicy(question.stem, item)
+    if (!policy.allowed) {
+      item.genSkipped = policy.reason
+    } else {
+      item.genSkipped = 'Təkrar çəkiliş yalnız worker-də işləyir — reproduksiya üçün sualı növbəyə salın'
+      awaitingWorker++
     }
   }
 
-  // The reproduction lane runs where the provider's key is, and that is not
-  // here. Said on the row, because a reviewer looking at a gen book expects a
-  // reproduction and would otherwise read the cut as the lane having failed.
-  if (lane === 'gen' && produced) {
+  // A reviewer looking at a gen book expects a reproduction and would
+  // otherwise read the cut as the lane having failed.
+  if (awaitingWorker) {
     flags.push({
       level: 'warning',
       code: 'gen_skipped',
