@@ -127,14 +127,33 @@ what each stage needs.
   SAMPLING parameter is sent: `temperature: 0` used to be, on the reasoning
   that a copy must not compose, but the guidance for this model family is to
   leave it at its default and nothing documents its effect on image output at
-  all. And a corrective edit CONTINUES the turn that drew the figure — the cut
-  and the original brief, then the drawing as the model's own `role: model`
-  turn carrying the `thought_signature` it came back with, then the findings —
-  which is the documented way to iterate and asks the model to amend its own
-  output instead of re-rendering a stranger's. The signature is kept beside
-  the drawing in the bucket (`worker/signature-store.ts`); without one the
-  edit falls back to the flat two-image shape, which is what the lane did
-  before. A model that rejects `imageConfig` gets one retry without it. The guard's COLOUR objection triggers the first edit on its
+  all. A model that rejects `imageConfig` gets one retry without it.
+
+  **A corrective edit CAN continue the turn that drew the figure, and does
+  not** (`FIGURE_EDIT_MULTITURN`, off). The shape — the cut and the original
+  brief, then the drawing as the model's own `role: model` turn carrying the
+  `thought_signature` it came back with, then the findings — is the documented
+  way to iterate. The one live run measured it as strictly worse: five of ten
+  questions earned an edit, all five came back worse than the drawing they
+  replaced, and the five nobody edited were fine. The flat two-image shape it
+  would replace had reduced the same defect the week before. The code and its
+  suite stay so the idea can be retried against a golden set rather than a
+  live queue; the signature sidecar (`worker/signature-store.ts`) could never
+  be written at all until a migration let the bucket hold anything but images.
+
+  **An edit is only taken when it measures better than the drawing it
+  replaces** (`core/figures/drawing-choice.ts`). Both are judged by the same
+  guard against the same cut, colour is the axis the edit has to improve and
+  ink is a floor, and a tie keeps the INCUMBENT — the opposite of
+  `repair-guard.ts`, where the new version is answering a finding. Taking an
+  edit on trust is what made those five figures worse.
+
+  **A colour objection the edit did not answer keeps the row out of the
+  verified lane** (`core/questions/verification-block.ts`). The wave called all
+  ten rows of that run a match with an empty diff at 0.95-0.97 while five
+  carried a standing objection from the deterministic guard. Where a
+  measurement and a model disagree about the shading, the measurement wins and
+  a person looks. The guard's COLOUR objection triggers the first edit on its
   own, before the wave, because it is deterministic and about the one thing
   a redraw must not change; ink drift stays a reviewer's signal. The wave
   itself sees every reproduced figure beside its cut at full size, since a
