@@ -10,6 +10,7 @@ import { extractionSuite } from './suites/extraction.ts'
 import { figureRefsSuite } from './suites/figure-refs.ts'
 import { geometryEditSuite } from './suites/geometry-edit.ts'
 import { figuresSuite } from './suites/figures.ts'
+import { genRequestSuite } from './suites/gen-request.ts'
 import { imageMimeSuite } from './suites/image-mime.ts'
 import { kindEligibilitySuite } from './suites/kind-eligibility.ts'
 import { labelsSuite } from './suites/labels.ts'
@@ -61,6 +62,7 @@ const SUITES: Suite[] = [
   extractionSuite,
   lintSuite,
   figuresSuite,
+  genRequestSuite,
   figureRefsSuite,
   renderSuite,
   pageRangeSuite,

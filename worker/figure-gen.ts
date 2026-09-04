@@ -8,7 +8,20 @@
 // The provider is reached over plain HTTPS rather than through an SDK. The one
 // thing needed here is a POST with an image and a prompt, and a dependency that
 // has to be approved, versioned and audited is a poor trade for a fetch call.
-import { FIGURE_REPRODUCE_PROMPT, figureEditPrompt } from '@/core/extract/figure-gen-prompt'
+import {
+  FIGURE_REPRODUCE_PROMPT,
+  figureEditFollowUpPrompt,
+  figureEditPrompt,
+} from '@/core/extract/figure-gen-prompt'
+import {
+  drawContents,
+  editContents,
+  geminiBody,
+  refusedImageConfig,
+  withoutImageConfig,
+  type GenContents,
+  type GenImage,
+} from '@/core/figures/gen-request'
 import type { GenProvider } from '@/core/figures/gen-policy'
 import { compareLabels, type LabelDiff } from '@/core/figures/labels'
 import { compareStructure, type StructuralDiff } from '@/core/figures/structural-diff'
@@ -22,6 +35,16 @@ export interface GenerationResult {
   /** PNG bytes of the reproduction, or null when the provider returned none. */
   png: Buffer | null
   error?: string
+  /**
+   * The thought signature the model returned on the image part, when it did.
+   *
+   * Kept because a corrective edit is a CONTINUATION of the turn that drew the
+   * figure, and the docs require the signature to be passed back exactly as
+   * received or the next response may fail. Without it an edit falls back to
+   * handing the model two anonymous pictures, which is the shape that was
+   * moving shaded regions. Only Gemini returns one.
+   */
+  signature?: string
   /** What the call cost, for the ledger. */
   usage: { input: number; output: number }
 }
@@ -34,7 +57,7 @@ export interface GenerationResult {
  * is an enhancement over something that already works.
  */
 export async function reproduceFigure(cutPng: Buffer): Promise<GenerationResult> {
-  return geminiDraw([cutPng], FIGURE_REPRODUCE_PROMPT)
+  return geminiCall(drawContents([asGenImage(cutPng)], FIGURE_REPRODUCE_PROMPT))
 }
 
 /** Which providers have a key AND a model id in this worker's environment. */
@@ -63,20 +86,69 @@ export async function editFigure(
   cutPng: Buffer,
   currentImage: Buffer,
   findings: string,
+  /** The signature the drawing came back with, when it is Gemini's own. */
+  signature?: string,
 ): Promise<GenerationResult> {
-  const prompt = figureEditPrompt(findings)
-  return provider === 'openai'
-    ? openaiEdit([cutPng, currentImage], prompt)
-    : geminiDraw([cutPng, currentImage], prompt)
+  if (provider === 'openai') return openaiEdit([cutPng, currentImage], figureEditPrompt(findings))
+
+  // The documented path: amend the model's own last output, with the reasoning
+  // that produced it still attached. Only available when the drawing came from
+  // this provider AND its signature was kept.
+  if (signature) {
+    const continued = await geminiCall(
+      editContents({
+        cut: asGenImage(cutPng),
+        drawPrompt: FIGURE_REPRODUCE_PROMPT,
+        drawing: asGenImage(currentImage),
+        signature,
+        followUp: figureEditFollowUpPrompt(findings),
+      }),
+    )
+    if (continued.png) return continued
+    // A signature the model will not accept — stale, or from another model id
+    // after the operator switched tiers — is a documented way for this call to
+    // fail. Falling back costs one more call and keeps the round alive.
+    console.warn(`[figure] multi-turn edit refused, falling back to a flat edit: ${continued.error}`)
+  }
+  return geminiCall(
+    drawContents([asGenImage(cutPng), asGenImage(currentImage)], figureEditPrompt(findings)),
+  )
 }
 
-async function geminiDraw(images: Buffer[], prompt: string): Promise<GenerationResult> {
+/** A buffer as the API takes it, its type read from the bytes rather than a name. */
+function asGenImage(image: Buffer): GenImage {
+  return { data: image.toString('base64'), mimeType: sniffMime(image) }
+}
+
+/**
+ * One call to the image model.
+ *
+ * The resolution request is optional configuration, and `imageConfig` is
+ * documented to error on a model that does not support it — so a refusal that
+ * names the field is retried once without it rather than losing the drawing.
+ */
+async function geminiCall(contents: GenContents): Promise<GenerationResult> {
   if (!config.GEMINI_API_KEY || !config.GEMINI_IMAGE_MODEL) {
     return { png: null, error: 'no Gemini key or model configured', usage: { input: 0, output: 0 } }
   }
+  const body = geminiBody(contents, { imageSize: config.GEMINI_IMAGE_SIZE })
+  const first = await postGemini(body)
+  if (first.refusedConfig && config.GEMINI_IMAGE_SIZE) {
+    console.warn(
+      `[figure] ${config.GEMINI_IMAGE_MODEL} refused imageSize=${config.GEMINI_IMAGE_SIZE}; ` +
+        'retrying at the default resolution. Unset GEMINI_IMAGE_SIZE to stop paying for this retry.',
+    )
+    return (await postGemini(withoutImageConfig(body))).result
+  }
+  return first.result
+}
+
+async function postGemini(
+  body: Record<string, unknown>,
+): Promise<{ result: GenerationResult; refusedConfig: boolean }> {
   const endpoint =
     `https://generativelanguage.googleapis.com/v1beta/models/` +
-    `${encodeURIComponent(config.GEMINI_IMAGE_MODEL)}:generateContent`
+    `${encodeURIComponent(config.GEMINI_IMAGE_MODEL!)}:generateContent`
 
   let response: Response
   try {
@@ -84,64 +156,89 @@ async function geminiDraw(images: Buffer[], prompt: string): Promise<GenerationR
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        'x-goog-api-key': config.GEMINI_API_KEY,
+        'x-goog-api-key': config.GEMINI_API_KEY!,
       },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              ...images.map((img) => ({
-                inline_data: { mime_type: sniffMime(img), data: img.toString('base64') },
-              })),
-              { text: prompt },
-            ],
-          },
-        ],
-        generationConfig: {
-          // Reproduction, not invention: the lowest temperature the API allows.
-          temperature: 0,
-          responseModalities: ['IMAGE'],
-        },
-      }),
+      body: JSON.stringify(body),
+      // A drawing that never comes back must not hold an express slot for ever.
+      signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
     })
   } catch (error) {
-    return { png: null, error: `request failed: ${String(error)}`, usage: { input: 0, output: 0 } }
+    return {
+      result: { png: null, error: `request failed: ${String(error)}`, usage: { input: 0, output: 0 } },
+      refusedConfig: false,
+    }
   }
 
   if (!response.ok) {
-    const body = await response.text().catch(() => '')
+    const text = await response.text().catch(() => '')
     return {
-      png: null,
-      error: `provider ${response.status}: ${body.slice(0, 300)}`,
-      usage: { input: 0, output: 0 },
+      result: {
+        png: null,
+        error: `provider ${response.status}: ${text.slice(0, 300)}`,
+        usage: { input: 0, output: 0 },
+      },
+      refusedConfig: refusedImageConfig(response.status, text),
     }
   }
 
   const json = (await response.json()) as {
-    candidates?: { content?: { parts?: { inlineData?: { data?: string }; inline_data?: { data?: string } }[] } }[]
-    usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number }
+    candidates?: {
+      content?: {
+        parts?: {
+          inlineData?: { data?: string }
+          inline_data?: { data?: string }
+          thoughtSignature?: string
+          thought_signature?: string
+        }[]
+      }
+    }[]
+    usageMetadata?: {
+      promptTokenCount?: number
+      candidatesTokenCount?: number
+      thoughtsTokenCount?: number
+    }
   }
   const parts = json.candidates?.[0]?.content?.parts ?? []
   const image = parts.find((p) => p.inlineData?.data || p.inline_data?.data)
   const base64 = image?.inlineData?.data ?? image?.inline_data?.data
   const usage = {
     input: json.usageMetadata?.promptTokenCount ?? 0,
-    output: json.usageMetadata?.candidatesTokenCount ?? 0,
+    // Thinking is on by default for this model family and cannot be turned
+    // off, and its tokens ARE billed. Counting only the candidate tokens made
+    // the ledger a floor rather than the bill.
+    output:
+      (json.usageMetadata?.candidatesTokenCount ?? 0) +
+      (json.usageMetadata?.thoughtsTokenCount ?? 0),
   }
   if (!base64) {
     // A text-only answer is the provider declining to draw, and that is a
     // rejection rather than an error worth retrying differently.
     const said = parts.map((p) => (p as { text?: string }).text ?? '').join(' ').slice(0, 200)
-    return { png: null, error: `no image returned${said ? `: ${said}` : ''}`, usage }
+    return {
+      result: { png: null, error: `no image returned${said ? `: ${said}` : ''}`, usage },
+      refusedConfig: false,
+    }
   }
-  return { png: Buffer.from(base64, 'base64'), usage }
+  const signature = image?.thoughtSignature ?? image?.thought_signature
+  return {
+    result: { png: Buffer.from(base64, 'base64'), usage, ...(signature ? { signature } : {}) },
+    refusedConfig: false,
+  }
 }
 
 /** JPEG or PNG, from the bytes — the provider is told what it is handed. */
 function sniffMime(image: Buffer): 'image/png' | 'image/jpeg' {
   return image[0] === 0xff && image[1] === 0xd8 ? 'image/jpeg' : 'image/png'
 }
+
+/**
+ * How long any one drawing may take.
+ *
+ * Both providers document that a complex prompt can run to about two minutes,
+ * and an express slot is held for the whole of it. Without a timeout a hung
+ * call holds that slot until the process is killed.
+ */
+const PROVIDER_TIMEOUT_MS = 180_000
 
 /**
  * The OpenAI images edit endpoint: the reference images and the brief go as
@@ -156,6 +253,16 @@ async function openaiEdit(images: Buffer[], prompt: string): Promise<GenerationR
   const form = new FormData()
   form.append('model', config.OPENAI_IMAGE_MODEL)
   form.append('prompt', prompt)
+  // Quality outranks cost here by the operator's own rule, and the lane only
+  // reaches this provider on a round that already has a defect to fix.
+  form.append('quality', 'high')
+  // PNG, opaque, both deliberate. The guard reads luminance and saturation off
+  // RGB and never looks at alpha, so a transparent background — which this
+  // provider may choose on its own under the default `auto` — would decode as
+  // (0,0,0,0) and be counted as ink over the whole image, rejecting a perfect
+  // drawing for a reason nothing would name. PNG keeps thin lines lossless.
+  form.append('background', 'opaque')
+  form.append('output_format', 'png')
   images.forEach((img, i) => {
     const mime = sniffMime(img)
     form.append('image[]', new Blob([new Uint8Array(img)], { type: mime }), `image${i + 1}.${mime === 'image/jpeg' ? 'jpg' : 'png'}`)
@@ -167,6 +274,7 @@ async function openaiEdit(images: Buffer[], prompt: string): Promise<GenerationR
       method: 'POST',
       headers: { authorization: `Bearer ${config.OPENAI_API_KEY}` },
       body: form,
+      signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
     })
   } catch (error) {
     return { png: null, error: `request failed: ${String(error)}`, usage: { input: 0, output: 0 } }
@@ -237,6 +345,8 @@ export interface GuardedGeneration {
    * a line of error text.
    */
   rejectedPng?: Buffer
+  /** The accepted drawing's thought signature, for a later corrective edit. */
+  signature?: string
   usage: { input: number; output: number }
 }
 
@@ -257,6 +367,7 @@ export async function guardedReproduction(
   let lastDiff: StructuralDiff | null = null
   let lastLabels: LabelDiff | null = null
   let lastRefused: Buffer | null = null
+  let lastSignature: string | undefined
   const usage = { input: 0, output: 0 }
 
   for (let attempt = 1; attempt <= 2; attempt++) {
@@ -285,7 +396,14 @@ export async function guardedReproduction(
     }
 
     if (diff.passed && labels?.passed) {
-      return { png: result.png, diff, labels, attempts: attempt, usage }
+      return {
+        png: result.png,
+        diff,
+        labels,
+        attempts: attempt,
+        usage,
+        ...(result.signature ? { signature: result.signature } : {}),
+      }
     }
     lastRejection = [
       ...diff.reasons,
@@ -294,6 +412,7 @@ export async function guardedReproduction(
         : []),
     ].join('; ')
     lastRefused = result.png
+    lastSignature = result.signature
   }
 
   return {
@@ -303,6 +422,9 @@ export async function guardedReproduction(
     attempts: 2,
     rejection: lastRejection,
     rejectedPng: lastRefused ?? undefined,
+    // Carried even for a REFUSED drawing: that drawing is what gets displayed
+    // and what an edit round amends, so it needs its signature too.
+    ...(lastSignature ? { signature: lastSignature } : {}),
     usage,
   }
 }

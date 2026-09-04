@@ -75,6 +75,24 @@ const envSchema = z.object({
    */
   GEMINI_API_KEY: z.string().min(1).optional(),
   GEMINI_IMAGE_MODEL: z.string().min(1).optional(),
+  /**
+   * The resolution the figure lane asks for: "512", "1K", "2K" or "4K".
+   *
+   * Defaulted to 2K rather than left to the API. Unset, the API draws at 1K,
+   * and both image model cards list that size in their OWN known limitations:
+   * small text is "often blurry in the 1k model". Exam figures are small
+   * labels on thin lines. On the pro image tier 1K and 2K bill the same
+   * output tokens, so the resolution costs nothing there; on the flash tier
+   * it is about half as much again per drawing.
+   *
+   * Settable because it is a price/quality trade the operator owns, and
+   * emptiable because a model that does not support the field errors on it —
+   * the code retries once without it and says so, but an operator who knows
+   * their model rejects it should not pay for that retry every time. Setting
+   * it EMPTY is the documented way to turn it off; no `min(1)`, or an empty
+   * value would refuse to start the worker instead of disabling a knob.
+   */
+  GEMINI_IMAGE_SIZE: z.string().optional().default('2K'),
 
   /**
    * A second image provider, for the corrective-edit rounds. Optional for

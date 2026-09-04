@@ -26,6 +26,7 @@ import type { Db, QuestionRow } from './db.ts'
 import { extensionForMime, sniffImageMime, type ImageMime } from '@/core/figures/image-mime'
 import { FIGURE_GEN_OP, guardedReproduction } from './figure-gen.ts'
 import { editReproduction } from './figure-edit.ts'
+import { storeSignature } from './signature-store.ts'
 import { budgetExhausted, logOp } from './ops.ts'
 import { config } from './config.ts'
 
@@ -53,6 +54,7 @@ export function figureGenPath(row: QuestionRow, index: number, mime: ImageMime):
  * between trying a better cleaner and paying to read every crop again.
  */
 const rawTwin = (path: string): string => path.replace(/\.png$/, '.raw.png')
+
 
 /**
  * Fills in `image` for every option that declared a picture and said where it
@@ -128,7 +130,7 @@ async function runGuardedGeneration(
   row: QuestionRow,
   index: number,
   cut: { png: Buffer; pixels: Pixels },
-): Promise<{ path?: string; flag?: Flag; colourObjection?: string }> {
+): Promise<{ path?: string; flag?: Flag; colourObjection?: string; signature?: string }> {
   if (await budgetExhausted(db).catch(() => true)) {
     return {
       flag: {
@@ -220,6 +222,10 @@ async function runGuardedGeneration(
       },
     }
   }
+  // After the drawing is safely stored, never before: a signature beside an
+  // object that does not exist would be handed back for a picture nobody has.
+  await storeSignature(db, path, result.signature)
+  const signature = result.signature
 
   // Shown, and flagged: the reviewer is told exactly what the guard objected to
   // and can compare it against the cut on the figure strip. A COLOUR objection
@@ -232,6 +238,7 @@ async function runGuardedGeneration(
         : undefined
     return {
       path,
+      ...(signature ? { signature } : {}),
       ...(colourObjection ? { colourObjection } : {}),
       flag: {
         level: 'warning',
@@ -243,7 +250,7 @@ async function runGuardedGeneration(
       },
     }
   }
-  return { path }
+  return { path, ...(signature ? { signature } : {}) }
 }
 
 export async function attachOptionImages(
@@ -367,7 +374,7 @@ export async function attachFigureImages(
         // reproductions had moved a shaded region and every one had passed
         // the verifier.
         if (gen.path && gen.colourObjection) {
-          const edit = await editReproduction(db, row, index, item, gen.colourObjection)
+          const edit = await editReproduction(db, row, index, item, gen.colourObjection, gen.signature)
           if (edit.path) {
             item.genSrc = edit.path
             item.genProvider = edit.provider

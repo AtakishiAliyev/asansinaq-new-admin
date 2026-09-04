@@ -115,7 +115,26 @@ what each stage needs.
   `figureEditPrompt`), the edited drawing is stored beside the earlier ones as
   `.gen<n>.<ext>`, judged by the same guard, and the wave rules on it next
   pass. `MAX_GEN_EDITS` (2) rounds, then the reproduction is dropped and the
-  cut is shown. The guard's COLOUR objection triggers the first edit on its
+  cut is shown.
+
+  **The request itself is documented, not defaulted** (`core/figures/
+  gen-request.ts`, pinned by `eval/suites/gen-request.ts`). Three parts of it
+  were decided against the API docs rather than left alone. The resolution is
+  ASKED FOR — `GEMINI_IMAGE_SIZE`, default `2K` — because unset the API draws
+  at 1K and both model cards name that size in their own known limitations
+  ("small text often blurry in the 1k model"), which is exactly what an exam
+  label is; on the pro tier 2K bills the same as 1K, so it is free there. No
+  SAMPLING parameter is sent: `temperature: 0` used to be, on the reasoning
+  that a copy must not compose, but the guidance for this model family is to
+  leave it at its default and nothing documents its effect on image output at
+  all. And a corrective edit CONTINUES the turn that drew the figure — the cut
+  and the original brief, then the drawing as the model's own `role: model`
+  turn carrying the `thought_signature` it came back with, then the findings —
+  which is the documented way to iterate and asks the model to amend its own
+  output instead of re-rendering a stranger's. The signature is kept beside
+  the drawing in the bucket (`worker/signature-store.ts`); without one the
+  edit falls back to the flat two-image shape, which is what the lane did
+  before. A model that rejects `imageConfig` gets one retry without it. The guard's COLOUR objection triggers the first edit on its
   own, before the wave, because it is deterministic and about the one thing
   a redraw must not change; ink drift stays a reviewer's signal. The wave
   itself sees every reproduced figure beside its cut at full size, since a

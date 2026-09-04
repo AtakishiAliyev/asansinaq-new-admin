@@ -21,6 +21,7 @@ import type { Pixels } from '@/core/segment/image-clean'
 import { config } from './config.ts'
 import type { Db, QuestionRow } from './db.ts'
 import { availableProviders, editFigure, judgeDrawing, providerModel } from './figure-gen.ts'
+import { loadSignature, storeSignature } from './signature-store.ts'
 import { budgetExhausted, logOp } from './ops.ts'
 
 /** Where edit round `round` (1-based) of a figure's reproduction lives. */
@@ -68,6 +69,9 @@ export async function editReproduction(
   index: number,
   item: ImageFig,
   findings: string,
+  /** The current drawing's thought signature, when the caller already has it;
+   *  otherwise it is read from the sidecar beside that drawing. */
+  knownSignature?: string,
 ): Promise<EditOutcome> {
   const round = item.genRound ?? 0
   const provider = editProviderFor(round)
@@ -78,8 +82,15 @@ export async function editReproduction(
   const [cut, current] = await Promise.all([download(db, item.src), download(db, item.genSrc)])
   if (!cut || !current) return { failure: 'kəsim və ya təkrar çəkiliş yüklənmədi' }
 
+  // A signature belongs to the turn that produced it, so it is passed back
+  // only to the provider that issued it.
+  const signature =
+    provider === 'gemini'
+      ? (knownSignature ?? (await loadSignature(db, item.genSrc).catch(() => undefined)))
+      : undefined
+
   const started = Date.now()
-  const result = await editFigure(provider, cut, current, findings)
+  const result = await editFigure(provider, cut, current, findings, signature)
   await logOp(db, {
     op: `figure_edit_${provider}`,
     model: providerModel(provider),
@@ -103,6 +114,8 @@ export async function editReproduction(
     .from('question-crops')
     .upload(path, result.png, { upsert: true, contentType: mime })
   if (error) return { provider, failure: `saxlanıla bilmədi: ${error.message}` }
+  // The edited drawing has a signature of its own; a further round amends THAT.
+  await storeSignature(db, path, result.signature)
 
   const cutPixels = await decode(cut)
   const judged = cutPixels ? await judgeDrawing(cut, cutPixels, result.png, decode) : null

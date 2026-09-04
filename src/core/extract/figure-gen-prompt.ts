@@ -5,7 +5,12 @@
 // it. The operator arrived at this wording by testing it on real figures, so
 // the rules below are transcribed intent rather than invention — and the one
 // addition is the last line, which names the failure their own sample showed.
-export const FIGURE_GEN_PROMPT_VERSION = 1
+// 2 splits the corrective edit in two. The flat brief below still serves the
+// fallback path, where the model is handed two anonymous pictures; the
+// follow-up brief serves the documented multi-turn path, where the drawing is
+// the model's OWN previous output and talking about "IMAGE 2" would point at
+// nothing.
+export const FIGURE_GEN_PROMPT_VERSION = 2
 
 export const FIGURE_REPRODUCE_PROMPT = `Reproduce this figure EXACTLY as it appears.
 
@@ -62,6 +67,37 @@ MUST NOT:
 - Do not redraw the figure from scratch, restyle it, re-letter it, or "improve" it.
 - Do not add anything not present in IMAGE 1, and do not remove anything IMAGE 1 has.
 - Do not write any text that is not printed in IMAGE 1.
+
+Return only the corrected figure on a white background.`
+}
+
+/**
+ * The corrective brief for the MULTI-TURN path.
+ *
+ * Here the faulted drawing is the model's own last turn, not an attachment, so
+ * there is no "IMAGE 2" to name and no second picture to compare against: the
+ * only image in the conversation is the original cut, from the first turn. The
+ * instruction is therefore to amend, which is a smaller and better-posed task
+ * than to redraw — and the narrowness is repeated, because a model asked to
+ * fix the shading will re-letter the axes on the way past if it is not told
+ * twice not to.
+ */
+export function figureEditFollowUpPrompt(findings: string): string {
+  return `A reviewer compared the figure you just produced against the original figure (the image in my first message) and found these differences:
+
+${findings}
+
+Amend the figure you just produced so that it matches the original in exactly those respects, by copying how the original has them.
+
+MUST:
+- Change ONLY what the reviewer listed.
+- Keep every other line, label, colour, position and proportion of your figure byte-for-byte as it already is.
+- Keep every shaded region exactly where the original shades it, and leave white everything the original leaves white.
+
+MUST NOT:
+- Do not redraw the figure from scratch, restyle it, re-letter it, or "improve" anything the reviewer did not mention.
+- Do not add anything absent from the original, and do not remove anything the original has.
+- Do not write any text that is not printed in the original.
 
 Return only the corrected figure on a white background.`
 }
