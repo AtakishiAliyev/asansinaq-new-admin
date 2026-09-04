@@ -25,7 +25,7 @@ import { figureImagePath, optionImagePath } from '@/core/questions/image-paths'
 import type { Db, QuestionRow } from './db.ts'
 import { extensionForMime, sniffImageMime, type ImageMime } from '@/core/figures/image-mime'
 import { FIGURE_GEN_OP, guardedReproduction } from './figure-gen.ts'
-import { editReproduction } from './figure-edit.ts'
+import { editUntilBetter } from './figure-edit.ts'
 import { storeSignature } from './signature-store.ts'
 import { budgetExhausted, logOp } from './ops.ts'
 import { config } from './config.ts'
@@ -33,6 +33,15 @@ import { config } from './config.ts'
 // Where cut pictures live: `core/questions/image-paths.ts`, shared with the
 // review screen so both writers store to the path the renderers read.
 export { figureImagePath, optionImagePath }
+
+/** Whether the guard's only complaint was about the WRITING: the drawing and
+ *  its colours held up, and only the OCR reading did not. */
+function writingOnly(result: {
+  diff: { passed: boolean } | null
+  labels: { passed: boolean } | null
+}): boolean {
+  return Boolean(result.diff?.passed && result.labels && !result.labels.passed)
+}
 
 /**
  * Where a guarded reproduction lives, beside the cut it was drawn from.
@@ -243,10 +252,18 @@ async function runGuardedGeneration(
       flag: {
         level: 'warning',
         code: 'gen_unverified',
-        message:
-          `Təkrar çəkiliş göstərilir, lakin quruluş yoxlamasından keçmədi ` +
-          `(${result.attempts} cəhd): ${result.rejection ?? 'səbəb bilinmir'} — ` +
-          `kəsimlə yan-yana gözlə müqayisə edin`,
+        // A writing objection is not a structure failure, and calling it one
+        // sent a reviewer hunting for a moved line on a drawing whose only
+        // complaint was an OCR reading. The engine's false positives are
+        // known: on one reviewed row it reported the letter C missing from a
+        // reproduction that plainly shows it, beside a green verdict.
+        message: writingOnly(result)
+          ? `Təkrar çəkiliş göstərilir; quruluş və rəng yoxlamasından KEÇDİ, yalnız ` +
+            `yazı oxunuşu şübhəlidir (${result.rejection ?? 'səbəb bilinmir'}). ` +
+            `Bu yoxlama səhv həyəcan verə bilər — hərfləri kəsimlə tutuşdurun`
+          : `Təkrar çəkiliş göstərilir, lakin quruluş yoxlamasından keçmədi ` +
+            `(${result.attempts} cəhd): ${result.rejection ?? 'səbəb bilinmir'} — ` +
+            `kəsimlə yan-yana gözlə müqayisə edin`,
       },
     }
   }
@@ -375,7 +392,8 @@ export async function attachFigureImages(
         // the verifier.
         let colourUnresolved = Boolean(gen.path && gen.colourObjection)
         if (gen.path && gen.colourObjection) {
-          const edit = await editReproduction(db, row, index, item, gen.colourObjection, gen.signature)
+          const edit = await editUntilBetter(db, row, index, item, gen.colourObjection, gen.signature)
+          item.genEditAttempts = edit.attempts
           if (edit.path) {
             item.genSrc = edit.path
             item.genProvider = edit.provider

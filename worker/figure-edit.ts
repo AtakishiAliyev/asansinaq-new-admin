@@ -14,7 +14,12 @@
 // source of truth under every version.
 import { createCanvas, loadImage } from '@napi-rs/canvas'
 import { decideDrawing } from '@/core/figures/drawing-choice'
-import { pickEditProvider, parseProviderOrder, type GenProvider } from '@/core/figures/gen-policy'
+import {
+  MAX_GEN_EDITS,
+  pickEditProvider,
+  parseProviderOrder,
+  type GenProvider,
+} from '@/core/figures/gen-policy'
 import type { ImageFig } from '@/core/figures/figspec'
 import { extensionForMime, sniffImageMime } from '@/core/figures/image-mime'
 import { figureImagePath } from '@/core/questions/image-paths'
@@ -63,9 +68,58 @@ export interface EditOutcome {
   discarded?: boolean
 }
 
-/** The provider the schedule names for this round, or null when none can. */
-export function editProviderFor(round: number): GenProvider | null {
-  return pickEditProvider(round, parseProviderOrder(config.FIGURE_EDIT_PROVIDERS), availableProviders())
+/** The provider the schedule names for this ATTEMPT, or null when none can. */
+export function editProviderFor(attempt: number): GenProvider | null {
+  return pickEditProvider(
+    attempt,
+    parseProviderOrder(config.FIGURE_EDIT_PROVIDERS),
+    availableProviders(),
+  )
+}
+
+/**
+ * Keep trying providers until one draws something better, or the attempts run
+ * out.
+ *
+ * The point of a second provider is that it is a DIFFERENT model, and it was
+ * unreachable in practice: the schedule was walked by accepted rounds, so a
+ * first edit that came back no better left the counter at zero and the next
+ * try went to the model that had just failed. On the reviewed run the second
+ * provider never drew a single figure. Now every attempt advances the
+ * schedule, and a discarded edit hands the work straight to the next model in
+ * the same pass rather than at some later round that never arrives.
+ */
+export async function editUntilBetter(
+  db: Db,
+  row: QuestionRow,
+  index: number,
+  item: ImageFig,
+  findings: string,
+  signature?: string,
+): Promise<EditOutcome & { attempts: number }> {
+  let attempt = item.genEditAttempts ?? 0
+  let last: EditOutcome = { failure: 'heç bir cəhd edilmədi' }
+  const tried: string[] = []
+  while (attempt < MAX_GEN_EDITS) {
+    const provider = editProviderFor(attempt)
+    if (!provider) break
+    last = await editReproduction(db, row, index, item, findings, {
+      attempt,
+      // A signature belongs to the drawing it was issued for, so it is only
+      // ever offered to the first attempt on that drawing.
+      signature: tried.length ? undefined : signature,
+    })
+    attempt++
+    tried.push(provider)
+    if (last.path) return { ...last, attempts: attempt }
+  }
+  return {
+    ...last,
+    attempts: attempt,
+    failure: last.failure
+      ? `${last.failure}${tried.length > 1 ? ` (cəhd olunan: ${tried.join(', ')})` : ''}`
+      : last.failure,
+  }
 }
 
 export async function editReproduction(
@@ -74,12 +128,16 @@ export async function editReproduction(
   index: number,
   item: ImageFig,
   findings: string,
-  /** The current drawing's thought signature, when the caller already has it;
-   *  otherwise it is read from the sidecar beside that drawing. */
-  knownSignature?: string,
+  options: {
+    /** Which attempt this is; it decides which provider draws. */
+    attempt: number
+    /** The current drawing's thought signature, when the caller already has
+     *  it; otherwise it is read from the sidecar beside that drawing. */
+    signature?: string
+  },
 ): Promise<EditOutcome> {
-  const round = item.genRound ?? 0
-  const provider = editProviderFor(round)
+  const { attempt, signature: knownSignature } = options
+  const provider = editProviderFor(attempt)
   if (!provider) return { failure: 'heç bir şəkil provayderi konfiqurasiya olunmayıb' }
   if (!item.src || !item.genSrc) return { failure: 'kəsim və ya təkrar çəkiliş yoxdur' }
   if (await budgetExhausted(db).catch(() => true)) return { failure: 'günlük büdcə dolub' }
@@ -114,7 +172,7 @@ export async function editReproduction(
 
   const mime = sniffImageMime(result.png)
   if (!mime) return { provider, failure: 'qaytarılan şəklin formatı tanınmadı' }
-  const path = figureEditPath(row, index, round + 1, extensionForMime(mime))
+  const path = figureEditPath(row, index, attempt + 1, extensionForMime(mime))
   const { error } = await db.storage
     .from('question-crops')
     .upload(path, result.png, { upsert: true, contentType: mime })

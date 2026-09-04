@@ -148,6 +148,13 @@ what each stage needs.
   `repair-guard.ts`, where the new version is answering a finding. Taking an
   edit on trust is what made those five figures worse.
 
+  **Every edit ATTEMPT advances the provider schedule, not every accepted
+  round.** The second provider was unreachable in practice and drew nothing on
+  a whole reviewed run: a first edit that came back no better left the round
+  counter at zero, so the next try went to the model that had just failed.
+  `genEditAttempts` counts tries, `editUntilBetter` walks the providers within
+  one pass, and a discarded Gemini edit hands the work straight to OpenAI.
+
   **A colour objection the edit did not answer keeps the row out of the
   verified lane** (`core/questions/verification-block.ts`). The wave called all
   ten rows of that run a match with an empty diff at 0.95-0.97 while five
@@ -157,7 +164,13 @@ what each stage needs.
   own, before the wave, because it is deterministic and about the one thing
   a redraw must not change; ink drift stays a reviewer's signal. The wave
   itself sees every reproduced figure beside its cut at full size, since a
-  moved shading is invisible at a third of the page. Which provider takes which round is `FIGURE_EDIT_PROVIDERS`
+  moved shading is invisible at a third of the page. Its area threshold is
+  calibrated on three reviewed reproductions rather than chosen: a faithful one
+  measured +0.7%, and two the reviewer rejected measured +15.5% and +21.6%, so
+  the bar sits at 10% and the one that used to pass at 18% no longer does. A
+  writing-only objection now says so instead of reporting a structure failure,
+  because the OCR reads a letter as missing from a drawing that plainly shows
+  it and a reviewer was sent hunting for a moved line. Which provider takes which round is `FIGURE_EDIT_PROVIDERS`
   (default `gemini,openai`) filtered by which keys exist:
   `OPENAI_API_KEY` + `OPENAI_IMAGE_MODEL` are optional and, like Gemini's,
   never hardcoded. `genProvider` and `genRound` on the figure tell the

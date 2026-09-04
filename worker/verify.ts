@@ -24,7 +24,7 @@ import { reproductionBlamed } from '@/core/questions/verdict-blame'
 import { verificationBlocked } from '@/core/questions/verification-block'
 import { MAX_GEN_EDITS } from '@/core/figures/gen-policy'
 import type { FigureDoc, ImageFig } from '@/core/figures/figspec'
-import { editProviderFor, editReproduction } from './figure-edit.ts'
+import { editProviderFor, editUntilBetter } from './figure-edit.ts'
 import type { Flag } from '@/core/questions/lint'
 import type { Db, QuestionRow } from './db.ts'
 import { config } from './config.ts'
@@ -146,9 +146,16 @@ export async function applyVerdict(
       }
       const figure = item as ImageFig
       const round = figure.genRound ?? 0
+      const attempts = figure.genEditAttempts ?? 0
       const edit =
-        round < MAX_GEN_EDITS && editProviderFor(round)
-          ? await editReproduction(db, row, index, figure, why || 'the reproduction differs from the original figure')
+        attempts < MAX_GEN_EDITS && editProviderFor(attempts)
+          ? await editUntilBetter(
+              db,
+              row,
+              index,
+              figure,
+              why || 'the reproduction differs from the original figure',
+            )
           : null
       if (edit?.path) {
         const { genRejected: _cleared, ...rest } = figure
@@ -157,6 +164,7 @@ export async function applyVerdict(
           genSrc: edit.path,
           genProvider: edit.provider,
           genRound: round + 1,
+          genEditAttempts: edit.attempts,
           ...(edit.rejection ? { genRejected: edit.rejection } : {}),
         })
         notes.push(
@@ -167,7 +175,11 @@ export async function applyVerdict(
       }
       // No edit possible, or the last one is spent: the cut is the figure.
       const { genSrc: _dropped, genProvider: _who, ...rest } = figure
-      items.push({ ...rest, genRejected: `Yoxlayıcı rədd etdi: ${why || 'səbəb bildirilmədi'}` })
+      items.push({
+        ...rest,
+        ...(edit ? { genEditAttempts: edit.attempts } : {}),
+        genRejected: `Yoxlayıcı rədd etdi: ${why || 'səbəb bildirilmədi'}`,
+      })
       notes.push(
         `Fiqur ${index + 1}: təkrar çəkiliş atıldı, kəsim göstərilir` +
           (edit?.failure ? ` (${edit.failure})` : round >= MAX_GEN_EDITS ? ` (${MAX_GEN_EDITS} düzəliş cəhdi bitdi)` : ''),

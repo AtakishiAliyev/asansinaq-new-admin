@@ -345,6 +345,17 @@ export interface ImageFig {
    */
   genRound?: number
   /**
+   * How many corrective edits have been ATTEMPTED, accepted or not.
+   *
+   * Separate from `genRound`, which counts only the edits that stuck. The
+   * provider schedule walks this one, so an edit that was drawn and then
+   * discarded as no improvement still hands the next round to the next
+   * provider. Counting attempts by accepted rounds is what kept the second
+   * provider unreachable: a first edit that failed left the counter at zero,
+   * so the next try went back to the model that had just failed.
+   */
+  genEditAttempts?: number
+  /**
    * The kind the model chose before the lane rerouted the figure to a cut.
    * Recorded so a later decision can still ask what the drawing WAS — a cut
    * that began life as a venn is a set diagram whose shading is the answer.

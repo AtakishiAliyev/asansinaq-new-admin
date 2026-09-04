@@ -350,6 +350,18 @@ export const kindEligibilitySuite = suite('kind-eligibility', {
     ok(MAX_GEN_EDITS >= 1, 'at least one edit is scheduled')
   },
 
+  // The reviewed run never reached the second provider: the schedule was
+  // walked by ACCEPTED rounds, so a first edit that came back no better left
+  // the counter at zero and the next try went to the model that had just
+  // failed. Attempts, not rounds, are what advance it.
+  'a discarded attempt still hands the next round to the next provider'() {
+    const order: ('gemini' | 'openai')[] = ['gemini', 'openai']
+    const both: ('gemini' | 'openai')[] = ['gemini', 'openai']
+    eq(pickEditProvider(0, order, both), 'gemini', 'the first attempt')
+    eq(pickEditProvider(1, order, both), 'openai', 'and the second is a DIFFERENT model')
+    ok(MAX_GEN_EDITS >= 2, 'there are enough attempts for the second provider to exist')
+  },
+
   'the provider order is read leniently and defaults to both'() {
     deepEq(parseProviderOrder('openai, Gemini'), ['openai', 'gemini'], 'case and spaces')
     deepEq(parseProviderOrder('dalle,gemini'), ['gemini'], 'unknown names dropped')

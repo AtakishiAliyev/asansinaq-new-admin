@@ -85,7 +85,21 @@ const DEFAULTS: Required<DiffThresholds> = {
   // still match. Sized for the endpoint drift the operator's sample showed.
   tolerance: 0.015,
   minColourIoU: 0.8,
-  colourAreaSlack: 0.18,
+  // How far the coloured area may drift before the shading is a different
+  // question. Measured on three reviewed reproductions of set diagrams, where
+  // the reviewer's verdict and this number agree with a wide gap between them:
+  //
+  //   p304/12  +0.7%   faithful — the reviewer approved it
+  //   p307/8  +15.5%   WRONG — a bar shaded past the circle that bounds it
+  //   p309/6  +21.6%   WRONG — a bar shaded through the triangle it crosses
+  //
+  // At the old 18% the middle row passed and reached a reviewer as a green
+  // row. 10% sits in the gap: fifteen points clear of the faithful drawing and
+  // five clear of the closest failure. A false objection now costs a corrective
+  // edit and a look, not a discarded drawing, so the cheap direction to be
+  // wrong in is the strict one. Three rows is a small sample and this is the
+  // number to revisit first when the lane is next measured.
+  colourAreaSlack: 0.1,
   // Raised from 0.55 when the inked-AREA criterion was dropped. That criterion
   // was redundant — `tolerantIoU` already measures coverage in both
   // directions, so ink that went missing and ink that was invented both show
