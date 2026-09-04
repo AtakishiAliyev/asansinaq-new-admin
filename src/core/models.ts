@@ -37,10 +37,17 @@ const RATES: [RegExp, Rate][] = [
   // Pro drawing as a Flash one — the direction the budget guard must never
   // err in. Re-check both rows whenever GEMINI_IMAGE_MODEL changes.
   [/gemini.*pro.*image/i, { input: 2, output: 120 }],
-  [/gemini.*image|imagen|nano-banana/i, { input: 0.3, output: 30 }],
+  // The flash image tier. These are its own published rates; the row used to
+  // carry the PREVIOUS generation's ($0.30/$30), which under-priced every
+  // drawing by half — the direction the budget guard must never err in.
+  [/gemini.*flash.*image|nano-banana/i, { input: 0.5, output: 60 }],
+  [/gemini.*image|imagen/i, { input: 0.5, output: 60 }],
   // The corrective-edit provider. Image input and output are both billed as
   // tokens; the input rate here is the IMAGE input rate, which is the one an
   // edit request is dominated by. Re-check whenever OPENAI_IMAGE_MODEL moves.
+  // Listed before the generic row, which carries the previous generation's
+  // higher rates and would over-price this one by a third.
+  [/gpt-image-2/i, { input: 8, output: 30 }],
   [/gpt-image|dall-e/i, { input: 10, output: 40 }],
 ]
 
