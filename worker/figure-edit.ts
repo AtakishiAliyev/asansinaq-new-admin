@@ -13,6 +13,7 @@
 // reading MAX_GEN_EDITS — and it never touches the cut, which stays the
 // source of truth under every version.
 import { createCanvas, loadImage } from '@napi-rs/canvas'
+import { decideDrawing } from '@/core/figures/drawing-choice'
 import { pickEditProvider, parseProviderOrder, type GenProvider } from '@/core/figures/gen-policy'
 import type { ImageFig } from '@/core/figures/figspec'
 import { extensionForMime, sniffImageMime } from '@/core/figures/image-mime'
@@ -49,13 +50,17 @@ async function download(db: Db, path: string): Promise<Buffer | null> {
 }
 
 export interface EditOutcome {
-  /** The edited drawing's path, when one was produced and stored. */
+  /** The edited drawing's path, when one was produced AND measured better than
+   *  the drawing it was asked to fix. */
   path?: string
   provider?: GenProvider
   /** The guard's objection to the edited drawing, when it had one. */
   rejection?: string
-  /** Why no edit was produced at all. */
+  /** Why no edit was produced, or why the one produced was not taken. */
   failure?: string
+  /** True when an edit was drawn and then rejected as no improvement. The
+   *  caller keeps the drawing it already had, and the row says so. */
+  discarded?: boolean
 }
 
 /** The provider the schedule names for this round, or null when none can. */
@@ -117,11 +122,22 @@ export async function editReproduction(
   // The edited drawing has a signature of its own; a further round amends THAT.
   await storeSignature(db, path, result.signature)
 
+  // BOTH drawings are measured against the same cut, and the better one wins.
+  // Taking the edit on trust is what made five of five reviewed figures worse
+  // than the pictures they replaced — see core/figures/drawing-choice.ts.
   const cutPixels = await decode(cut)
-  const judged = cutPixels ? await judgeDrawing(cut, cutPixels, result.png, decode) : null
+  const judgedNew = cutPixels ? await judgeDrawing(cut, cutPixels, result.png, decode) : null
+  const judgedOld = cutPixels ? await judgeDrawing(cut, cutPixels, current, decode) : null
+  const choice = decideDrawing(judgedOld?.diff ?? null, judgedNew?.diff ?? null)
+  if (!choice.keepNew) {
+    console.warn(`[q${row.id}] figure ${index} edit discarded: ${choice.reason}`)
+    return { provider, discarded: true, failure: choice.reason }
+  }
   return {
     path,
     provider,
-    ...(judged && !judged.passed ? { rejection: judged.rejection ?? 'quruluş yoxlamasından keçmədi' } : {}),
+    ...(judgedNew && !judgedNew.passed
+      ? { rejection: judgedNew.rejection ?? 'quruluş yoxlamasından keçmədi' }
+      : {}),
   }
 }

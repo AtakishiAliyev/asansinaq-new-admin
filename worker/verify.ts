@@ -21,6 +21,7 @@ import {
 import type { ExtractedQuestion } from '@/core/questions/extraction'
 import { decideRepair, parseStoredVersion } from '@/core/questions/repair-guard'
 import { reproductionBlamed } from '@/core/questions/verdict-blame'
+import { verificationBlocked } from '@/core/questions/verification-block'
 import { MAX_GEN_EDITS } from '@/core/figures/gen-policy'
 import type { FigureDoc, ImageFig } from '@/core/figures/figspec'
 import { editProviderFor, editReproduction } from './figure-edit.ts'
@@ -273,7 +274,8 @@ export async function applyVerdict(
       prev_version: null,
       // `verified` drives the generated needs_attention column, so a row that
       // passes leaves the Diqqət lane without anything else being touched.
-      verified: verdict.matches && verdict.confidence >= LOW_CONFIDENCE,
+      verified:
+        verdict.matches && verdict.confidence >= LOW_CONFIDENCE && !verificationBlocked(row.flags),
       verify_confidence: clamp01(verdict.confidence),
       verify_diff: verdict.differences as never,
       verified_at: new Date().toISOString(),
@@ -299,6 +301,8 @@ export const MAX_REPAIRS = 2
 
 /** Below this a "match" is not trusted enough to leave the review lane. */
 export const LOW_CONFIDENCE = 0.7
+
+
 
 const clamp01 = (n: number): number => (n < 0 ? 0 : n > 1 ? 1 : n)
 

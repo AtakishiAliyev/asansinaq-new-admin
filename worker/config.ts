@@ -103,6 +103,23 @@ const envSchema = z.object({
   OPENAI_IMAGE_MODEL: z.string().min(1).optional(),
   /** Which provider takes which edit round, in order: e.g. "gemini,openai". */
   FIGURE_EDIT_PROVIDERS: z.string().optional(),
+  /**
+   * Send a corrective edit as a CONTINUATION of the turn that drew the figure,
+   * passing the thought signature back, rather than as a fresh request holding
+   * two pictures.
+   *
+   * Documented as the way to iterate on an image, and OFF by default anyway,
+   * because the one live run measured it as strictly worse: five of ten
+   * questions earned an edit, the multi-turn edit made all five worse than the
+   * drawing it replaced, and the five nobody edited were fine. The flat shape
+   * it replaced had measurably reduced the same defect the week before. The
+   * code and its suite stay so the idea can be tried again against a golden
+   * set rather than against a live queue.
+   */
+  FIGURE_EDIT_MULTITURN: z
+    .string()
+    .optional()
+    .transform((v) => v === '1' || v?.toLowerCase() === 'true'),
 })
 
 const parsed = envSchema.safeParse(process.env)

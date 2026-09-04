@@ -373,6 +373,7 @@ export async function attachFigureImages(
         // with the guard's own words as the brief. Four of forty-five reviewed
         // reproductions had moved a shaded region and every one had passed
         // the verifier.
+        let colourUnresolved = Boolean(gen.path && gen.colourObjection)
         if (gen.path && gen.colourObjection) {
           const edit = await editReproduction(db, row, index, item, gen.colourObjection, gen.signature)
           if (edit.path) {
@@ -381,6 +382,9 @@ export async function attachFigureImages(
             item.genRound = 1
             if (edit.rejection) item.genRejected = edit.rejection
             else delete item.genRejected
+            // The edit measured better than what it replaced, so the objection
+            // that prompted it is answered unless the guard raised a new one.
+            colourUnresolved = Boolean(edit.rejection)
             flags.push({
               level: 'warning',
               code: 'gen_edited',
@@ -388,7 +392,29 @@ export async function attachFigureImages(
                 `Fiqur ${index + 1}: qoruyucunun rəng etirazına görə ${edit.provider} ilə düzəldildi` +
                 (edit.rejection ? `; qoruyucu yenə etiraz etdi: ${edit.rejection}` : ' — kəsimlə müqayisə edin'),
             })
+          } else if (edit.discarded) {
+            flags.push({
+              level: 'warning',
+              code: 'gen_edit_discarded',
+              message:
+                `Fiqur ${index + 1}: düzəliş çəkildi, lakin əvvəlkindən yaxşı çıxmadı ` +
+                `(${edit.failure ?? 'səbəb bilinmir'}) — əvvəlki çəkiliş saxlanıldı`,
+            })
           }
+        }
+        // A shaded region the guard says has moved, on the picture the question
+        // SHOWS. Deterministic, and the one thing these questions turn on, so
+        // it keeps the row out of the verified lane: the verification wave
+        // passed all ten rows of a live run with an empty diff while five of
+        // them had exactly this objection standing.
+        if (colourUnresolved) {
+          flags.push({
+            level: 'warning',
+            code: 'gen_colour_unresolved',
+            message:
+              `Fiqur ${index + 1}: qoruyucu boyalı bölgənin dəyişdiyini deyir və düzəliş bunu həll etmədi — ` +
+              'kəsimlə yan-yana gözlə yoxlayın',
+          })
         }
       }
     } catch (error) {

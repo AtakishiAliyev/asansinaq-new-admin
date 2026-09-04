@@ -92,9 +92,10 @@ export async function editFigure(
   if (provider === 'openai') return openaiEdit([cutPng, currentImage], figureEditPrompt(findings))
 
   // The documented path: amend the model's own last output, with the reasoning
-  // that produced it still attached. Only available when the drawing came from
-  // this provider AND its signature was kept.
-  if (signature) {
+  // that produced it still attached. Available only when the drawing came from
+  // this provider, its signature was kept, and the operator has turned the
+  // shape on — see FIGURE_EDIT_MULTITURN for why it is off by default.
+  if (signature && config.FIGURE_EDIT_MULTITURN) {
     const continued = await geminiCall(
       editContents({
         cut: asGenImage(cutPng),

@@ -14,6 +14,9 @@ import type { Db } from './db.ts'
 
 export const signaturePath = (imagePath: string): string => `${imagePath}.sig`
 
+/** Kept in step with the bucket's allowed_mime_types. */
+export const SIGNATURE_MIME = 'application/json'
+
 /**
  * Keep a drawing's signature.
  *
@@ -30,7 +33,10 @@ export async function storeSignature(
     .from('question-crops')
     .upload(signaturePath(imagePath), Buffer.from(signature, 'utf8'), {
       upsert: true,
-      contentType: 'text/plain',
+      // The bucket's allowed-mime list is images plus this one. `text/plain`
+      // was the obvious choice and is not on it, so every signature upload was
+      // refused and the multi-turn path silently had nothing to read back.
+      contentType: SIGNATURE_MIME,
     })
   if (error) console.warn(`[figure] signature not stored for ${imagePath}: ${error.message}`)
 }
