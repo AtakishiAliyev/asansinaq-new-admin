@@ -63,11 +63,50 @@ export interface SaveAnswerKeyBatchInput {
 const WRITE_CHUNK = 1000
 
 /** Two groups of a plan never cover the same pages, so the pages name the row. */
-const pagesKey = (pages: number[]) => pages.join(',')
+const pagesKey = (pages: number[]) => [...pages].sort((a, b) => a - b).join(',')
+
+/**
+ * Pairings this write is about to replace.
+ *
+ * A pairing for a set of pages is a STATEMENT about those pages, not an
+ * addition to a pile: reading a book's key again — after a parser fix, or just
+ * to check it — must leave one answer per question, not two of them with the
+ * later read winning by accident. Only the pages being rewritten are cleared,
+ * so an unrelated pairing made by hand survives.
+ */
+async function staleBatchIds(bookId: number, pages: Set<string>): Promise<number[]> {
+  const ids: number[] = []
+  const PAGE = 1000
+  for (let offset = 0; ; offset += PAGE) {
+    const { data, error } = await supabase
+      .from('answer_key_batches')
+      .select('id, question_pages')
+      .eq('book_id', bookId)
+      .order('id')
+      .range(offset, offset + PAGE - 1)
+    if (error) throw error
+    const rows = data ?? []
+    for (const row of rows) {
+      if (pages.has(pagesKey(row.question_pages))) ids.push(row.id)
+    }
+    if (rows.length < PAGE) break
+  }
+  return ids
+}
 
 async function saveAnswerKeyBatch(input: SaveAnswerKeyBatchInput) {
   const { data: userData } = await supabase.auth.getUser()
   if (!input.groups.length) return { archived: 0, applied: 0 }
+
+  // Entries cascade with their batch, so this clears both.
+  const stale = await staleBatchIds(
+    input.bookId,
+    new Set(input.groups.map((g) => pagesKey(g.questionPages))),
+  )
+  if (stale.length) {
+    const { error } = await supabase.from('answer_key_batches').delete().in('id', stale)
+    if (error) throw error
+  }
 
   // One insert for every group, not one per group: reading a book's key in a
   // single pass produces a batch per printed section, and Soru Bankası 2025 A
