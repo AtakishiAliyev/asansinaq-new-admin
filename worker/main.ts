@@ -674,7 +674,10 @@ async function dryRun(): Promise<void> {
 }
 
 log(`worker ${config.WORKER_ID} starting`)
-log(`models: text=${config.MODEL_TEXT} figure=${config.MODEL_FIGURE}`)
+log(
+  `models: text=${config.MODEL_TEXT} figure=${config.MODEL_FIGURE} ` +
+    `verify=${config.MODEL_VERIFY}`,
+)
 
 if (process.argv.includes('--dry-run')) {
   await dryRun()
