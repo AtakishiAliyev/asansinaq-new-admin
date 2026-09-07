@@ -80,6 +80,22 @@ export const answerKeyBatchSuite = suite('answer-key-batch', {
     deepEq(match.unmatched, [2, 3])
   },
 
+  // The state an operator lands in when they read the key in the same sitting
+  // as the crop: the crops are on screen but not yet sent, so the bank holds
+  // nothing for those pages. Archiving is exactly what the batch is for, and a
+  // run that writes nothing today is still worth keeping.
+  'a key read before any crop was sent still has everything to archive'() {
+    const match = matchBatch(
+      { questionPages: [4, 5, 6], entries: key([[1, 'A'], [2, 'B'], [3, 'C']]) },
+      onPage(99, [1, 2, 3]),
+    )
+    eq(match.questionCount, 0, 'nothing cropped from those pages yet')
+    eq(match.pairs.length, 0, 'so nothing can be written now')
+    deepEq(match.unmatched, [1, 2, 3], 'and everything is waiting to be')
+    eq(match.ambiguous.length, 0, 'which is not an error')
+    eq(match.conflicting.length, 0)
+  },
+
   'questions the key says nothing about are named too'() {
     const match = matchBatch(
       { questionPages: [5], entries: key([[1, 'A']]) },

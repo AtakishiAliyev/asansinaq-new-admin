@@ -62,6 +62,11 @@ export function AnswerKeyDialog({
 }) {
   const needsSection = match.sections.length > 1 && section === undefined
   const blocked = match.ambiguous.length > 0 || needsSection
+  // Everything the chosen block answers, whether or not the question exists
+  // yet. Archiving is the whole reason a key may be read before its crops
+  // are sent, so a run that writes nothing today is still worth keeping.
+  const archivable = match.pairs.length + match.unmatched.length
+  const nothingCropped = match.questionCount === 0 && archivable > 0
 
   return (
     <Dialog open onOpenChange={(next) => (!next && !isPending ? onCancel() : undefined)}>
@@ -79,7 +84,11 @@ export function AnswerKeyDialog({
 
         <div className="flex-1 space-y-3 overflow-y-auto">
           <div className="flex flex-wrap items-center gap-2 text-sm">
-            <Badge variant="default">{match.pairs.length} cavab yazılacaq</Badge>
+            <Badge variant="default">
+              {match.pairs.length
+                ? `${match.pairs.length} cavab yazılacaq`
+                : `${archivable} cavab arxivlənəcək`}
+            </Badge>
             <Badge variant="outline">{match.questionCount} sual bu səhifələrdə</Badge>
             {labels.length ? (
               <Badge variant="outline" className="font-normal">
@@ -133,7 +142,23 @@ export function AnswerKeyDialog({
             />
           ) : null}
 
-          {match.unmatched.length ? (
+          {nothingCropped ? (
+            <div className="rounded-md border p-3">
+              <p className="flex items-center gap-1.5 text-sm font-medium">
+                <Info className="size-4 shrink-0" />
+                Bu səhifələrin sualları hələ banka göndərilməyib
+              </p>
+              <p className="text-muted-foreground mt-1 text-xs">
+                Kəsimlər siyahıda görünür, amma banka yalnız "Növbəyə at" ilə
+                yazılır. İndi arxivləsəniz, həmin sualları göndərəndə cavablar
+                özləri tətbiq olunacaq — açarı yenidən oxumağa ehtiyac qalmır.
+                Əvvəlcə sualları göndərmək istəsəniz, imtina edin və açarı
+                sonra oxuyun.
+              </p>
+            </div>
+          ) : null}
+
+          {match.unmatched.length && !nothingCropped ? (
             <Numbers
               tone="info"
               title="Açarda var, bankda hələ yoxdur"
@@ -164,9 +189,11 @@ export function AnswerKeyDialog({
           <Button variant="outline" onClick={onCancel} disabled={isPending}>
             İmtina
           </Button>
-          <Button onClick={onConfirm} disabled={isPending || blocked || !match.pairs.length}>
+          <Button onClick={onConfirm} disabled={isPending || blocked || !archivable}>
             {isPending ? <Spinner data-icon="inline-start" /> : null}
-            {match.pairs.length} cavabı yaz
+            {match.pairs.length
+              ? `${match.pairs.length} cavabı yaz`
+              : `${archivable} cavabı arxivlə`}
           </Button>
         </DialogFooter>
       </DialogContent>
