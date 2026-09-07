@@ -19,6 +19,11 @@
 // decoration: a "verifier" that flags everything would catch every corruption
 // and be equally useless, so passing the untouched row is half the test.
 //
+// It also reports what the run COST and how long each verdict took. The verify
+// model is configuration, so both are numbers an operator has to be able to put
+// against the catch rate before changing it — and the ledger cannot supply them,
+// because it records what a call cost without knowing what it caught.
+//
 // Nothing is written to the database. The corruptions live in memory.
 import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@supabase/supabase-js'
@@ -29,7 +34,7 @@ import {
   parseVerdict,
   type Verdict,
 } from '../src/core/extract/verify-request.ts'
-import { samplingFor } from '../src/core/models.ts'
+import { estimateCost, samplingFor, usageFrom, type TokenUsage } from '../src/core/models.ts'
 import type { ExtractedQuestion } from '../src/core/questions/extraction.ts'
 import type { GeometryFig } from '../src/core/figures/figspec.ts'
 import type { Database } from '../src/types/database.ts'
@@ -194,8 +199,16 @@ async function verdictFor(
   crop: { image: string; mime: 'image/png' | 'image/jpeg' },
   question: ExtractedQuestion,
   images: Map<string, string>,
-): Promise<{ verdict: Verdict; parsed: boolean; stopReason: string; raw: string }> {
+): Promise<{
+  verdict: Verdict
+  parsed: boolean
+  stopReason: string
+  raw: string
+  usage: TokenUsage
+  ms: number
+}> {
   const rendered = renderQuestion(question, images)
+  const started = Date.now()
   const request = buildVerifyRequest({
     original: crop,
     recreation: { image: rendered.png.toString('base64') },
@@ -216,6 +229,8 @@ async function verdictFor(
     parsed: typeof input?.matches === 'boolean' && Array.isArray(input?.difference_fields),
     stopReason: message.stop_reason ?? '?',
     raw: JSON.stringify(input),
+    usage: usageFrom(message.usage),
+    ms: Date.now() - started,
   }
 }
 
@@ -251,6 +266,8 @@ interface Result {
   parsed: boolean
   stopReason: string
   raw: string
+  cost: number
+  ms: number
 }
 const results: Result[] = []
 
@@ -282,7 +299,7 @@ for (const row of rows) {
       console.log(`  q${row.id} ${corruption.name.padEnd(24)} n/a (not applicable)`)
       continue
     }
-    const { verdict, parsed, stopReason, raw } = await verdictFor(crop, damaged, images)
+    const { verdict, parsed, stopReason, raw, usage, ms } = await verdictFor(crop, damaged, images)
     const got = verdict.matches ? 'clean' : 'caught'
     const expect = expectedFor(row.id, corruption)
     // An unread verdict is never a pass, whichever way it happened to fall.
@@ -297,6 +314,9 @@ for (const row of rows) {
       parsed,
       stopReason,
       raw,
+      // Synchronous by construction here: the wave itself batches at half this.
+      cost: estimateCost(MODEL, usage),
+      ms,
     })
     console.log(
       `  ${ok ? 'PASS' : 'FAIL'} q${row.id} ${corruption.name.padEnd(24)} ` +
@@ -320,6 +340,22 @@ console.log('\n--- by corruption ---')
 for (const [kind, { pass, total }] of byKind) {
   console.log(`  ${kind.padEnd(24)} ${pass}/${total}`)
 }
+
+// What a verdict costs and how long it takes, which this harness measured all
+// along and threw away. Both are decisions the operator owns — the verify model
+// is configuration precisely so it can be changed — and neither is answerable
+// from the ledger alone, because the ledger cannot say what the call CAUGHT.
+const spend = results.reduce((a, r) => a + r.cost, 0)
+const latencies = results.map((r) => r.ms).sort((a, b) => a - b)
+const at = (q: number) =>
+  latencies[Math.min(latencies.length - 1, Math.floor(latencies.length * q))] ?? 0
+console.log(
+  `\n--- what this run cost ---\n` +
+    `  $${spend.toFixed(4)} over ${results.length} calls ` +
+    `($${(spend / Math.max(1, results.length)).toFixed(4)} each, synchronous — ` +
+    `the wave batches at half)\n` +
+    `  latency p50 ${(at(0.5) / 1000).toFixed(1)}s · p95 ${(at(0.95) / 1000).toFixed(1)}s`,
+)
 
 const unread = results.filter((r) => !r.parsed)
 const missed = results.filter((r) => r.parsed && r.expect === 'caught' && r.got === 'clean')
