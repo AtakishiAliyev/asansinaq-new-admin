@@ -2,6 +2,7 @@
 // offline: no model call, no network, no PDF — see README.md for what that
 // deliberately does and does not cover.
 import type { Suite } from './harness.ts'
+import { answerKeyBatchSuite } from './suites/answer-key-batch.ts'
 import { answerKeySuite } from './suites/answer-key.ts'
 import { anthropicRequestSuite } from './suites/anthropic-request.ts'
 import { classifySuite } from './suites/classify.ts'
@@ -60,6 +61,7 @@ const SUITES: Suite[] = [
   rowPayloadSuite,
   classifySuite,
   answerKeySuite,
+  answerKeyBatchSuite,
   compareSuite,
   extractionSuite,
   lintSuite,

@@ -26,7 +26,6 @@ import {
   parsePageRange,
   parsePagesLenient,
 } from '@/core/segment/page-range'
-import { matchBlockToSection } from '@/core/answer-key/match'
 import {
   BookFormDialog,
   findBookByHash,
@@ -320,18 +319,29 @@ export function ImportPage() {
   const running = segmentation.status === 'running'
   // Answer keys read the SAME page-range input in a different mode: the
   // operator is already looking at the book with the page numbers in view.
+  // The key run needs BOTH ranges: the pages it reads, and the pages those
+  // answers belong to. The pairing is the operator's own statement and it
+  // replaces every attempt to infer which section a key answers — see
+  // `core/answer-key/batch.ts` for the books that made inference untenable.
   function startAnswerKeys() {
     if (!doc || !currentBook) return
-    const parsed = parsePageRange(keyRangeInput, doc.numPages)
-    if (!parsed.ok) {
-      setKeyRangeError(parsed.error)
+    const parsedKeys = parsePageRange(keyRangeInput, doc.numPages)
+    if (!parsedKeys.ok) {
+      setKeyRangeError(parsedKeys.error)
+      return
+    }
+    const parsedQuestions = parsePageRange(rangeInput, doc.numPages)
+    if (!parsedQuestions.ok) {
+      setKeyRangeError(
+        'Əvvəlcə sual səhifələrini yazın — açar məhz onlara aid olacaq',
+      )
       return
     }
     setKeyRangeError(null)
     void answerKeys
-      .run(doc, parsed.pages, currentBook.id)
+      .run(doc, parsedKeys.pages, currentBook.id, parsedQuestions.pages)
       .then((result) => {
-        if (!result.blocks.length) {
+        if (!result.entries.length) {
           toast.warning('Seçilən səhifələrdə cavab açarı tapılmadı')
           return
         }
@@ -340,27 +350,18 @@ export function ImportPage() {
       .catch((error) => toast.error(normalizeError(error).message))
   }
 
-  function applyAnswerKeys(overrides: Map<number, number>) {
+  function applyAnswerKeys() {
     const match = answerKeys.match
     if (!currentBook || !match) return
-    // An override re-matches the block against the chosen section, so the
-    // operator's correction decides which questions get the answers.
-    const pairs = match.blocks.flatMap((block, i) => {
-      const sectionIndex = overrides.get(i)
-      if (sectionIndex === undefined) {
-        return block.pairs.map((p) => ({ id: p.id, answer: p.answer }))
-      }
-      const section = match.sections.find((s) => s.index === sectionIndex)
-      if (!section) return []
-      return matchBlockToSection(
-        block.block,
-        answerKeys.questions.filter(
-          (q) => q.pageNumber >= section.from && q.pageNumber <= section.to,
-        ),
-      ).pairs.map((pair) => ({ id: pair.id, answer: pair.answer }))
-    })
     saveAnswerKeys.mutate(
-      { bookId: currentBook.id, blocks: answerKeys.blocks, pairs },
+      {
+        bookId: currentBook.id,
+        questionPages: answerKeys.questionPages,
+        keyPages: answerKeys.keyPages,
+        ...(answerKeys.labels.length ? { label: answerKeys.labels.join(', ') } : {}),
+        entries: answerKeys.entries,
+        pairs: match.pairs.map((p) => ({ id: p.id, answer: p.answer })),
+      },
       {
         onSuccess: () => {
           setKeyDialogOpen(false)
@@ -605,7 +606,10 @@ export function ImportPage() {
                         running ||
                         answerKeys.status === 'running' ||
                         !currentBook ||
-                        !keyRangeInput.trim()
+                        !keyRangeInput.trim() ||
+                        // The key is stored against the question pages, so
+                        // there is nothing to pair it with until they exist.
+                        !rangeInput.trim()
                       }
                       title={
                         currentBook
@@ -626,7 +630,7 @@ export function ImportPage() {
                   ) : (
                     <FieldDescription>
                       {currentBook
-                        ? 'Cavabların çap olunduğu səhifələr.'
+                        ? 'Yuxarıdakı sual səhifələrinin cavabları burada.'
                         : 'Kitab açıldıqdan sonra aktivləşir.'}
                     </FieldDescription>
                   )}
@@ -892,6 +896,9 @@ export function ImportPage() {
       {keyDialogOpen && answerKeys.match ? (
         <AnswerKeyDialog
           match={answerKeys.match}
+          questionPages={answerKeys.questionPages}
+          keyPages={answerKeys.keyPages}
+          labels={answerKeys.labels}
           notes={answerKeys.notes}
           isPending={saveAnswerKeys.isPending}
           onCancel={() => setKeyDialogOpen(false)}

@@ -25,7 +25,9 @@ import { createCanvas } from '@napi-rs/canvas'
 import { createClient } from '@supabase/supabase-js'
 import { PARSE_ANSWER_KEY_PROMPT } from '@/core/extract/prompts'
 import { parseAnswerKeySchema } from '@/core/extract/schemas'
-import { matchAnswerKeys, type KeyBlock, type MatchableQuestion } from '@/core/answer-key/match'
+import { matchBatch } from '@/core/answer-key/batch'
+import type { AnswerKeyEntry } from '@/core/answer-key/parse'
+import type { MatchableQuestion } from '@/core/answer-key/match'
 import { samplingFor } from '@/core/models'
 import type { Database } from '@/types/database'
 import { readEnvFile } from './env-file.ts'
@@ -170,13 +172,8 @@ for (const { bookId, testNo, rows: groupRows } of [...groups.values()].sort(
     failures++
   }
 
-  const block: KeyBlock = {
-    sourcePage: 999,
-    testNo: entries[0]?.test_no ?? testNo ?? undefined,
-    entries: entries.map((e) => ({ qNo: e.q_no, answer: e.answer, testNo: e.test_no ?? undefined })),
-  } as KeyBlock
-  // Matched against the WHOLE book, which is what the app does — the matcher's
-  // job includes not straying into another test's questions.
+  // Matched against the WHOLE book, which is what the app does — the pages do
+  // the narrowing, and part of the job is not straying outside them.
   const matchable: MatchableQuestion[] = bookRows.map((r) => ({
     id: r.id,
     pageNumber: r.page_number,
@@ -184,15 +181,27 @@ for (const { bookId, testNo, rows: groupRows } of [...groups.values()].sort(
     qNo: r.q_no,
     testNo: r.test_no,
   }))
-  const result = matchAnswerKeys([block], matchable)
-  const m = result.blocks[0]!
+  // The pairing the operator would have made: the pages these questions were
+  // cropped from. Reading it off the rows is the closest a synthetic key can
+  // get to the real screen, where a person types it.
+  const questionPages = [...new Set(bookRows.filter((r) => wanted.has(r.q_no)).map((r) => r.page_number))]
+  const m = matchBatch(
+    {
+      questionPages,
+      entries: entries.map((e) => ({
+        qNo: e.q_no,
+        answer: e.answer as AnswerKeyEntry['answer'],
+      })),
+    },
+    matchable,
+  )
   const rightRow = m.pairs.filter((p) => wanted.get(p.qNo) === p.answer).length
   const strayed = m.pairs.filter((p) => !wanted.has(p.qNo)).length
   console.log(
-    `  matched ${m.pairs.length} question(s)` +
-      `${m.inferredSection ? ` (via section ${m.inferredSection})` : ''}` +
+    `  matched ${m.pairs.length} question(s) on page(s) ${questionPages.join(', ')}` +
       `, ${rightRow}/${wanted.size} of this test carrying the right answer` +
-      `${strayed ? `, ${strayed} STRAYED into another test` : ''}`,
+      `${strayed ? `, ${strayed} STRAYED outside the paired pages` : ''}` +
+      `${m.ambiguous.length ? `, ${m.ambiguous.length} number(s) printed twice` : ''}`,
   )
   if (rightRow !== wanted.size) {
     console.log('  MATCH SHORTFALL — the key read fine but did not reach every question')
@@ -200,6 +209,10 @@ for (const { bookId, testNo, rows: groupRows } of [...groups.values()].sort(
   }
   if (strayed) {
     console.log('  STRAY MATCH — answers landed on questions this key does not cover')
+    failures++
+  }
+  if (m.ambiguous.length) {
+    console.log('  AMBIGUOUS — the paired pages print a question number more than once')
     failures++
   }
 }

@@ -2,7 +2,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
 import { normalizeError } from '@/lib/errors'
-import type { KeyBlock, MatchableQuestion } from '@/core/answer-key/match'
+import type { AnswerKeyEntry } from '@/core/answer-key/parse'
+import type { MatchableQuestion } from '@/core/answer-key/match'
 import { questionKeys } from '@/features/questions/api/keys'
 
 /** Everything the matcher needs about a book's saved questions. */
@@ -38,50 +39,66 @@ export async function fetchMatchableQuestions(
   return all
 }
 
-export interface SaveAnswerKeysInput {
+export interface SaveAnswerKeyBatchInput {
   bookId: number
-  blocks: KeyBlock[]
+  /** The crop pages the operator said this key answers. */
+  questionPages: number[]
+  /** Where the key was read from. */
+  keyPages: number[]
+  /** What the key pages called this section, when they said anything. */
+  label?: string
+  entries: AnswerKeyEntry[]
   /** decided (question id → answer) pairs, already reviewed by the operator */
   pairs: { id: number; answer: string }[]
 }
 
-// Two writes, in this order: the printed key is archived first (so it can be
-// re-applied to questions structured later), then it is stamped onto the
-// questions that exist now.
-async function saveAnswerKeys({ bookId, blocks, pairs }: SaveAnswerKeysInput) {
+// Two writes, in this order: the pairing is archived first — so it can be
+// applied to questions cropped later — then it is stamped onto the questions
+// that exist now. The archive is what makes the operator's statement durable;
+// without it a key read before its crops would have to be read again.
+async function saveAnswerKeyBatch(input: SaveAnswerKeyBatchInput) {
   const { data: userData } = await supabase.auth.getUser()
-  const rows = blocks.flatMap((block) =>
-    block.entries.map((entry) => ({
-      book_id: bookId,
-      test_no: entry.testNo ?? block.testNo ?? 0,
-      q_no: entry.qNo,
-      answer: entry.answer,
-      source_page: block.sourcePage,
+
+  const { data: batch, error: batchError } = await supabase
+    .from('answer_key_batches')
+    .insert({
+      book_id: input.bookId,
+      question_pages: input.questionPages,
+      key_pages: input.keyPages,
+      label: input.label ?? null,
       created_by: userData.user?.id ?? null,
-    })),
-  )
-  if (rows.length) {
-    const { error } = await supabase
-      .from('answer_keys')
-      .upsert(rows, { onConflict: 'book_id,test_no,q_no' })
+    })
+    .select('id')
+    .single()
+  if (batchError) throw batchError
+
+  if (input.entries.length) {
+    const { error } = await supabase.from('answer_key_entries').upsert(
+      input.entries.map((entry) => ({
+        batch_id: batch.id,
+        q_no: entry.qNo,
+        answer: entry.answer,
+      })),
+      { onConflict: 'batch_id,q_no' },
+    )
     if (error) throw error
   }
 
   let applied = 0
-  if (pairs.length) {
+  if (input.pairs.length) {
     const { data, error } = await supabase.rpc('apply_answer_keys', {
-      p_pairs: pairs,
+      p_pairs: input.pairs,
     })
     if (error) throw error
     applied = Number(data ?? 0)
   }
-  return { archived: rows.length, applied }
+  return { archived: input.entries.length, applied }
 }
 
 export function useSaveAnswerKeys() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: saveAnswerKeys,
+    mutationFn: saveAnswerKeyBatch,
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: questionKeys.all })
       toast.success(

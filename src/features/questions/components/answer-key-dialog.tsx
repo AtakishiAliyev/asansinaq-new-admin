@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { CircleAlert, Info } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -10,162 +9,102 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
-import { cn } from '@/lib/utils'
-import type { MatchResult } from '@/core/answer-key/match'
+import { formatPages } from '@/core/segment/page-range'
+import type { BatchMatch } from '@/core/answer-key/batch'
 
-// The gate between reading a key and writing it. A key applied to the wrong
-// section is worse than no key at all — every question would carry a
-// confident, wrong answer — so nothing is written until the operator sees
-// which questions each block lands on.
+// The gate between reading a key and writing it.
+//
+// It used to ask the operator to pick a SECTION for each block, because the
+// pipeline had inferred one and could be wrong. There is nothing left to pick:
+// the operator already said which pages this key answers, on the screen behind
+// this dialog, so what is shown here is a consequence rather than a guess.
+//
+// What is still worth a person's eye is the arithmetic. A key that answers
+// numbers no question carries, or a page range that holds two question 1s,
+// means the ranges do not line up — and writing on that would put a confident
+// wrong answer on a real question, which the pipeline treats as worse than no
+// answer at all.
 export function AnswerKeyDialog({
   match,
+  questionPages,
+  keyPages,
+  labels,
   notes,
   isPending,
   onCancel,
   onConfirm,
 }: {
-  match: MatchResult
+  match: BatchMatch
+  questionPages: number[]
+  keyPages: number[]
+  labels: string[]
   notes: string[]
   isPending: boolean
   onCancel: () => void
-  onConfirm: (overrides: Map<number, number>) => void
+  onConfirm: () => void
 }) {
-  // block index → section index the operator chose instead of the inferred one
-  const [overrides, setOverrides] = useState<Map<number, number>>(new Map())
-
-  const totalPairs = match.blocks.reduce(
-    (sum, b) => sum + (overrides.has(match.blocks.indexOf(b)) ? b.block.entries.length : b.pairs.length),
-    0,
-  )
+  const blocked = match.ambiguous.length > 0
 
   return (
     <Dialog open onOpenChange={(next) => (!next && !isPending ? onCancel() : undefined)}>
-      <DialogContent className="flex max-h-[92vh] flex-col gap-3 sm:max-w-3xl">
+      <DialogContent className="flex max-h-[92vh] flex-col gap-3 sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Cavab açarı — yoxlama</DialogTitle>
           <DialogDescription>
-            Hər blokun hansı suallara yazılacağını təsdiqləyin. Cavablar
-            arxivlənir, ona görə sonradan çıxarılan suallara da tətbiq oluna
-            bilər.
+            <span className="font-mono">s.{formatPages(keyPages)}</span>{' '}
+            səhifələrindəki cavablar{' '}
+            <span className="font-mono">s.{formatPages(questionPages)}</span>{' '}
+            səhifələrindəki suallara yazılacaq. Cavablar arxivlənir, ona görə
+            sonradan kəsilən suallara da tətbiq olunur.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto">
-          {match.blocks.map((block, i) => {
-            const chosen = overrides.get(i)
-            const section = chosen
-              ? match.sections.find((s) => s.index === chosen)
-              : block.inferredSection
-                ? match.sections.find((s) => s.index === block.inferredSection)
-                : undefined
-            const matchedCount = chosen ? '—' : block.pairs.length
-            const isPlaced = Boolean(section) || block.pairs.length > 0
-            return (
-              <div
-                key={block.block.sourcePage}
-                className={cn(
-                  'rounded-lg border p-3',
-                  !isPlaced && 'border-destructive/40 bg-destructive/5',
-                )}
-              >
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-mono text-xs tracking-[0.14em] uppercase">
-                    s.{block.block.sourcePage}
-                  </span>
-                  {block.block.testNo ? (
-                    <Badge variant="outline">test {block.block.testNo}</Badge>
-                  ) : (
-                    <Badge variant="outline">test nömrəsi yoxdur</Badge>
-                  )}
-                  <span className="text-muted-foreground text-sm">
-                    {block.block.entries.length} cavab
-                  </span>
-                  <span
-                    className={cn(
-                      'text-sm',
-                      isPlaced ? 'text-emerald-700' : 'text-destructive',
-                    )}
-                  >
-                    {isPlaced
-                      ? `${matchedCount} sualla uyğunlaşdı`
-                      : 'uyğun sual tapılmadı'}
-                  </span>
-                  {block.unmatched.length ? (
-                    <span className="text-muted-foreground text-xs">
-                      ({block.unmatched.length} sual hələ bazada yoxdur)
-                    </span>
-                  ) : null}
-                </div>
+        <div className="flex-1 space-y-3 overflow-y-auto">
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <Badge variant="default">{match.pairs.length} cavab yazılacaq</Badge>
+            <Badge variant="outline">{match.questionCount} sual bu səhifələrdə</Badge>
+            {labels.length ? (
+              <Badge variant="outline" className="font-normal">
+                açarda: {labels.slice(0, 4).join(', ')}
+                {labels.length > 4 ? '…' : ''}
+              </Badge>
+            ) : null}
+          </div>
 
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <span className="text-muted-foreground text-xs">Bölmə:</span>
-                  <Select
-                    value={chosen ? String(chosen) : (block.inferredSection ? String(block.inferredSection) : '')}
-                    onValueChange={(v) =>
-                      setOverrides((current) => {
-                        const next = new Map(current)
-                        next.set(i, Number(v))
-                        return next
-                      })
-                    }
-                  >
-                    <SelectTrigger className="w-72" aria-label="Bölmə seç">
-                      <SelectValue placeholder="bölmə seçin" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        {match.sections.map((s) => (
-                          <SelectItem key={s.index} value={String(s.index)}>
-                            {s.index}. bölmə · s.{s.from}–{s.to} · {s.count} sual
-                            {s.testNo ? ` · test ${s.testNo}` : ''}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                  {section ? (
-                    <span className="text-muted-foreground text-xs">
-                      s.{section.from}–{section.to}, {section.count} sual
-                    </span>
-                  ) : null}
-                </div>
+          {blocked ? (
+            <Numbers
+              tone="error"
+              title="Sual nömrələri təkrarlanır — heç nə yazılmayacaq"
+              body="Seçilən səhifələrdə bu nömrələr birdən çox dəfə çap olunub, yəni aralıq bölmə sərhədini keçir. Açarın hansını nəzərdə tutduğu bilinmir. Aralığı bölüb hər bölmə üçün ayrıca oxuyun."
+              numbers={match.ambiguous}
+            />
+          ) : null}
 
-                <p className="text-muted-foreground mt-2 font-mono text-xs">
-                  {block.block.entries
-                    .slice(0, 14)
-                    .map((e) => `${e.qNo}${e.answer}`)
-                    .join('  ')}
-                  {block.block.entries.length > 14 ? ' …' : ''}
-                </p>
-              </div>
-            )
-          })}
+          {match.unmatched.length ? (
+            <Numbers
+              tone="info"
+              title="Açarda var, bankda hələ yoxdur"
+              body="Bu nömrələr üçün sual hələ kəsilməyib. Cavablar arxivlənir və həmin suallar kəsiləndə özləri tətbiq olunacaq."
+              numbers={match.unmatched}
+            />
+          ) : null}
 
-          {notes.map((note, i) => (
-            <p
-              key={`${i}-${note}`}
-              className="text-muted-foreground flex items-start gap-1.5 text-xs"
-            >
-              <Info className="mt-px size-3.5 shrink-0" />
-              {note}
-            </p>
-          ))}
+          {match.unanswered.length ? (
+            <Numbers
+              tone="info"
+              title="Sual var, açarda cavabı yoxdur"
+              body="Açar bu nömrələr haqqında heç nə demir. Səhv aralıq seçilibsə, indi düzəltmək lazımdır."
+              numbers={match.unanswered}
+            />
+          ) : null}
 
-          {match.blocks.some((b) => !b.pairs.length) ? (
-            <p className="text-destructive flex items-start gap-1.5 text-xs">
-              <CircleAlert className="mt-px size-3.5 shrink-0" />
-              Uyğunlaşmayan blok var: həmin bölmənin suallarını əvvəlcə
-              çıxarılmaya göndərin, sonra açarı yenidən tətbiq edin.
-            </p>
+          {notes.length ? (
+            <ul className="text-muted-foreground space-y-1 text-xs">
+              {notes.map((note, i) => (
+                <li key={i}>· {note}</li>
+              ))}
+            </ul>
           ) : null}
         </div>
 
@@ -173,12 +112,53 @@ export function AnswerKeyDialog({
           <Button variant="outline" onClick={onCancel} disabled={isPending}>
             İmtina
           </Button>
-          <Button onClick={() => onConfirm(overrides)} disabled={isPending}>
+          <Button onClick={onConfirm} disabled={isPending || blocked || !match.pairs.length}>
             {isPending ? <Spinner data-icon="inline-start" /> : null}
-            {totalPairs > 0 ? `${totalPairs} suala yaz` : 'Yalnız arxivlə'}
+            {match.pairs.length} cavabı yaz
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/** A finding, with the numbers it is about. Long lists are truncated: the
+ *  point is the shape of the problem, not a transcript. */
+function Numbers({
+  tone,
+  title,
+  body,
+  numbers,
+}: {
+  tone: 'error' | 'info'
+  title: string
+  body: string
+  numbers: number[]
+}) {
+  const Icon = tone === 'error' ? CircleAlert : Info
+  return (
+    <div
+      className={
+        tone === 'error'
+          ? 'border-destructive/40 bg-destructive/5 rounded-md border p-3'
+          : 'rounded-md border p-3'
+      }
+    >
+      <p
+        className={
+          tone === 'error'
+            ? 'text-destructive flex items-center gap-1.5 text-sm font-medium'
+            : 'flex items-center gap-1.5 text-sm font-medium'
+        }
+      >
+        <Icon className="size-4 shrink-0" />
+        {title}
+      </p>
+      <p className="text-muted-foreground mt-1 text-xs">{body}</p>
+      <p className="mt-1.5 font-mono text-xs">
+        {numbers.slice(0, 30).join(', ')}
+        {numbers.length > 30 ? ` … (${numbers.length})` : ''}
+      </p>
+    </div>
   )
 }

@@ -305,6 +305,20 @@ what each stage needs.
   verifier is told, in as many words, that a shaded region is a difference
   and always critical, and a venn's claims list exactly which regions are
   shaded — it passed two moved shadings with an empty diff before it was.
+- **A printed answer key is placed by the PAGES the operator paired it with**
+  (`core/answer-key/batch.ts`, `answer_key_batches`). The import screen takes
+  both ranges — the question pages and the key pages — and the pairing is what
+  is stored, so a key read before its crops is applied when they arrive. This
+  replaces inferring which section a key answers, which a survey of nine real
+  books showed cannot be done: Soru Bankası 2025 A prints `Test-1` twice on one
+  key page for two subjects, so keyed by test number they collide and 26
+  answers a page are dropped; MANTIK 2025 heads its sections `Deneme 1`, which
+  no pattern reads, so 409 text items produce zero answers; and five of the
+  nine books are pure scans with no header to read at all. `answer_keys` and
+  `match.ts` stay for books imported before the pairing, and `answerFor`
+  prefers the pairing wherever it has an entry. The one thing the pairing
+  cannot settle is a range that spans a numbering restart, and there it refuses
+  by name rather than guessing.
 - **The browser orchestrates exactly one thing: a single-question interactive
   re-run** from the review screen. That is what the `question-ops` Edge Function
   is still for — that, answer-key parsing and page detection, which stay
@@ -610,7 +624,7 @@ src/
 │   ├── extract/            # prompts, wire schemas, request builders
 │   ├── figures/            # the figure DSL (FigSpec), evaluators, SVG render
 │   ├── questions/          # lint, compare, wire→question normalisation
-│   └── answer-key/         # deterministic key-table parsing and matching
+│   └── answer-key/         # deterministic key-table parsing and page matching
 ├── features/
 │   └── <feature-name>/
 │       ├── api/            # query/mutation hooks + keys.ts

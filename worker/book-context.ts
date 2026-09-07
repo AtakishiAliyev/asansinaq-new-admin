@@ -5,12 +5,23 @@
 // but a claim can fall back to any book, so this is keyed rather than passed in
 // once — a tree from the wrong subject makes the model pick an id that exists
 // and is wrong, which is the one kind of mistake nothing downstream catches.
+import { batchAnswerIndex, batchAnswerKey } from '@/core/answer-key/batch'
 import type { CategoryOption } from '@/core/extract/request-anthropic'
 import type { Db } from './db.ts'
 
 export interface BookContext {
   /** `${test_no}:${q_no}` → answer. Empty when the book has no key imported. */
   answerKeys: Map<string, string>
+  /**
+   * `${page_number}:${q_no}` → answer, from the operator's own pairing of key
+   * pages to question pages.
+   *
+   * Preferred over `answerKeys` wherever it has an entry, because it is the
+   * one lookup that needs no inference: a question's page and printed number
+   * are both facts. The test-number map stays for books imported before the
+   * pairing existed, and for a book whose key was read without one.
+   */
+  batchAnswers: Map<string, string>
   /**
    * False when the KEY FETCH ITSELF failed. "No key imported" and "we could not
    * read the key" are different facts and only one of them is the book's — a
@@ -52,6 +63,51 @@ async function fetchAnswerKeys(
     if (rows.length < PAGE) break
   }
   return keys
+}
+
+/**
+ * Every operator-paired key for a book, flattened into a page lookup.
+ *
+ * Two reads rather than a join: PostgREST would nest the entries under each
+ * batch and a book with twenty sections passes the 1000-row ceiling on the
+ * entries alone, so both are paged the way every other read here is.
+ */
+async function fetchBatchAnswers(db: Db, bookId: number): Promise<Map<string, string>> {
+  const { data: batches, error } = await db
+    .from('answer_key_batches')
+    .select('id, question_pages')
+    .eq('book_id', bookId)
+    // A later batch corrects an earlier one, so it has to be applied last.
+    .order('id')
+  if (error) throw new Error(error.message)
+  if (!batches?.length) return new Map()
+
+  const ids = batches.map((b) => b.id)
+  const entries: { batch_id: number; q_no: number; answer: string }[] = []
+  for (let offset = 0; ; offset += PAGE) {
+    const { data, error: entryError } = await db
+      .from('answer_key_entries')
+      .select('batch_id, q_no, answer')
+      .in('batch_id', ids)
+      .order('batch_id')
+      .order('q_no')
+      .range(offset, offset + PAGE - 1)
+    if (entryError) throw new Error(entryError.message)
+    const rows = data ?? []
+    entries.push(...rows)
+    if (rows.length < PAGE) break
+  }
+
+  const byBatch = new Map<number, { qNo: number; answer: string }[]>()
+  for (const e of entries) {
+    byBatch.set(e.batch_id, [...(byBatch.get(e.batch_id) ?? []), { qNo: e.q_no, answer: e.answer }])
+  }
+  return batchAnswerIndex(
+    batches.map((b) => ({
+      questionPages: b.question_pages ?? [],
+      entries: byBatch.get(b.id) ?? [],
+    })),
+  )
 }
 
 async function fetchCategories(
@@ -102,9 +158,11 @@ export async function bookContext(db: Db, bookId: number): Promise<BookContext> 
   if (hit) return hit
 
   let answerKeys = new Map<string, string>()
+  let batchAnswers = new Map<string, string>()
   let answerKeysRead = true
   try {
     answerKeys = await fetchAnswerKeys(db, bookId)
+    batchAnswers = await fetchBatchAnswers(db, bookId)
   } catch (error) {
     answerKeysRead = false
     console.warn(
@@ -120,6 +178,7 @@ export async function bookContext(db: Db, bookId: number): Promise<BookContext> 
 
   const context: BookContext = {
     answerKeys,
+    batchAnswers,
     answerKeysRead,
     categories: await fetchCategories(db, bookId),
     // Unknown or unreadable means 'cut', the lane that cannot be wrong about
@@ -132,12 +191,24 @@ export async function bookContext(db: Db, bookId: number): Promise<BookContext> 
   return context
 }
 
-/** The answer for one question, or null. Never a model's opinion. */
+/**
+ * The answer for one question, or null. Never a model's opinion.
+ *
+ * The operator's pairing wins where it has something to say: it resolves by
+ * page and printed number, which are facts, while the test-number lookup below
+ * rests on a section that had to be inferred and that a survey of nine books
+ * showed cannot be inferred reliably.
+ */
 export function answerFor(
   context: BookContext,
   testNo: number | null,
   qNo: number,
+  pageNumber?: number,
 ): string | null {
+  if (pageNumber !== undefined) {
+    const paired = context.batchAnswers.get(batchAnswerKey(pageNumber, qNo))
+    if (paired) return paired
+  }
   return (
     context.answerKeys.get(`${testNo ?? 0}:${qNo}`) ??
     context.answerKeys.get(`0:${qNo}`) ??
