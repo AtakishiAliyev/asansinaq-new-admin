@@ -1,5 +1,4 @@
 import type { AnswerKeyEntry } from '@/core/answer-key/parse'
-import { splitByNumberingRestart } from '@/core/answer-key/batch'
 
 // Reading a book's printed key ONCE, for the whole book, at import time.
 //
@@ -178,6 +177,57 @@ function testsAgree(block: BookBlock, section: BookSection): boolean {
   return block.testNo === section.testNo
 }
 
+/**
+ * Where one section of the book ends and the next begins.
+ *
+ * The book's own header outranks its numbering: two pages that print the same
+ * test ARE the same section, whatever their numbers look like. Soru Bankası
+ * 2025 A page 369 carries the tail of test 16 beside a boxed list the segmenter
+ * read as questions 1 and 2, so by numbering alone the section restarted there
+ * and split test 16 in two — leaving two sections for one printed block, which
+ * is a tie nothing could break, and 17 questions unanswered.
+ *
+ * Where a header is missing on either side — seven of nine books print none —
+ * the numbering decides, as it did before.
+ */
+function splitIntoSections(
+  pages: number[],
+  reads: Map<number, BookPageRead>,
+): number[][] {
+  const groups: number[][] = []
+  /** Blank pages seen before any section has started. */
+  let waiting: number[] = []
+  let previousFirst = Number.POSITIVE_INFINITY
+  let previousTest: number | undefined
+
+  for (const page of [...pages].sort((a, b) => a - b)) {
+    const read = reads.get(page)
+    const numbers = [...(read?.numbers ?? [])].sort((a, b) => a - b)
+    if (!numbers.length) {
+      // Carries no questions, so it can neither open a section nor split one.
+      if (groups.length) groups[groups.length - 1]!.push(page)
+      else waiting.push(page)
+      continue
+    }
+    const first = numbers[0]!
+    const test = read?.testNo
+    const boundary =
+      test !== undefined && previousTest !== undefined
+        ? test !== previousTest
+        : first <= previousFirst
+    if (boundary || !groups.length) {
+      groups.push([...waiting, page])
+      waiting = []
+    } else {
+      groups[groups.length - 1]!.push(page)
+    }
+    previousFirst = first
+    previousTest = test
+  }
+  if (waiting.length) groups.push(waiting)
+  return groups
+}
+
 /** Build the sections of a run of question pages. */
 function sectionsOf(
   pages: number[],
@@ -185,7 +235,7 @@ function sectionsOf(
 ): BookSection[] {
   const numbers = new Map<number, number[]>()
   for (const page of pages) numbers.set(page, reads.get(page)?.numbers ?? [])
-  return splitByNumberingRestart(pages, numbers).map((group) => ({
+  return splitIntoSections(pages, reads).map((group) => ({
     pages: group,
     numbers: [...new Set(group.flatMap((p) => numbers.get(p) ?? []))].sort((a, b) => a - b),
     ...(() => {

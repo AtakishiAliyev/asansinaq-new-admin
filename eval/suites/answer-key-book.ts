@@ -179,6 +179,40 @@ export const answerKeyBookSuite = suite('answer-key-book', {
     eq(plan.unpaired[0]!.testNo, 2, 'açarda olmayan bölmə')
   },
 
+  // Soru Bankası 2025 A page 369 carries the tail of test 16 beside a boxed
+  // list the segmenter read as questions 1 and 2. By numbering alone the
+  // section restarted there and split test 16 in two, leaving two sections for
+  // one printed block — a tie nothing could break, and 17 questions lost.
+  'a page printing the same test does not start a new section'() {
+    const tail: BookPageRead = {
+      pageNumber: 6,
+      // The tail of the test, plus two numbers that are not questions at all.
+      numbers: [13, 14, 15, 1, 2],
+      testNo: 1,
+      entries: [],
+    }
+    const plan = planBookKey([
+      questions(4, 1, 6, 1),
+      questions(5, 7, 12, 1),
+      tail,
+      questions(7, 1, 16, 2),
+      keyPage(100, [...block('1', 1, 16, 1), ...block('2', 1, 16, 2)]),
+    ])
+    eq(plan.pairings.length, 2, 'iki bölmə, üç yox')
+    deepEq(plan.pairings[0]!.section.pages, [4, 5, 6], 'quyruq öz bölməsində qalır')
+  },
+
+  // Seven of the nine books print no header, and there the numbering is still
+  // the only thing that says where a section ends.
+  'a headerless book still splits where the numbering restarts'() {
+    const plan = planBookKey([
+      questions(4, 1, 16),
+      questions(5, 1, 16),
+      keyPage(100, [...block('1', 1, 16), ...block('2', 1, 16)]),
+    ])
+    eq(plan.pairings.length + plan.unpaired.length, 2, 'iki bölməyə bölünür')
+  },
+
   'a book with no key page places nothing and says so'() {
     const plan = planBookKey([questions(4, 1, 16), questions(5, 17, 32)])
     eq(plan.layout, 'none', 'quruluş')

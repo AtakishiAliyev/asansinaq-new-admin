@@ -83,6 +83,40 @@ interface Header {
   bottom: number
 }
 
+/**
+ * How far apart two header pieces must sit to be separate words.
+ *
+ * A fraction of the line height, because that is the font size: a real word
+ * space in a 16pt header is ~3.4pt, and the two halves of a split number sit
+ * 0.1pt apart. Over-joining is harmless for a header pattern whose separator
+ * is `\s*`; under-joining is not, which is the whole reason this exists.
+ */
+const HEADER_SPACE_RATIO = 0.15
+
+/**
+ * Join a header row the way it is printed, not the way it is stored.
+ *
+ * Joining every item with a space read `Test 12` as `Test 1`, because the PDF
+ * stores that number as two touching pieces — `1` ending at x=68.5 and `2`
+ * starting at x=68.6. Soru Bankası 2025 A does this on the pages of tests 12
+ * and 13, so those sections announced themselves as test 1, disagreed with the
+ * key blocks they belonged to, and 32 questions went unanswered while the
+ * mismatch also pushed a third section out of a provable order.
+ */
+function joinRow(sorted: SegItem[]): string {
+  let joined = ''
+  let previous: SegItem | undefined
+  for (const it of sorted) {
+    if (previous) {
+      const gap = it.x - (previous.x + previous.w)
+      if (gap >= previous.h * HEADER_SPACE_RATIO) joined += ' '
+    }
+    joined += it.str
+    previous = it
+  }
+  return joined
+}
+
 // Find the header row in the top zone. Its bottom edge becomes the content
 // cut, so header text never participates in column/anchor geometry (a centered
 // banner crossing the gutter would otherwise collapse the column split).
@@ -102,10 +136,7 @@ function findHeader(
     rows.set(key, row)
   }
   for (const row of rows.values()) {
-    const joined = row
-      .sort((p, q) => p.x - q.x)
-      .map((it) => it.str)
-      .join(' ')
+    const joined = joinRow(row.sort((p, q) => p.x - q.x))
     const m = joined.match(profile.headerPattern)
     if (m) {
       const bottom = Math.max(...row.map((it) => it.yTop + it.h)) + 6

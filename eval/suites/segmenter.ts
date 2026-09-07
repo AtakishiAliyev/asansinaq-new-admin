@@ -131,6 +131,30 @@ export const segmenterSuite = suite('segment', {
     eq(page.testNo, 7, 'testNo')
   },
 
+  // Soru Bankası 2025 A stores `Test 12` as three pieces: `Test`, `1`, and a
+  // `2` starting 0.1pt after the `1` ends. Joining every piece with a space
+  // made that `Test 1 2`, the pattern took `Test 1`, and the pages of tests 12
+  // and 13 announced themselves as test 1 — disagreeing with the key blocks
+  // they belonged to and costing 48 questions their answers.
+  'a two-digit header number split across items is still one number'() {
+    const page = seg([
+      { str: 'Test', x: 28, y: 30, w: 30.8 },
+      { str: '1', x: 62.2, y: 30, w: 6.3 },
+      { str: '2', x: 68.6, y: 30, w: 9.4 },
+      ...column(1, 4, 50, 120),
+    ])
+    eq(page.testNo, 12, 'testNo')
+  },
+
+  'a real word space still separates the label from the number'() {
+    const page = seg([
+      { str: 'Test', x: 28, y: 30, w: 30.8 },
+      { str: '7', x: 62.2, y: 30, w: 6.3 },
+      ...column(1, 4, 50, 120),
+    ])
+    eq(page.testNo, 7, 'testNo')
+  },
+
   'a rotated watermark is not content'() {
     const page = seg([
       { str: 'SAVEHOCA', x: 200, y: 400, w: 200, angle: 0.6 },
