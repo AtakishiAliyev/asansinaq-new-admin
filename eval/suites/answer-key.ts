@@ -219,4 +219,124 @@ export const answerKeySuite = suite('answer-key', {
       `boşluq qeyd olunub: ${page.notes.join(' | ')}`,
     )
   },
+
+  // MANTIK 2025: six sections headed "Deneme 1".."Deneme 6" — the number AFTER
+  // the word. Nothing matched, so every section collapsed into one, all six
+  // answers to question 1 conflicted, and a clean 409-item page produced zero.
+  'a header written "Deneme 1" is read as a section'() {
+    const page = parse([
+      { str: 'Deneme 1', x: 200, y: 40, w: 60 },
+      ...keyRow(70, [
+        [1, 'D'],
+        [2, 'B'],
+        [3, 'A'],
+      ]),
+      ...keyRow(90, [
+        [4, 'C'],
+        [5, 'E'],
+        [6, 'D'],
+      ]),
+      { str: 'Deneme 2', x: 200, y: 140, w: 60 },
+      ...keyRow(170, [
+        [1, 'E'],
+        [2, 'A'],
+        [3, 'C'],
+      ]),
+      ...keyRow(190, [
+        [4, 'B'],
+        [5, 'D'],
+        [6, 'E'],
+      ]),
+    ])
+    eq(page.entries.length, 12, 'both sections survive instead of conflicting away')
+    eq(
+      page.entries.filter((e) => e.testNo === 1).map((e) => e.answer).join(''),
+      'DBACED',
+      'Deneme 1 keeps its own answers',
+    )
+    eq(
+      page.entries.filter((e) => e.testNo === 2).map((e) => e.answer).join(''),
+      'EACBDE',
+      'and Deneme 2 keeps its own',
+    )
+  },
+
+  // Why the word-first form is only a FALLBACK. Read eagerly, "DENEME 2" in
+  // "1. DENEME   2. DENEME" matches at the WORD and invents a third header
+  // between the two real ones, handing the middle column to the wrong test.
+  'a side-by-side grid is still read number-first'() {
+    const page = parse([
+      { str: '1. DENEME', x: 100, y: 40, w: 70 },
+      { str: '2. DENEME', x: 400, y: 40, w: 70 },
+      ...keyRow(80, [
+        [1, 'A'],
+        [2, 'B'],
+        [3, 'C'],
+      ], 100, 60),
+      ...keyRow(80, [
+        [1, 'E'],
+        [2, 'D'],
+        [3, 'C'],
+      ], 400, 60),
+      ...keyRow(110, [
+        [4, 'D'],
+        [5, 'A'],
+        [6, 'B'],
+      ], 100, 60),
+      ...keyRow(110, [
+        [4, 'B'],
+        [5, 'E'],
+        [6, 'A'],
+      ], 400, 60),
+    ])
+    eq(
+      page.entries.filter((e) => e.testNo === 1).map((e) => e.answer).join(''),
+      'ABCDAB',
+      'the left column is test 1',
+    )
+    eq(
+      page.entries.filter((e) => e.testNo === 2).map((e) => e.answer).join(''),
+      'EDCBEA',
+      'the right column is test 2, not an invented third header',
+    )
+  },
+
+  // Soru Bankası 2025 A prints Test-1 twice on one key page, once per subject.
+  // Keyed by the printed number they collided and the conflict rule dropped
+  // both: 14 of test 1's 16 answers gone. Keyed by the BLOCK they never meet.
+  'two blocks a book gave the same number stay apart'() {
+    const page = parse([
+      { str: 'Test-1', x: 200, y: 40, w: 50 },
+      ...keyRow(70, [
+        [1, 'A'],
+        [2, 'B'],
+        [3, 'C'],
+      ]),
+      ...keyRow(90, [
+        [4, 'D'],
+        [5, 'E'],
+      ]),
+      { str: 'Test-1', x: 200, y: 160, w: 50 },
+      ...keyRow(190, [
+        [1, 'E'],
+        [2, 'D'],
+        [3, 'C'],
+      ]),
+      ...keyRow(210, [
+        [4, 'B'],
+        [5, 'A'],
+      ]),
+    ])
+    eq(page.entries.length, 10, 'both blocks survive instead of conflicting away')
+    ok(
+      page.notes.every((n) => !/ziddiyyət/.test(n)),
+      'and neither is reported as a disagreement',
+    )
+    const blocks = [...new Set(page.entries.map((e) => e.sectionId))]
+    eq(blocks.length, 2, 'they are two blocks')
+    ok(
+      page.entries.every((e) => e.testNo === 1),
+      'both still carry the number the book printed',
+    )
+  },
 })

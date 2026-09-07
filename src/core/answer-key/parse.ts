@@ -11,6 +11,18 @@ import type { SegItem } from '@/core/segment/types'
 export interface AnswerKeyEntry {
   /** section number from a "N. DENEME" style header, when the page has one */
   testNo?: number
+  /**
+   * WHICH printed block this answer came from, as opposed to what that block
+   * was called.
+   *
+   * A book reuses test numbers across subjects: Soru Bankası 2025 A prints
+   * `Test-1` twice on one key page, once for each subject. Keyed by the number
+   * they collide, and the conflict rule below then drops both — on that page
+   * it cost 14 of test 1's 16 answers. Keyed by the block they never meet.
+   *
+   * Unique within one page's parse; the caller makes it unique across pages.
+   */
+  sectionId?: string
   qNo: number
   answer: 'A' | 'B' | 'C' | 'D' | 'E'
 }
@@ -27,6 +39,27 @@ const SECTION_PATTERNS = [
   /(\d{1,3})\s*\.\s*(?:deneme|dənəmə)/i,
   /test\s*[-–]?\s*(\d{1,3})/i,
 ]
+
+/**
+ * The other way round: "Deneme 1", the word before the number.
+ *
+ * Tried only on a row where the patterns above found nothing, and that
+ * restriction is the whole reason it is safe. A grid prints "1. DENEME   2.
+ * DENEME" on one line; read word-first, "DENEME 2" matches at the position of
+ * the WORD, inventing a third header between the two real ones and handing the
+ * middle column to the wrong test. Number-first wins wherever it applies, so
+ * this only ever speaks for a row nothing else could read.
+ *
+ * MANTIK 2025 is why it exists at all: six sections headed "Deneme 1" through
+ * "Deneme 6", no pattern matching any of them, so every section collapsed into
+ * one, all six answers to question 1 conflicted, and a clean 409-item page
+ * produced zero answers.
+ */
+const SECTION_PATTERNS_WORD_FIRST = [/(?:deneme|dənəmə)\s*[-–]?\s*(\d{1,3})/i]
+
+/** Every form a section header can take. Used where the question is only
+ *  "is this row a label?" — a label is never data, whichever way it reads. */
+const ALL_SECTION_PATTERNS = [...SECTION_PATTERNS, ...SECTION_PATTERNS_WORD_FIRST]
 
 /** A cell that already pairs number and letter: "12. C", "12-C", "12) C". */
 const PAIR_RE = /(\d{1,3})\s*[.)\-–:]?\s*([A-E])(?![A-Za-z])/g
@@ -78,6 +111,8 @@ interface SectionHeader {
   testNo: number
   x: number
   yTop: number
+  /** Position in reading order, which is what makes two `Test-1`s two things. */
+  index: number
 }
 
 /**
@@ -97,26 +132,34 @@ function findSectionHeaders(rows: SegItem[][]): SectionHeader[] {
       text += it.str + ' '
     }
     const found = new Map<number, SectionHeader>()
-    for (const re of SECTION_PATTERNS) {
-      for (const m of text.matchAll(new RegExp(re.source, 'gi'))) {
-        if (m.index === undefined) continue
-        const span =
-          spans.find((s) => m.index! >= s.start && m.index! < s.end) ?? spans[0]
-        if (!span) continue
-        // Two patterns can match the same label ("TEST 3. DENEME"); the
-        // position is what makes them the same header, not the wording.
-        if (!found.has(span.item.x)) {
-          found.set(span.item.x, {
-            testNo: Number(m[1]),
-            x: span.item.x,
-            yTop: span.item.yTop,
-          })
+    const collect = (patterns: RegExp[]) => {
+      for (const re of patterns) {
+        for (const m of text.matchAll(new RegExp(re.source, 'gi'))) {
+          if (m.index === undefined) continue
+          const span =
+            spans.find((s) => m.index! >= s.start && m.index! < s.end) ?? spans[0]
+          if (!span) continue
+          // Two patterns can match the same label ("TEST 3. DENEME"); the
+          // position is what makes them the same header, not the wording.
+          if (!found.has(span.item.x)) {
+            found.set(span.item.x, {
+              testNo: Number(m[1]),
+              x: span.item.x,
+              yTop: span.item.yTop,
+              index: 0,
+            })
+          }
         }
       }
     }
-    headers.push(...found.values())
+    collect(SECTION_PATTERNS)
+    // Only for a row the number-first forms could not read at all — see the
+    // note on SECTION_PATTERNS_WORD_FIRST.
+    if (!found.size) collect(SECTION_PATTERNS_WORD_FIRST)
+    // Left to right within the row, so the index follows reading order.
+    headers.push(...[...found.values()].sort((a, b) => a.x - b.x))
   }
-  return headers
+  return headers.map((h, index) => ({ ...h, index: index + 1 }))
 }
 
 /** Two headers printed side by side sit within a line of each other. */
@@ -132,10 +175,10 @@ function sectionFor(
   headers: SectionHeader[],
   x: number,
   yTop: number,
-): number | undefined {
+): SectionHeader | undefined {
   if (!headers.length) return undefined
   // One header means one test, including for anything printed above it.
-  if (headers.length === 1) return headers[0]!.testNo
+  if (headers.length === 1) return headers[0]
   const above = headers.filter((h) => h.yTop <= yTop)
   if (!above.length) return undefined
   // Nearest band above, then nearest across — which resolves a stacked layout
@@ -144,26 +187,30 @@ function sectionFor(
   const band = above.filter((h) => lowest - h.yTop <= HEADER_BAND_PT)
   return band.reduce((best, h) =>
     Math.abs(h.x - x) < Math.abs(best.x - x) ? h : best,
-  ).testNo
+  )
 }
 
 export function parseAnswerKeyPage(items: SegItem[]): AnswerKeyParse {
   const notes: string[] = []
   const rows = toRows(items)
   const headers = findSectionHeaders(rows)
-  // Keyed by TEST and question: a page holding four tests prints question 1
-  // four times, and keying on the number alone would read each of those as the
-  // same question disagreeing with itself.
+  // Keyed by the printed BLOCK and the question: a page holding four tests
+  // prints question 1 four times, and keying on the number alone would read
+  // each of those as the same question disagreeing with itself. The block
+  // rather than its printed number, because a book reuses those across
+  // subjects — see `sectionId`.
   const seen = new Map<string, AnswerKeyEntry>()
   const conflicts = new Set<string>()
-  const slot = (testNo: number | undefined, qNo: number) => `${testNo ?? 0}:${qNo}`
+  const slot = (sectionId: string | undefined, qNo: number) => `${sectionId ?? '0'}:${qNo}`
 
   const record = (qNo: number, letter: string, x: number, yTop: number) => {
     if (qNo < 1 || qNo > 999) return
     const answer = letter.trim().toUpperCase() as AnswerKeyEntry['answer']
     if (!ANSWER_LETTERS.has(answer)) return
-    const testNo = sectionFor(headers, x, yTop)
-    const key = slot(testNo, qNo)
+    const header = sectionFor(headers, x, yTop)
+    const testNo = header?.testNo
+    const sectionId = header ? String(header.index) : undefined
+    const key = slot(sectionId, qNo)
     // A question the page reads two ways is a question this page cannot
     // answer. Keeping the first reading would write a confidently wrong
     // answer, which the pipeline treats as worse than no answer at all.
@@ -174,14 +221,19 @@ export function parseAnswerKeyPage(items: SegItem[]): AnswerKeyParse {
       seen.delete(key)
       return
     }
-    seen.set(key, { qNo, answer, ...(testNo !== undefined ? { testNo } : {}) })
+    seen.set(key, {
+      qNo,
+      answer,
+      ...(testNo !== undefined ? { testNo } : {}),
+      ...(sectionId !== undefined ? { sectionId } : {}),
+    })
   }
 
   rows.forEach((row, rowIndex) => {
     const rowText = row.map((it) => it.str).join(' ')
     // "3. DENEME SINAVI" reads as "3 → D" to any pair matcher. Section
-    // headers are labels, never data.
-    if (SECTION_PATTERNS.some((re) => re.test(rowText))) return
+    // headers are labels, never data, whichever way round they are written.
+    if (ALL_SECTION_PATTERNS.some((re) => re.test(rowText))) return
 
     // Pass 1: cells that already carry both parts ("12. C", "1-A 2-E 3-B").
     for (const it of row) {
@@ -219,7 +271,8 @@ export function parseAnswerKeyPage(items: SegItem[]): AnswerKeyParse {
   })
 
   const entries = [...seen.values()].sort(
-    (a, b) => (a.testNo ?? 0) - (b.testNo ?? 0) || a.qNo - b.qNo,
+    (a, b) =>
+      Number(a.sectionId ?? 0) - Number(b.sectionId ?? 0) || a.qNo - b.qNo,
   )
 
   if (entries.length && entries.length < MIN_KEY_ENTRIES) {
@@ -244,13 +297,14 @@ export function parseAnswerKeyPage(items: SegItem[]): AnswerKeyParse {
   // A key table is a dense run of numbers, per test; a gap usually means a
   // missed cell. Counted from 1, not from the first entry: a key whose opening
   // rows were missed would otherwise look complete.
-  const byTest = new Map<number, Set<number>>()
+  const byTest = new Map<string, { testNo?: number; numbers: Set<number> }>()
   for (const e of entries) {
-    const set = byTest.get(e.testNo ?? 0) ?? new Set<number>()
-    set.add(e.qNo)
-    byTest.set(e.testNo ?? 0, set)
+    const id = e.sectionId ?? '0'
+    const bucket = byTest.get(id) ?? { testNo: e.testNo, numbers: new Set<number>() }
+    bucket.numbers.add(e.qNo)
+    byTest.set(id, bucket)
   }
-  for (const [testNo, numbers] of byTest) {
+  for (const [, { testNo, numbers }] of byTest) {
     if (numbers.size <= 2) continue
     const last = Math.max(...numbers)
     const missing: number[] = []
