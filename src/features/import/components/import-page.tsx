@@ -107,7 +107,9 @@ export function ImportPage() {
   // fills whichever field the operator last touched.
   const [keyRangeInput, setKeyRangeInput] = useState('')
   const [keyRangeError, setKeyRangeError] = useState<string | null>(null)
-  const [activeRange, setActiveRange] = useState<'questions' | 'keys'>('questions')
+  const [activeRange, setActiveRange] = useState<'questions' | 'keys'>(
+    'questions',
+  )
   const [searchParams, setSearchParams] = useSearchParams()
   const books = useBooks()
   const createBook = useCreateBook()
@@ -127,6 +129,8 @@ export function ImportPage() {
   const saveAnswerKeys = useSaveAnswerKeys()
   const [keyDialogOpen, setKeyDialogOpen] = useState(false)
   const [bookKeyDialogOpen, setBookKeyDialogOpen] = useState(false)
+  /** The by-hand key path, shown only where the book-wide pass cannot serve. */
+  const [manualKeyOpen, setManualKeyOpen] = useState(false)
 
   useEffect(
     () => () => {
@@ -279,7 +283,9 @@ export function ImportPage() {
       if (book.content_hash) {
         const hash = await sha256Hex(buffer)
         if (hash !== book.content_hash) {
-          toast.error(`Bu fayl «${book.title}» deyil — kitabın öz PDF-ini seçin`)
+          toast.error(
+            `Bu fayl «${book.title}» deyil — kitabın öz PDF-ini seçin`,
+          )
           return
         }
       }
@@ -390,7 +396,8 @@ export function ImportPage() {
       segmentation.results
         .filter(
           (r): r is typeof r & { testNo: number } =>
-            parsedQuestions.pages.includes(r.pageNumber) && r.testNo !== undefined,
+            parsedQuestions.pages.includes(r.pageNumber) &&
+            r.testNo !== undefined,
         )
         .map((r) => [r.pageNumber, r.testNo] as const),
     )
@@ -431,6 +438,9 @@ export function ImportPage() {
       .run(doc, currentBook.id, named.ok ? named.pages : [])
       .then((result) => {
         if (!result.groups.length) {
+          // A scan has no text layer to read, so the pass needs the operator to
+          // name the key pages — the one thing it cannot work out for itself.
+          if (result.scanned) setManualKeyOpen(true)
           toast.warning(
             result.scanned && !named.ok
               ? 'Bu kitab skandır — açar səhifələrini yazıb yenidən yoxlayın'
@@ -438,6 +448,9 @@ export function ImportPage() {
           )
           return
         }
+        // Sections the shape could not settle are the other reason to reach for
+        // the by-hand path, so it is offered rather than hunted for.
+        if (result.plan?.unpaired.length) setManualKeyOpen(true)
         setBookKeyDialogOpen(true)
       })
       .catch((error) => toast.error(normalizeError(error).message))
@@ -500,8 +513,7 @@ export function ImportPage() {
   const hasUnsentCrops = allCrops.some((c) => !sentKeys.has(cropKey(c)))
   // Crops persist only when SENT — leaving with unsent results discards them
   // (recoverable by re-running the range, but usually accidental).
-  const dirty =
-    running || saveCrops.isPending || hasUnsentCrops
+  const dirty = running || saveCrops.isPending || hasUnsentCrops
 
   const blocker = useBlocker(dirty)
 
@@ -524,9 +536,7 @@ export function ImportPage() {
 
   const eligibleKeys = new Set(
     currentBook
-      ? allCrops
-          .map((c) => cropKey(c))
-          .filter((key) => !sentKeys.has(key))
+      ? allCrops.map((c) => cropKey(c)).filter((key) => !sentKeys.has(key))
       : [],
   )
   const selectedCrops = allCrops.filter(
@@ -675,7 +685,11 @@ export function ImportPage() {
                 )}
                 onOpen={setPreviewPage}
               />
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div
+                className={
+                  manualKeyOpen ? 'grid gap-3 sm:grid-cols-2' : 'grid gap-3'
+                }
+              >
                 <Field data-invalid={rangeError ? true : undefined}>
                   <FieldLabel htmlFor="range">Sual səhifələri</FieldLabel>
                   <div className="flex gap-2">
@@ -713,67 +727,73 @@ export function ImportPage() {
                   )}
                 </Field>
 
-                <Field data-invalid={keyRangeError ? true : undefined}>
-                  <FieldLabel htmlFor="key-range">
-                    Cavab açarı səhifələri
-                  </FieldLabel>
-                  <div className="flex gap-2">
-                    <Input
-                      id="key-range"
-                      value={keyRangeInput}
-                      placeholder="məs. 11, 19"
-                      aria-invalid={keyRangeError ? true : undefined}
-                      onFocus={() => setActiveRange('keys')}
-                      onChange={(e) => {
-                        setKeyRangeInput(e.target.value)
-                        setKeyRangeError(null)
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') startAnswerKeys()
-                      }}
-                    />
-                    <Button
-                      variant="outline"
-                      onClick={startAnswerKeys}
-                      disabled={
-                        running ||
-                        answerKeys.status === 'running' ||
-                        !currentBook ||
-                        !keyRangeInput.trim() ||
-                        // The key is stored against the question pages, so
-                        // there is nothing to pair it with until they exist.
-                        !rangeInput.trim()
-                      }
-                      title={
-                        currentBook
-                          ? 'Seçilən səhifələri cavab açarı kimi oxu'
-                          : 'Əvvəlcə arxivdən kitab açın'
-                      }
-                    >
-                      {answerKeys.status === 'running' ? (
-                        <Spinner data-icon="inline-start" />
-                      ) : (
-                        <KeyRound data-icon="inline-start" />
-                      )}
-                      Oxu
-                    </Button>
-                  </div>
-                  {keyRangeError ? (
-                    <p className="text-destructive text-sm">{keyRangeError}</p>
-                  ) : (
-                    <FieldDescription>
-                      {currentBook
-                        ? 'Yalnız skan kitablarda və ya avtomatik oxunuş çatmayanda lazımdır.'
-                        : 'Kitab açıldıqdan sonra aktivləşir.'}
-                    </FieldDescription>
-                  )}
-                </Field>
+                {manualKeyOpen ? (
+                  <Field data-invalid={keyRangeError ? true : undefined}>
+                    <FieldLabel htmlFor="key-range">
+                      Cavab açarı səhifələri
+                    </FieldLabel>
+                    <div className="flex gap-2">
+                      <Input
+                        id="key-range"
+                        value={keyRangeInput}
+                        placeholder="məs. 11, 19"
+                        aria-invalid={keyRangeError ? true : undefined}
+                        onFocus={() => setActiveRange('keys')}
+                        onChange={(e) => {
+                          setKeyRangeInput(e.target.value)
+                          setKeyRangeError(null)
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') startAnswerKeys()
+                        }}
+                      />
+                      <Button
+                        variant="outline"
+                        onClick={startAnswerKeys}
+                        disabled={
+                          running ||
+                          answerKeys.status === 'running' ||
+                          !currentBook ||
+                          !keyRangeInput.trim() ||
+                          // The key is stored against the question pages, so
+                          // there is nothing to pair it with until they exist.
+                          !rangeInput.trim()
+                        }
+                        title={
+                          currentBook
+                            ? 'Seçilən səhifələri cavab açarı kimi oxu'
+                            : 'Əvvəlcə arxivdən kitab açın'
+                        }
+                      >
+                        {answerKeys.status === 'running' ? (
+                          <Spinner data-icon="inline-start" />
+                        ) : (
+                          <KeyRound data-icon="inline-start" />
+                        )}
+                        Oxu
+                      </Button>
+                    </div>
+                    {keyRangeError ? (
+                      <p className="text-destructive text-sm">
+                        {keyRangeError}
+                      </p>
+                    ) : (
+                      <FieldDescription>
+                        {currentBook
+                          ? 'Bu səhifələr yuxarıdakı sual səhifələri ilə cütlənir.'
+                          : 'Kitab açıldıqdan sonra aktivləşir.'}
+                      </FieldDescription>
+                    )}
+                  </Field>
+                ) : null}
               </div>
 
               <div className="flex flex-wrap items-center gap-3 rounded-md border p-3">
                 <Button
                   onClick={startBookKey}
-                  disabled={running || bookKeys.status === 'running' || !currentBook}
+                  disabled={
+                    running || bookKeys.status === 'running' || !currentBook
+                  }
                   title={
                     currentBook
                       ? 'Bütün kitabı oxu və hər bölmənin cavab açarını tap'
@@ -792,6 +812,16 @@ export function ImportPage() {
                     ? `Oxunur — ${bookKeys.current} / ${bookKeys.total} səhifə`
                     : 'Bütün kitabı bir dəfəyə oxuyur, hansı açarın hansı bölməyə aid olduğunu özü tapır və planı təsdiqə verir. Pulsuzdur; sonra kəsdiyiniz hər sualın cavabı özü gəlir.'}
                 </p>
+                {manualKeyOpen ? null : (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setManualKeyOpen(true)}
+                    className="text-muted-foreground"
+                  >
+                    Əl ilə seç
+                  </Button>
+                )}
               </div>
 
               <p className="text-muted-foreground text-xs">
@@ -821,7 +851,9 @@ export function ImportPage() {
       {running ? (
         <div className="flex items-center gap-3">
           <Progress
-            value={(segmentation.current / Math.max(1, segmentation.total)) * 100}
+            value={
+              (segmentation.current / Math.max(1, segmentation.total)) * 100
+            }
             className="h-2 flex-1"
           />
           <span className="text-muted-foreground shrink-0 text-sm tabular-nums">
@@ -1045,7 +1077,9 @@ export function ImportPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>İmtina</AlertDialogCancel>
-            <AlertDialogAction onClick={sendToQueue}>Növbəyə at</AlertDialogAction>
+            <AlertDialogAction onClick={sendToQueue}>
+              Növbəyə at
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -1068,7 +1102,8 @@ export function ImportPage() {
           keyPages={answerKeys.keyPages}
           fallbackSection={answerKeys.fallbackSection}
           onSection={(section) => {
-            if (currentBook) void answerKeys.chooseSection(section, currentBook.id)
+            if (currentBook)
+              void answerKeys.chooseSection(section, currentBook.id)
           }}
           notes={answerKeys.notes}
           isPending={saveAnswerKeys.isPending}
