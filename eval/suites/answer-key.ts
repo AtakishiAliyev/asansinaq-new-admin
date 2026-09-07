@@ -301,6 +301,56 @@ export const answerKeySuite = suite('answer-key', {
     )
   },
 
+  // DENEME 05.04.2025 prints each test as `Test 1 | 1) C 2) C … 10) E` with the
+  // rest beneath, so the label shares its row with data. Skipping the whole row
+  // — which is what "a header is never data" used to mean — threw away
+  // questions 1..10 of every test on all eight key pages of the book: six
+  // answers survived of sixteen.
+  'a label sharing its row with answers costs only the label'() {
+    const cells = (y: number, from: number, to: number, x0: number) =>
+      Array.from({ length: to - from + 1 }, (_, i) => ({
+        str: `${from + i}) ${'ABCDE'[(from + i) % 5]}`,
+        x: x0 + i * 40,
+        y,
+        w: 30,
+      }))
+    const page = parse([
+      { str: 'Test 1', x: 60, y: 100, w: 40 },
+      ...cells(100, 1, 10, 120),
+      ...cells(118, 11, 16, 120),
+      { str: 'Test 2', x: 60, y: 150, w: 40 },
+      ...cells(150, 1, 10, 120),
+      ...cells(168, 11, 16, 120),
+    ])
+    eq(page.entries.length, 32, 'hər iki testin 16 cavabı')
+    ok(
+      page.entries.filter((e) => e.testNo === 1).some((e) => e.qNo === 1),
+      'başlıqla eyni sətirdəki 1-ci sual saxlanılır',
+    )
+    ok(
+      !page.entries.some((e) => e.qNo === 0),
+      'başlığın öz nömrəsi cavab kimi oxunmur',
+    )
+  },
+
+  // Məntiq Magistr OL prints a plain `Cavablar` page: 134 answers, numbers
+  // 1..134, no header anywhere. Every consumer keys on the printed block, so
+  // leaving the page unnamed meant it parsed perfectly and then placed
+  // nothing — 0 of 101 questions on a book whose key is unambiguous.
+  'a key page with no header at all is one block'() {
+    const page = parse(
+      Array.from({ length: 12 }, (_, i) => ({
+        str: `${i + 1}. ${'ABCDE'[i % 5]}`,
+        x: 60,
+        y: 100 + i * 18,
+        w: 30,
+      })),
+    )
+    eq(page.entries.length, 12, 'giriş sayı')
+    const blocks = [...new Set(page.entries.map((e) => e.sectionId))]
+    deepEq(blocks, ['1'], 'hamısı bir blokdadır')
+  },
+
   // Soru Bankası 2025 A prints Test-1 twice on one key page, once per subject.
   // Keyed by the printed number they collided and the conflict rule dropped
   // both: 14 of test 1's 16 answers gone. Keyed by the BLOCK they never meet.

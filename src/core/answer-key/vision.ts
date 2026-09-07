@@ -56,6 +56,12 @@ export function readVisionKey(raw: RawVisionEntry[]): VisionKeyRead {
   const conflicts = new Set<string>()
   let rejected = 0
 
+  // A page on which the model named no test at all is one block, exactly as an
+  // unheaded page is on the text path. Without this the scan path produced
+  // answers that no page could ever be matched to — and five of the nine books
+  // in the corpus have no text layer, so this is the majority path.
+  const named = raw.some((item) => typeof item.test_no === 'number')
+
   for (const item of raw) {
     const qNo = typeof item.q_no === 'number' ? item.q_no : Number(item.q_no)
     const answer = String(item.answer ?? '').trim().toUpperCase()
@@ -69,7 +75,9 @@ export function readVisionKey(raw: RawVisionEntry[]): VisionKeyRead {
     // A scan has no geometry to tell two identically-named blocks apart, so
     // the printed number is all there is. Named the same way the text path
     // names its blocks, so a caller never has to know which read it got.
-    const sectionId = testNo === undefined ? undefined : String(testNo)
+    // Where the page named nothing, it is the single implicit block; where it
+    // named some tests but not this entry, the entry belongs to no block.
+    const sectionId = testNo !== undefined ? String(testNo) : named ? undefined : '1'
     const slot = `${sectionId ?? '0'}:${qNo}`
     if (conflicts.has(slot)) continue
     const existing = seen.get(slot)

@@ -57,10 +57,6 @@ const SECTION_PATTERNS = [
  */
 const SECTION_PATTERNS_WORD_FIRST = [/(?:deneme|dənəmə)\s*[-–]?\s*(\d{1,3})/i]
 
-/** Every form a section header can take. Used where the question is only
- *  "is this row a label?" — a label is never data, whichever way it reads. */
-const ALL_SECTION_PATTERNS = [...SECTION_PATTERNS, ...SECTION_PATTERNS_WORD_FIRST]
-
 /** A cell that already pairs number and letter: "12. C", "12-C", "12) C". */
 const PAIR_RE = /(\d{1,3})\s*[.)\-–:]?\s*([A-E])(?![A-Za-z])/g
 
@@ -122,8 +118,13 @@ interface SectionHeader {
  * of tests prints its headers side by side on ONE line, so a row can carry
  * several, and each needs its own x to own the column beneath it.
  */
-function findSectionHeaders(rows: SegItem[][]): SectionHeader[] {
+function findSectionHeaders(rows: SegItem[][]): {
+  headers: SectionHeader[]
+  /** The items that spell the labels, so the rest of their row stays data. */
+  labelItems: Set<SegItem>
+} {
   const headers: SectionHeader[] = []
+  const labelItems = new Set<SegItem>()
   for (const row of rows) {
     const spans: { start: number; end: number; item: SegItem }[] = []
     let text = ''
@@ -132,6 +133,7 @@ function findSectionHeaders(rows: SegItem[][]): SectionHeader[] {
       text += it.str + ' '
     }
     const found = new Map<number, SectionHeader>()
+    const marked: SegItem[] = []
     const collect = (patterns: RegExp[]) => {
       for (const re of patterns) {
         for (const m of text.matchAll(new RegExp(re.source, 'gi'))) {
@@ -139,6 +141,12 @@ function findSectionHeaders(rows: SegItem[][]): SectionHeader[] {
           const span =
             spans.find((s) => m.index! >= s.start && m.index! < s.end) ?? spans[0]
           if (!span) continue
+          // Everything the label is printed across, which is usually more than
+          // one item: "8." and "DENEME" arrive separately.
+          const end = m.index + m[0].length
+          for (const s of spans) {
+            if (s.start < end && s.end > m.index) marked.push(s.item)
+          }
           // Two patterns can match the same label ("TEST 3. DENEME"); the
           // position is what makes them the same header, not the wording.
           if (!found.has(span.item.x)) {
@@ -156,14 +164,24 @@ function findSectionHeaders(rows: SegItem[][]): SectionHeader[] {
     // Only for a row the number-first forms could not read at all — see the
     // note on SECTION_PATTERNS_WORD_FIRST.
     if (!found.size) collect(SECTION_PATTERNS_WORD_FIRST)
+    for (const item of marked) labelItems.add(item)
     // Left to right within the row, so the index follows reading order.
     headers.push(...[...found.values()].sort((a, b) => a.x - b.x))
   }
-  return headers.map((h, index) => ({ ...h, index: index + 1 }))
+  return { headers: headers.map((h, index) => ({ ...h, index: index + 1 })), labelItems }
 }
 
 /** Two headers printed side by side sit within a line of each other. */
 const HEADER_BAND_PT = 20
+
+/**
+ * The block id a key page gets when it prints no header at all.
+ *
+ * Named rather than left undefined so that "one unheaded block" and "an entry
+ * that belongs to no block" stay different things — the first is a whole book
+ * style, the second is an orphan.
+ */
+const IMPLICIT_BLOCK = '1'
 
 /**
  * Which test an entry belongs to. Books print several tests on one key page —
@@ -192,8 +210,14 @@ function sectionFor(
 
 export function parseAnswerKeyPage(items: SegItem[]): AnswerKeyParse {
   const notes: string[] = []
-  const rows = toRows(items)
-  const headers = findSectionHeaders(rows)
+  const allRows = toRows(items)
+  const { headers, labelItems } = findSectionHeaders(allRows)
+  // A label is not data, but the REST of its row usually is. DENEME 05.04.2025
+  // prints each test as `Test 1 | 1) C 2) C … 10) E` on one line and the
+  // remaining answers beneath it, so skipping the whole row — which is what
+  // this used to do — threw away questions 1..10 of every test on the page:
+  // 6 answers survived of 16, on all eight key pages of the book.
+  const rows = allRows.map((row) => row.filter((it) => !labelItems.has(it)))
   // Keyed by the printed BLOCK and the question: a page holding four tests
   // prints question 1 four times, and keying on the number alone would read
   // each of those as the same question disagreeing with itself. The block
@@ -209,7 +233,19 @@ export function parseAnswerKeyPage(items: SegItem[]): AnswerKeyParse {
     if (!ANSWER_LETTERS.has(answer)) return
     const header = sectionFor(headers, x, yTop)
     const testNo = header?.testNo
-    const sectionId = header ? String(header.index) : undefined
+    // A page that heads nothing is still ONE block, and saying so is what
+    // makes it usable. Məntiq Magistr OL prints a plain `Cavablar` page —
+    // 134 answers, numbers 1..134, no header anywhere — and every consumer
+    // here keys on the block, so leaving it unnamed meant the page parsed
+    // perfectly and then placed nothing: 0 of 101 questions on a book whose
+    // key is unambiguous. An entry printed ABOVE every header on a page that
+    // does have headers is a different case and stays unattributed: it
+    // belongs to no block, and guessing one would be inventing.
+    const sectionId = header
+      ? String(header.index)
+      : headers.length
+        ? undefined
+        : IMPLICIT_BLOCK
     const key = slot(sectionId, qNo)
     // A question the page reads two ways is a question this page cannot
     // answer. Keeping the first reading would write a confidently wrong
@@ -230,11 +266,6 @@ export function parseAnswerKeyPage(items: SegItem[]): AnswerKeyParse {
   }
 
   rows.forEach((row, rowIndex) => {
-    const rowText = row.map((it) => it.str).join(' ')
-    // "3. DENEME SINAVI" reads as "3 → D" to any pair matcher. Section
-    // headers are labels, never data, whichever way round they are written.
-    if (ALL_SECTION_PATTERNS.some((re) => re.test(rowText))) return
-
     // Pass 1: cells that already carry both parts ("12. C", "1-A 2-E 3-B").
     for (const it of row) {
       for (const m of it.str.matchAll(PAIR_RE)) {
