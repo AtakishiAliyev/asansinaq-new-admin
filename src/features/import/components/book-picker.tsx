@@ -23,9 +23,13 @@ interface BookPickerProps {
   onPick: (book: Book) => void
 }
 
-// Searchable archive: type to filter by title. Rows without an archived file
-// (oversize uploads) stay visible but disabled — the metadata exists, the
-// bytes do not.
+// Searchable archive: type to filter by title.
+//
+// A book whose PDF was too large to archive is still SELECTABLE. Disabling it
+// was a dead end: the row is the only record of the crops already made against
+// that book, and the operator's way round it was to upload the same file again
+// and take the "already archived" dialog's escape hatch. Picking it now asks
+// for the file instead, which is the same act with the detour removed.
 export function BookPicker({ disabled, onPick }: BookPickerProps) {
   const books = useBooks()
   const [open, setOpen] = useState(false)
@@ -75,7 +79,6 @@ export function BookPicker({ disabled, onPick }: BookPickerProps) {
                   // still matches via keywords.
                   value={String(book.id)}
                   keywords={[book.title, book.subjects?.name ?? '']}
-                  disabled={book.storage_path === null}
                   onSelect={() => {
                     setOpen(false)
                     onPick(book)
@@ -91,7 +94,7 @@ export function BookPicker({ disabled, onPick }: BookPickerProps) {
                         <Badge variant="secondary">{book.subjects.name}</Badge>
                       ) : null}
                       {book.storage_path === null ? (
-                        <Badge variant="outline">arxiv faylı yoxdur</Badge>
+                        <Badge variant="outline">fayl sizdən istəniləcək</Badge>
                       ) : null}
                     </span>
                   </span>

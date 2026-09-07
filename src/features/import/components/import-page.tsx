@@ -70,6 +70,9 @@ interface DuplicateHit {
 export function ImportPage() {
   usePageTitle('İmport')
   const fileInputRef = useRef<HTMLInputElement>(null)
+  /** Picking a book whose PDF was too large to archive asks for the file. */
+  const reopenInputRef = useRef<HTMLInputElement>(null)
+  const reopenBook = useRef<Book | null>(null)
   const [fileName, setFileName] = useState<string | null>(null)
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null)
   const [docSeq, setDocSeq] = useState(0)
@@ -246,7 +249,14 @@ export function ImportPage() {
   }
 
   function openStoredBook(book: Book) {
-    if (!book.storage_path) return
+    if (!book.storage_path) {
+      // Over MAX_UPLOAD_BYTES the archive keeps the metadata and not the bytes,
+      // so the file has to come from the operator's disk. It is verified
+      // against the book's hash before anything is opened.
+      reopenBook.current = book
+      reopenInputRef.current?.click()
+      return
+    }
     const seq = ++loadSeq.current
     const next = nextUnworkedPage(book)
     void openBuffer(seq, book.title, download.mutateAsync(book.storage_path), {
@@ -254,6 +264,37 @@ export function ImportPage() {
       initialRange:
         next !== null && book.worked_pages.length > 0 ? String(next) : '',
     })
+  }
+
+  // The file for a book the archive holds no bytes for. Verified by hash: a
+  // different PDF opened under this book's name would attach its crops, its
+  // worked pages and its answer key to the wrong pages.
+  async function reopenWithFile(file: File) {
+    const book = reopenBook.current
+    reopenBook.current = null
+    if (!book) return
+    setIsChecking(true)
+    try {
+      const buffer = await file.arrayBuffer()
+      if (book.content_hash) {
+        const hash = await sha256Hex(buffer)
+        if (hash !== book.content_hash) {
+          toast.error(`Bu fayl «${book.title}» deyil — kitabın öz PDF-ini seçin`)
+          return
+        }
+      }
+      const next = nextUnworkedPage(book)
+      const seq = ++loadSeq.current
+      await openBuffer(seq, book.title, Promise.resolve(buffer), {
+        book,
+        initialRange:
+          next !== null && book.worked_pages.length > 0 ? String(next) : '',
+      })
+    } catch (error) {
+      toast.error(normalizeError(error).message)
+    } finally {
+      setIsChecking(false)
+    }
   }
 
   // /import?book=ID — the Kitablar page's "open in import" action.
@@ -264,8 +305,7 @@ export function ImportPage() {
     handledBook.current = id
     const book = books.data.find((b) => b.id === id)
     setSearchParams({}, { replace: true })
-    if (book?.storage_path) openStoredBook(book)
-    else if (book) toast.error('Bu kitabın arxiv faylı yoxdur')
+    if (book) openStoredBook(book)
     else toast.error('Kitab tapılmadı')
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fires when the list arrives
   }, [books.data, searchParams])
@@ -570,6 +610,18 @@ export function ImportPage() {
             onChange={(e) => {
               const file = e.target.files?.[0]
               if (file) guardReplace(() => void handleFile(file))
+              e.target.value = ''
+            }}
+          />
+          <input
+            ref={reopenInputRef}
+            type="file"
+            accept="application/pdf"
+            className="sr-only"
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              if (file) guardReplace(() => void reopenWithFile(file))
+              else reopenBook.current = null
               e.target.value = ''
             }}
           />
