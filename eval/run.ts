@@ -3,6 +3,7 @@
 // deliberately does and does not cover.
 import type { Suite } from './harness.ts'
 import { answerKeyBatchSuite } from './suites/answer-key-batch.ts'
+import { answerKeyBookSuite } from './suites/answer-key-book.ts'
 import { answerKeySuite } from './suites/answer-key.ts'
 import { anthropicRequestSuite } from './suites/anthropic-request.ts'
 import { classifySuite } from './suites/classify.ts'
@@ -62,6 +63,7 @@ const SUITES: Suite[] = [
   classifySuite,
   answerKeySuite,
   answerKeyBatchSuite,
+  answerKeyBookSuite,
   compareSuite,
   extractionSuite,
   lintSuite,
