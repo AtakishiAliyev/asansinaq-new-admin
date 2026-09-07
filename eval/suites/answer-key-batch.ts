@@ -434,6 +434,24 @@ export const answerKeyBatchSuite = suite('answer-key-batch', {
     deepEq(splitByNumberingRestart([6, 7, 8, 17], numbers), [[6, 7, 8], [17]])
   },
 
+  // MANTIK 2025 page 108 reads `7,8,9,10,11,13` — the 12 came back a 13 — so
+  // page 109, which genuinely continues at 13, looked like a restart under a
+  // rule that compared against the previous page's HIGHEST number. The section
+  // split, the book then had 31 sections against 30 printed blocks, and all
+  // 1,186 of its questions were refused because the order could not be proved.
+  'a misread digit at a page boundary is not a restart'() {
+    const numbers = new Map([
+      [107, [1, 2, 3, 4, 5, 6]],
+      [108, [7, 8, 9, 10, 11, 13]],
+      [109, [13, 14, 15, 16, 17]],
+      [117, [1, 2, 3, 4, 5, 6]],
+    ])
+    deepEq(splitByNumberingRestart([107, 108, 109, 117], numbers), [
+      [107, 108, 109],
+      [117],
+    ])
+  },
+
   'a selection of nothing but blank pages is still one group'() {
     deepEq(splitByNumberingRestart([1, 2], new Map()), [[1, 2]])
   },

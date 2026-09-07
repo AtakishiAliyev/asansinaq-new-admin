@@ -318,7 +318,8 @@ export function splitByNumberingRestart(
   const groups: number[][] = []
   /** Blank pages seen before any section has started. */
   let waiting: number[] = []
-  let highest = Number.POSITIVE_INFINITY
+  /** The lowest number on the previous page that carried any. */
+  let previousFirst = Number.POSITIVE_INFINITY
 
   for (const page of [...pages].sort((a, b) => a - b)) {
     const numbers = [...(pageNumbers.get(page) ?? [])].sort((a, b) => a - b)
@@ -330,13 +331,25 @@ export function splitByNumberingRestart(
       else waiting.push(page)
       continue
     }
-    if (numbers[0]! <= highest) {
+    const first = numbers[0]!
+    // A section restarts when the numbering goes BACK, which is what the
+    // page's opening number says: a continuing page opens above the previous
+    // page's opening number, a restarting one opens at or below it.
+    //
+    // Comparing against the previous page's HIGHEST number instead is what
+    // this used to do, and one misread digit was enough to break a whole book.
+    // MANTIK 2025 page 108 reads `7,8,9,10,11,13` — the 12 came back as a 13 —
+    // so page 109, which genuinely continues at 13, looked like a restart. The
+    // section split in two, the book then had 31 sections against 30 printed
+    // blocks, and every one of its 1,186 questions was refused because the
+    // order could no longer be proved.
+    if (first <= previousFirst) {
       groups.push([...waiting, page])
       waiting = []
     } else {
       groups[groups.length - 1]!.push(page)
     }
-    highest = numbers[numbers.length - 1]!
+    previousFirst = first
   }
   // Nothing but blank pages: one group, so the caller still sees them.
   if (waiting.length) groups.push(waiting)
