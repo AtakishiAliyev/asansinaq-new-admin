@@ -29,7 +29,6 @@ import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@supabase/supabase-js'
 import {
   buildVerifyRequest,
-  describeFigure,
   EMIT_VERDICT_TOOL_NAME,
   parseVerdict,
   type Verdict,
@@ -38,7 +37,8 @@ import { estimateCost, samplingFor, usageFrom, type TokenUsage } from '../src/co
 import type { ExtractedQuestion } from '../src/core/questions/extraction.ts'
 import type { GeometryFig } from '../src/core/figures/figspec.ts'
 import type { Database } from '../src/types/database.ts'
-import { renderQuestion, fetchOptionImages } from '../worker/render-question.ts'
+import { fetchOptionImages } from '../worker/render-question.ts'
+import { verificationEvidence } from '../worker/verify-evidence.ts'
 import { readEnvFile } from './env-file.ts'
 
 const env = { ...readEnvFile('.env'), ...process.env }
@@ -207,13 +207,13 @@ async function verdictFor(
   usage: TokenUsage
   ms: number
 }> {
-  const rendered = renderQuestion(question, images)
   const started = Date.now()
-  const request = buildVerifyRequest({
-    original: crop,
-    recreation: { image: rendered.png.toString('base64') },
-    figureClaims: describeFigure(question.figures),
-  })
+  // The production evidence, not a second assembly of it. Built by hand here,
+  // this left out the enlarged figure pairs the wave sends for every reproduced
+  // figure — so the harness that exists to prove the wave catches figure
+  // corruptions was testing it on weaker evidence than production, and a change
+  // that broke the pairs would not have moved a number in this file.
+  const request = buildVerifyRequest(verificationEvidence(crop, question, images))
   const message = await anthropic.messages.create({
     model: MODEL,
     ...samplingFor(MODEL),

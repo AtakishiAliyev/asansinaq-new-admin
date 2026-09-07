@@ -13,7 +13,6 @@
 // looks again. `scripts/verify-smoke.ts` exists to keep that honest.
 import {
   buildVerifyRequest,
-  describeFigure,
   EMIT_VERDICT_TOOL_NAME,
   parseVerdict,
   type Verdict,
@@ -29,19 +28,11 @@ import type { Flag } from '@/core/questions/lint'
 import type { Db, QuestionRow } from './db.ts'
 import { config } from './config.ts'
 import { downloadCrop } from './extract.ts'
-import { fetchOptionImages, renderQuestion } from './render-question.ts'
+import { fetchOptionImages } from './render-question.ts'
+import { verificationEvidence } from './verify-evidence.ts'
 import type { BatchItem } from './batch.ts'
 
 export const VERIFY_OP = 'verify_anthropic'
-
-/** `data:<mime>;base64,<bytes>` → the request's image shape, or null. */
-function splitDataUri(
-  uri: string | undefined,
-): { image: string; mime: 'image/png' | 'image/jpeg' } | null {
-  const m = uri?.match(/^data:(image\/(?:png|jpeg));base64,(.+)$/)
-  if (!m) return null
-  return { mime: m[1] as 'image/png' | 'image/jpeg', image: m[2]! }
-}
 
 /** `v<id>` — distinct from the extract wave's `q<id>` so a stray result from
  *  one wave can never be applied as the other's. */
@@ -81,28 +72,18 @@ export async function verifyItemFor(
   }
 
   const images = await fetchOptionImages(db, question)
-  const rendered = renderQuestion(question, images)
-  // Every reproduced figure beside its cut, at full size, for the shading
-  // comparison the whole-page render is too small for.
-  const figurePairs = (question.figures?.items ?? []).flatMap((item) => {
-    if (item.kind !== 'image' || !item.genSrc) return []
-    const cut = splitDataUri(images.get(item.src))
-    const reproduction = splitDataUri(images.get(item.genSrc))
-    return cut && reproduction ? [{ cut, reproduction }] : []
-  })
-  const request = buildVerifyRequest({
-    // The model-width copy, as in extraction: the comparison is about the
-    // question, not the pixels, and the cut behind the render is full size.
-    original: { image: crop.forModel.image, mime: crop.forModel.mime },
-    recreation: { image: rendered.png.toString('base64') },
-    figureClaims: describeFigure(question.figures),
-    ...(figurePairs.length ? { figurePairs } : {}),
-  })
-
   return {
     customId: verifyCustomId(row.id),
     model: config.MODEL_VERIFY,
-    params: request.params,
+    params: buildVerifyRequest(
+      // The model-width copy, as in extraction: the comparison is about the
+      // question, not the pixels, and the cut behind the render is full size.
+      verificationEvidence(
+        { image: crop.forModel.image, mime: crop.forModel.mime },
+        question,
+        images,
+      ),
+    ).params,
   }
 }
 
