@@ -442,7 +442,11 @@ export function ImportPage() {
     if (!result.scanned)
       return 'Kitabda yerləşdirilə bilən cavab açarı tapılmadı'
     if (!result.plan?.keyPages.length) {
-      return 'Bu kitab skandır — açar səhifələrini yazıb yenidən yoxlayın'
+      // Deliberately does not promise there IS one. GALATA IQ SORU BANKASI is
+      // 496 scanned pages with no printed key anywhere in the file, and a
+      // message telling the operator to name its key pages sent them hunting
+      // for something the book does not contain.
+      return 'Bu kitab skandır — açar səhifələri avtomatik tapıla bilmir. Kitabda çap olunmuş açar varsa (adətən kitabın və ya bölmənin sonunda), səhifə nömrələrini yazın'
     }
     if (!result.plan.questionPages.length) {
       return 'Açar oxundu, amma bu skan kitabda hələ kəsilmiş sual yoxdur — əvvəlcə səhifələri kəsib növbəyə atın, sonra açarı yenidən oxuyun'
