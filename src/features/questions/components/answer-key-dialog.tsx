@@ -9,27 +9,41 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 import { formatPages } from '@/core/segment/page-range'
 import type { BatchMatch } from '@/core/answer-key/batch'
 
 // The gate between reading a key and writing it.
 //
-// It used to ask the operator to pick a SECTION for each block, because the
-// pipeline had inferred one and could be wrong. There is nothing left to pick:
-// the operator already said which pages this key answers, on the screen behind
-// this dialog, so what is shown here is a consequence rather than a guess.
+// It used to ask the operator to place each block against a section the
+// pipeline had INFERRED, and the inference is gone: the pages behind this
+// dialog say which questions the key answers. One choice survives, and it is
+// a different kind of choice. A key page routinely prints a grid of tests and
+// every one of them numbers from 1, so the page answers "question 1" a dozen
+// ways; the pairing cannot say which block on the page is meant, and neither
+// can the geometry. So the operator picks from what the page actually
+// printed — stating a fact, not correcting a guess — and only when there is
+// more than one.
 //
-// What is still worth a person's eye is the arithmetic. A key that answers
-// numbers no question carries, or a page range that holds two question 1s,
-// means the ranges do not line up — and writing on that would put a confident
-// wrong answer on a real question, which the pipeline treats as worse than no
-// answer at all.
+// The rest is arithmetic worth a person's eye. A key answering numbers no
+// question carries, a page range holding two question 1s, or a key answering
+// one number two ways all mean the ranges do not line up, and writing on that
+// would put a confident wrong answer on a real question — which the pipeline
+// treats as worse than no answer at all.
 export function AnswerKeyDialog({
   match,
   questionPages,
   keyPages,
   labels,
+  section,
+  onSection,
   notes,
   isPending,
   onCancel,
@@ -39,12 +53,15 @@ export function AnswerKeyDialog({
   questionPages: number[]
   keyPages: number[]
   labels: string[]
+  section: string | undefined
+  onSection: (section: string) => void
   notes: string[]
   isPending: boolean
   onCancel: () => void
   onConfirm: () => void
 }) {
-  const blocked = match.ambiguous.length > 0
+  const needsSection = match.sections.length > 1 && section === undefined
+  const blocked = match.ambiguous.length > 0 || needsSection
 
   return (
     <Dialog open onOpenChange={(next) => (!next && !isPending ? onCancel() : undefined)}>
@@ -72,7 +89,42 @@ export function AnswerKeyDialog({
             ) : null}
           </div>
 
-          {blocked ? (
+          {match.sections.length > 1 ? (
+            <div className="rounded-md border p-3">
+              <p className="text-sm font-medium">
+                Açar səhifəsində {match.sections.length} bölmə var — hansını
+                yazaq?
+              </p>
+              <p className="text-muted-foreground mt-1 text-xs">
+                Hər bölmə sualları 1-dən nömrələyir, ona görə səhifə "1-ci
+                sual"a bir neçə cavab verir. Seçilən bölmə yuxarıdakı sual
+                səhifələrinə yazılacaq.
+              </p>
+              <Select value={section ?? ''} onValueChange={onSection}>
+                <SelectTrigger className="mt-2 w-72">
+                  <SelectValue placeholder="Bölmə seçin" />
+                </SelectTrigger>
+                <SelectContent>
+                  {match.sections.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.label} — {s.count} cavab
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : null}
+
+          {match.conflicting.length ? (
+            <Numbers
+              tone="error"
+              title="Açar bu nömrələrə bir neçə cavab verir"
+              body="Seçilən bölmədə eyni sual nömrəsi fərqli cavablarla çap olunub. Hansının doğru olduğu bilinmir, ona görə bu nömrələr yazılmayacaq."
+              numbers={match.conflicting}
+            />
+          ) : null}
+
+          {match.ambiguous.length ? (
             <Numbers
               tone="error"
               title="Sual nömrələri təkrarlanır — heç nə yazılmayacaq"

@@ -358,8 +358,20 @@ export function ImportPage() {
         bookId: currentBook.id,
         questionPages: answerKeys.questionPages,
         keyPages: answerKeys.keyPages,
-        ...(answerKeys.labels.length ? { label: answerKeys.labels.join(', ') } : {}),
-        entries: answerKeys.entries,
+        ...(() => {
+          const chosen = answerKeys.match?.sections.find(
+            (s) => s.id === answerKeys.section,
+          )
+          if (chosen) return { label: chosen.label }
+          return answerKeys.labels.length ? { label: answerKeys.labels.join(', ') } : {}
+        })(),
+        // Only the chosen section is archived. Storing the whole page would
+        // put every other test's answers under this pairing, and the worker
+        // would apply them to these questions by number.
+        entries:
+          answerKeys.section === undefined
+            ? answerKeys.entries
+            : answerKeys.entries.filter((e) => e.sectionId === answerKeys.section),
         pairs: match.pairs.map((p) => ({ id: p.id, answer: p.answer })),
       },
       {
@@ -899,6 +911,10 @@ export function ImportPage() {
           questionPages={answerKeys.questionPages}
           keyPages={answerKeys.keyPages}
           labels={answerKeys.labels}
+          section={answerKeys.section}
+          onSection={(section) => {
+            if (currentBook) void answerKeys.chooseSection(section, currentBook.id)
+          }}
           notes={answerKeys.notes}
           isPending={saveAnswerKeys.isPending}
           onCancel={() => setKeyDialogOpen(false)}

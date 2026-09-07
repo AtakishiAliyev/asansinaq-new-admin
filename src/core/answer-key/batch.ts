@@ -20,6 +20,34 @@ export interface BatchPairing {
   /** The crop pages the operator said this key answers. */
   questionPages: number[]
   entries: AnswerKeyEntry[]
+  /**
+   * Which printed section on the key pages to take, when they hold several.
+   *
+   * A key page routinely prints a grid of tests, and every one of them numbers
+   * its questions from 1 — so a page of eleven tests answers "question 1"
+   * eleven different ways. The pairing says which QUESTIONS the key belongs
+   * to; it cannot say which of eleven printed blocks on one page is the right
+   * one, and nothing in the geometry can. So the operator picks, from a list
+   * of what the page actually printed. Still no inference: a fact stated
+   * rather than guessed.
+   *
+   * Undefined takes every entry, which is right for a key page holding one
+   * section — the common case, and the only case where taking everything is
+   * unambiguous.
+   *
+   * A block id rather than a printed test number, because a book reuses those:
+   * one key page prints `Test-1` twice, for two subjects.
+   */
+  section?: string
+}
+
+/** A block the key pages printed, as the operator will see it listed. */
+export interface KeySection {
+  id: string
+  /** What the page called it, when it said anything. */
+  testNo?: number
+  label: string
+  count: number
 }
 
 export interface BatchMatch {
@@ -42,6 +70,17 @@ export interface BatchMatch {
   ambiguous: number[]
   /** How many questions sit on the paired pages at all. */
   questionCount: number
+  /**
+   * Question numbers the KEY answers more than one way.
+   *
+   * Distinct from `ambiguous`, which is about the questions: this is about the
+   * key pages holding several sections at once. Dropped rather than resolved
+   * by order, because "the first one wins" is a coin flip with a confident
+   * answer on the other side of it.
+   */
+  conflicting: number[]
+  /** The blocks the key pages printed, for the operator to choose from. */
+  sections: KeySection[]
 }
 
 /**
@@ -57,6 +96,51 @@ export function matchBatch(
   const pages = new Set(pairing.questionPages)
   const onPages = questions.filter((q) => pages.has(q.pageNumber))
 
+  const grouped = new Map<string, KeySection>()
+  for (const entry of pairing.entries) {
+    if (entry.sectionId === undefined) continue
+    const existing = grouped.get(entry.sectionId)
+    if (existing) existing.count++
+    else {
+      grouped.set(entry.sectionId, {
+        id: entry.sectionId,
+        ...(entry.testNo !== undefined ? { testNo: entry.testNo } : {}),
+        label: entry.testNo !== undefined ? `Test ${entry.testNo}` : `Bölmə ${entry.sectionId}`,
+        count: 1,
+      })
+    }
+  }
+  // Two blocks a book called the same thing are told apart by their order on
+  // the page, or the operator would be picking between two identical rows.
+  const byLabel = new Map<string, number>()
+  for (const section of grouped.values()) {
+    byLabel.set(section.label, (byLabel.get(section.label) ?? 0) + 1)
+  }
+  const seenLabel = new Map<string, number>()
+  const sections = [...grouped.values()].map((section) => {
+    if ((byLabel.get(section.label) ?? 0) < 2) return section
+    const nth = (seenLabel.get(section.label) ?? 0) + 1
+    seenLabel.set(section.label, nth)
+    return { ...section, label: `${section.label} (${nth}.)` }
+  })
+
+  // The operator's choice narrows the key before anything else looks at it.
+  const chosen =
+    pairing.section === undefined
+      ? pairing.entries
+      : pairing.entries.filter((e) => e.sectionId === pairing.section)
+
+  // A number the key answers two ways cannot be written either way.
+  const answersFor = new Map<number, Set<string>>()
+  for (const entry of chosen) {
+    answersFor.set(entry.qNo, (answersFor.get(entry.qNo) ?? new Set()).add(entry.answer))
+  }
+  const conflicting = [...answersFor.entries()]
+    .filter(([, answers]) => answers.size > 1)
+    .map(([qNo]) => qNo)
+    .sort((a, b) => a - b)
+  const conflicted = new Set(conflicting)
+
   // A number printed twice on the paired pages cannot be resolved by number.
   const byNumber = new Map<number, MatchableQuestion>()
   const repeated = new Set<number>()
@@ -68,8 +152,12 @@ export function matchBatch(
   const pairs: BatchMatch['pairs'] = []
   const unmatched: number[] = []
   const answered = new Set<number>()
-  for (const entry of pairing.entries) {
-    if (repeated.has(entry.qNo)) continue
+  const seenNumber = new Set<number>()
+  for (const entry of chosen) {
+    if (repeated.has(entry.qNo) || conflicted.has(entry.qNo)) continue
+    // The same answer printed twice is not two answers; write it once.
+    if (seenNumber.has(entry.qNo)) continue
+    seenNumber.add(entry.qNo)
     const question = byNumber.get(entry.qNo)
     if (!question) {
       unmatched.push(entry.qNo)
@@ -88,6 +176,8 @@ export function matchBatch(
     unmatched: unmatched.sort((a, b) => a - b),
     unanswered,
     ambiguous: [...repeated].sort((a, b) => a - b),
+    conflicting,
+    sections,
     questionCount: onPages.length,
   }
 }

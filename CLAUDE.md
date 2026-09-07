@@ -316,9 +316,31 @@ what each stage needs.
   no pattern reads, so 409 text items produce zero answers; and five of the
   nine books are pure scans with no header to read at all. `answer_keys` and
   `match.ts` stay for books imported before the pairing, and `answerFor`
-  prefers the pairing wherever it has an entry. The one thing the pairing
-  cannot settle is a range that spans a numbering restart, and there it refuses
-  by name rather than guessing.
+  prefers the pairing wherever it has an entry.
+
+  Two things the pairing cannot settle, and neither is guessed. A question
+  range that spans a numbering restart holds two question 1s, and it refuses by
+  name so the operator can split it. And a key page printing a GRID of tests
+  answers "question 1" a dozen ways: the pairing says which questions the key
+  belongs to, not which printed block is meant, so the operator picks from what
+  the page actually printed — a fact stated, not a guess corrected — and only
+  when there is more than one block.
+
+  A section is identified by its printed BLOCK (`sectionId`), never by the
+  number on it. Soru Bankası 2025 A prints `Test-1` twice on one key page for
+  two subjects, and keyed by the number they collided and both were dropped:
+  14 of that test's 16 answers gone. A header is read number-first
+  (`8. DENEME`, `TEST 12`) and, only on a row nothing else could read,
+  word-first (`Deneme 1`) — the fallback is restricted because read eagerly it
+  invents a third header in the middle of a `1. DENEME  2. DENEME` grid.
+  Measured over the four text-layer books, these two changes took the corpus
+  from 2,194 answers read to 4,874, and MANTIK 2025 from zero to 1,184.
+
+  A SCANNED key page is read by a model and then held to the rules the text
+  path applies to itself (`core/answer-key/vision.ts`): letters must be A-E,
+  numbers must be plausible, a block that answers one number two ways is
+  dropped, and a thin read says so. Five of the nine books are pure scans, so
+  that path is the majority one, and it was the only one going in unchecked.
 - **The browser orchestrates exactly one thing: a single-question interactive
   re-run** from the review screen. That is what the `question-ops` Edge Function
   is still for — that, answer-key parsing and page detection, which stay

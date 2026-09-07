@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react'
 import { parseAnswerKeyPage, type AnswerKeyEntry } from '@/core/answer-key/parse'
 import { matchBatch, type BatchMatch } from '@/core/answer-key/batch'
+import { readVisionKey } from '@/core/answer-key/vision'
 import { pageTextItems } from '@/core/segment/segmenter'
 import { opParseAnswerKey } from '@/features/questions/api/question-ops'
 import { fetchMatchableQuestions } from '@/features/questions/api/answer-keys'
@@ -21,6 +22,8 @@ export interface AnswerKeyRunState {
   questionPages: number[]
   keyPages: number[]
   match: BatchMatch | null
+  /** The block the operator picked, when the key pages held several. */
+  section: string | undefined
   notes: string[]
 }
 
@@ -33,6 +36,7 @@ const IDLE: AnswerKeyRunState = {
   questionPages: [],
   keyPages: [],
   match: null,
+  section: undefined,
   notes: [],
 }
 
@@ -75,18 +79,28 @@ export function useAnswerKeyRun() {
           } else {
             const { base64, mime } = await renderPageJpeg(page)
             const result = await opParseAnswerKey({ image: base64, mime })
-            pageEntries = result.entries.map((e) => ({
-              qNo: e.q_no,
-              answer: e.answer,
-              ...(e.test_no != null ? { testNo: e.test_no } : {}),
-            }))
+            // Held to the same rules the text path applies to itself: a model
+            // read is the one input here that can invent, so it is the last
+            // one that should go in unchecked.
+            const checked = readVisionKey(result.entries)
+            pageEntries = checked.entries
             notes.push(`s.${pageNumber}: skan səhifə — AI ilə oxundu`)
+            notes.push(...checked.notes.map((n) => `s.${pageNumber}: ${n}`))
           }
 
           for (const entry of pageEntries) {
             if (entry.testNo !== undefined) labels.push(`Test ${entry.testNo}`)
           }
-          entries.push(...pageEntries)
+          // A block id is unique within its page's parse; the page makes it
+          // unique across the run, or two pages' first blocks would merge.
+          entries.push(
+            ...pageEntries.map((e) => ({
+              ...e,
+              ...(e.sectionId !== undefined
+                ? { sectionId: `${pageNumber}-${e.sectionId}` }
+                : {}),
+            })),
+          )
         } catch (error) {
           notes.push(
             `s.${pageNumber}: oxunmadı — ${error instanceof Error ? error.message : 'naməlum xəta'}`,
@@ -98,7 +112,12 @@ export function useAnswerKeyRun() {
       }
 
       const questions = await fetchMatchableQuestions(bookId)
-      const match = matchBatch({ questionPages, entries }, questions)
+      // A key page that printed exactly one section needs no choice; several
+      // and the operator makes one, because nothing else can.
+      const first = matchBatch({ questionPages, entries }, questions)
+      const section = first.sections.length === 1 ? first.sections[0]!.id : undefined
+      const match =
+        section === undefined ? first : matchBatch({ questionPages, entries, section }, questions)
       const done: AnswerKeyRunState = {
         status: 'done',
         current: pages.length,
@@ -108,6 +127,7 @@ export function useAnswerKeyRun() {
         questionPages,
         keyPages,
         match,
+        section,
         notes,
       }
       // The whole point of the preview: a number the key answers that no
@@ -121,5 +141,25 @@ export function useAnswerKeyRun() {
 
   const reset = useCallback(() => setState(IDLE), [])
 
-  return { ...state, run, reset }
+  /** Re-match against one printed section, when the key pages held several. */
+  const chooseSection = useCallback(
+    async (section: string | undefined, bookId: number) => {
+      const questions = await fetchMatchableQuestions(bookId)
+      setState((current) => ({
+        ...current,
+        section,
+        match: matchBatch(
+          {
+            questionPages: current.questionPages,
+            entries: current.entries,
+            ...(section === undefined ? {} : { section }),
+          },
+          questions,
+        ),
+      }))
+    },
+    [],
+  )
+
+  return { ...state, run, reset, chooseSection }
 }
