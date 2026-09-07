@@ -13,22 +13,26 @@ no legacy code.
 
 ## Branches
 
-Work only on `main`. `agent-probe` is an abandoned experiment — a
-browser-driven multi-turn agent loop with tools, Gemini support and image
-models inside the loop — kept for reference only. Do not merge it and do not
-base anything on it. Its verify/repair ideas informed the verification wave;
-the architecture below replaces that approach entirely.
+Work only on `main`. There are no other branches, and there is no branch to
+consult: two experiments have been run to completion and DELETED, so what
+survives of each is what was merged and what is written here.
 
-`astra-verifier` is a second abandoned experiment, kept for the same reason and
-under the same rules: a complete, working migration of the verification wave to
-a second provider behind a `VERIFY_PROVIDER` switch, run against real rows and
-then declined ON PRICE. Measured over the ledger, the same judgement cost
-$0.0682 against $0.0164 and took 8.7s against 2.8s — four times the money and
-three times the wait, on a lane the Batches API already halves. Nothing about
-its quality was disproved; it was never the question by the time the cost was
-known. Two things came back from it and are on `main`: this harness reporting
-what a run costs, and the startup line naming the verify model. Revisit the
-branch only if that price changes.
+`agent-probe` was a browser-driven multi-turn agent loop with tools, Gemini
+support and image models inside the loop. Its verify/repair ideas informed the
+verification wave; the architecture below replaces that approach entirely.
+
+`astra-verifier` migrated the verification wave to a second provider behind a
+`VERIFY_PROVIDER` switch — a working migration, run against real rows, then
+declined ON PRICE. Measured over the ledger, the same judgement cost $0.0682
+against $0.0164 and took 8.7s against 2.8s: four times the money and three
+times the wait, on a lane the Batches API already halves. Nothing about its
+quality was disproved; by the time the cost was known it was no longer the
+question. **If a second verifier is ever wanted again, the shape it needs is
+already here** — `verify-evidence.ts` holds what the judge is shown, separate
+from the request that carries it, so a new provider is a request builder and a
+parser rather than a change to the wave. Three things came back from it: that
+separation, the harness reporting what a run costs, and the startup line naming
+the verify model.
 
 ## Where work runs
 
