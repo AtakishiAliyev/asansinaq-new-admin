@@ -342,18 +342,16 @@ export function ImportPage() {
     // still in memory — the crops are usually not sent yet, so the bank
     // cannot answer this. It is what lets the block be worked out instead of
     // asked; see `suggestSection`.
-    const onPages = segmentation.results.filter((r) =>
-      parsedQuestions.pages.includes(r.pageNumber),
+    const pageTests = new Map(
+      segmentation.results
+        .filter(
+          (r): r is typeof r & { testNo: number } =>
+            parsedQuestions.pages.includes(r.pageNumber) && r.testNo !== undefined,
+        )
+        .map((r) => [r.pageNumber, r.testNo] as const),
     )
     void answerKeys
-      .run(doc, parsedKeys.pages, currentBook.id, parsedQuestions.pages, {
-        questionTests: [
-          ...new Set(
-            onPages.map((r) => r.testNo).filter((t): t is number => t !== undefined),
-          ),
-        ],
-        questionNumbers: onPages.flatMap((r) => r.crops.map((c) => c.number)),
-      })
+      .run(doc, parsedKeys.pages, currentBook.id, parsedQuestions.pages, pageTests)
       .then((result) => {
         if (!result.entries.length) {
           toast.warning('Seçilən səhifələrdə cavab açarı tapılmadı')
@@ -365,28 +363,22 @@ export function ImportPage() {
   }
 
   function applyAnswerKeys() {
-    const match = answerKeys.match
-    if (!currentBook || !match) return
+    const plan = answerKeys.plan
+    if (!currentBook || !plan?.groups.length) return
+    // One batch per printed section. A selection spanning three tests writes
+    // three, each holding only its own block's answers — storing the whole key
+    // page under one pairing would let the worker apply another test's answers
+    // to these questions by number.
     saveAnswerKeys.mutate(
       {
         bookId: currentBook.id,
-        questionPages: answerKeys.questionPages,
         keyPages: answerKeys.keyPages,
-        ...(() => {
-          const chosen = answerKeys.match?.sections.find(
-            (s) => s.id === answerKeys.section,
-          )
-          if (chosen) return { label: chosen.label }
-          return answerKeys.labels.length ? { label: answerKeys.labels.join(', ') } : {}
-        })(),
-        // Only the chosen section is archived. Storing the whole page would
-        // put every other test's answers under this pairing, and the worker
-        // would apply them to these questions by number.
-        entries:
-          answerKeys.section === undefined
-            ? answerKeys.entries
-            : answerKeys.entries.filter((e) => e.sectionId === answerKeys.section),
-        pairs: match.pairs.map((p) => ({ id: p.id, answer: p.answer })),
+        groups: plan.groups.map((group) => ({
+          questionPages: group.pages,
+          label: group.section.label,
+          entries: group.entries,
+          pairs: group.match.pairs.map((p) => ({ id: p.id, answer: p.answer })),
+        })),
       },
       {
         onSuccess: () => {
@@ -919,14 +911,12 @@ export function ImportPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {keyDialogOpen && answerKeys.match ? (
+      {keyDialogOpen && answerKeys.plan ? (
         <AnswerKeyDialog
-          match={answerKeys.match}
+          plan={answerKeys.plan}
           questionPages={answerKeys.questionPages}
           keyPages={answerKeys.keyPages}
-          labels={answerKeys.labels}
-          section={answerKeys.section}
-          sectionReason={answerKeys.sectionReason}
+          fallbackSection={answerKeys.fallbackSection}
           onSection={(section) => {
             if (currentBook) void answerKeys.chooseSection(section, currentBook.id)
           }}

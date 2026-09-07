@@ -18,58 +18,49 @@ import {
 } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 import { formatPages } from '@/core/segment/page-range'
-import type { BatchMatch } from '@/core/answer-key/batch'
+import type { KeyPlan, KeyPlanGroup } from '@/core/answer-key/batch'
 
 // The gate between reading a key and writing it.
 //
-// It used to ask the operator to place each block against a section the
-// pipeline had INFERRED, and the inference is gone: the pages behind this
-// dialog say which questions the key answers. One choice survives, and it is
-// a different kind of choice. A key page routinely prints a grid of tests and
-// every one of them numbers from 1, so the page answers "question 1" a dozen
-// ways; the pairing cannot say which block on the page is meant, and neither
-// can the geometry. So the operator picks from what the page actually
-// printed — stating a fact, not correcting a guess — and only when there is
-// more than one.
+// It has stopped being a question, in two steps. The first version asked the
+// operator to place each block against a section the pipeline had INFERRED.
+// The second asked which single block of the key page answered the whole
+// selection — and that question has no correct answer: an operator picks ten
+// pages and the book puts two or three tests in that span, so whichever block
+// is chosen, the other tests' questions get nothing.
 //
-// The rest is arithmetic worth a person's eye. A key answering numbers no
-// question carries, a page range holding two question 1s, or a key answering
-// one number two ways all mean the ranges do not line up, and writing on that
-// would put a confident wrong answer on a real question — which the pipeline
-// treats as worse than no answer at all.
+// The book settles it. Every question page prints the test it belongs to, so
+// pages that agree form a group and each group takes the block carrying its
+// number; a selection spanning three tests simply produces three groups. What
+// is shown here is that plan. A choice appears only for pages that printed no
+// test at all, and then it is a real choice with its cost spelled out rather
+// than a guess dressed as one.
 export function AnswerKeyDialog({
-  match,
+  plan,
   questionPages,
   keyPages,
-  labels,
-  section,
-  sectionReason,
+  fallbackSection,
   onSection,
   notes,
   isPending,
   onCancel,
   onConfirm,
 }: {
-  match: BatchMatch
+  plan: KeyPlan
   questionPages: number[]
   keyPages: number[]
-  labels: string[]
-  section: string | undefined
-  /** Why the block was chosen for the operator, when the book settled it. */
-  sectionReason: string | null
+  fallbackSection: string | undefined
   onSection: (section: string) => void
   notes: string[]
   isPending: boolean
   onCancel: () => void
   onConfirm: () => void
 }) {
-  const needsSection = match.sections.length > 1 && section === undefined
-  const blocked = match.ambiguous.length > 0 || needsSection
-  // Everything the chosen block answers, whether or not the question exists
-  // yet. Archiving is the whole reason a key may be read before its crops
-  // are sent, so a run that writes nothing today is still worth keeping.
-  const archivable = match.pairs.length + match.unmatched.length
-  const nothingCropped = match.questionCount === 0 && archivable > 0
+  const willWrite = plan.groups.reduce((n, g) => n + g.match.pairs.length, 0)
+  const willArchive = plan.groups.reduce((n, g) => n + g.entries.length, 0)
+  const cropped = plan.groups.reduce((n, g) => n + g.match.questionCount, 0)
+  const ambiguous = [...new Set(plan.groups.flatMap((g) => g.match.ambiguous))]
+  const blocked = ambiguous.length > 0 || !plan.groups.length
 
   return (
     <Dialog open onOpenChange={(next) => (!next && !isPending ? onCancel() : undefined)}>
@@ -80,65 +71,44 @@ export function AnswerKeyDialog({
             <span className="font-mono">s.{formatPages(keyPages)}</span>{' '}
             səhifələrindəki cavablar{' '}
             <span className="font-mono">s.{formatPages(questionPages)}</span>{' '}
-            səhifələrindəki suallara yazılacaq. Cavablar arxivlənir, ona görə
-            sonradan kəsilən suallara da tətbiq olunur.
+            səhifələrinə yazılacaq. Cavablar arxivlənir, ona görə sonradan
+            kəsilən suallara da tətbiq olunur.
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex-1 space-y-3 overflow-y-auto">
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <Badge variant="default">
-              {match.pairs.length
-                ? `${match.pairs.length} cavab yazılacaq`
-                : `${archivable} cavab arxivlənəcək`}
+              {willWrite
+                ? `${willWrite} cavab yazılacaq`
+                : `${willArchive} cavab arxivlənəcək`}
             </Badge>
-            <Badge variant="outline">{match.questionCount} sual bu səhifələrdə</Badge>
-            {labels.length ? (
-              <Badge variant="outline" className="font-normal">
-                açarda: {labels.slice(0, 4).join(', ')}
-                {labels.length > 4 ? '…' : ''}
-              </Badge>
-            ) : null}
+            <Badge variant="outline">{cropped} sual bu səhifələrdə</Badge>
+            <Badge variant="outline">{plan.groups.length} bölmə tapıldı</Badge>
           </div>
 
-          {match.sections.length > 1 ? (
-            <div
-              className={
-                sectionReason
-                  ? 'rounded-md border p-3'
-                  : 'border-destructive/40 bg-destructive/5 rounded-md border p-3'
-              }
-            >
-              {sectionReason ? (
-                <>
-                  <p className="flex items-center gap-1.5 text-sm font-medium">
-                    <Info className="size-4 shrink-0" />
-                    Bölmə kitabın özündən tapıldı
-                  </p>
-                  <p className="text-muted-foreground mt-1 text-xs">
-                    {sectionReason}. Səhvdirsə, aşağıdan dəyişin.
-                  </p>
-                </>
-              ) : (
-                <>
-                  <p className="text-destructive flex items-center gap-1.5 text-sm font-medium">
-                    <CircleAlert className="size-4 shrink-0" />
-                    Açar səhifəsində {match.sections.length} bölmə var — hansını
-                    yazaq?
-                  </p>
-                  <p className="text-muted-foreground mt-1 text-xs">
-                    Sual səhifələri hansı testə aid olduğunu yazmır, ona görə
-                    bunu maşın həll edə bilmədi. Səhv bölmə seçilsə, hər suala
-                    əminliklə yanlış cavab yazılar.
-                  </p>
-                </>
-              )}
-              <Select value={section ?? ''} onValueChange={onSection}>
+          {plan.groups.map((group) => (
+            <GroupRow key={group.pages.join(',')} group={group} />
+          ))}
+
+          {plan.unresolved.length ? (
+            <div className="border-destructive/40 bg-destructive/5 rounded-md border p-3">
+              <p className="text-destructive flex items-center gap-1.5 text-sm font-medium">
+                <CircleAlert className="size-4 shrink-0" />
+                s.{formatPages(plan.unresolved)} üçün bölmə tapılmadı
+              </p>
+              <p className="text-muted-foreground mt-1 text-xs">
+                Bu səhifələr hansı testə aid olduğunu yazmır və açarda uyğun
+                bölmə tapılmadı. Bölmə seçsəniz, bu səhifələr də yazılacaq;
+                seçməsəniz, onlara heç nə yazılmayacaq — qalan bölmələr yenə
+                yazılır. Səhv bölmə hər suala əminliklə yanlış cavab yazar.
+              </p>
+              <Select value={fallbackSection ?? ''} onValueChange={onSection}>
                 <SelectTrigger className="mt-2 w-72">
                   <SelectValue placeholder="Bölmə seçin" />
                 </SelectTrigger>
                 <SelectContent>
-                  {match.sections.map((s) => (
+                  {plan.sections.map((s) => (
                     <SelectItem key={s.id} value={s.id}>
                       {s.label} — {s.count} cavab
                     </SelectItem>
@@ -148,25 +118,25 @@ export function AnswerKeyDialog({
             </div>
           ) : null}
 
-          {match.conflicting.length ? (
-            <Numbers
-              tone="error"
-              title="Açar bu nömrələrə bir neçə cavab verir"
-              body="Seçilən bölmədə eyni sual nömrəsi fərqli cavablarla çap olunub. Hansının doğru olduğu bilinmir, ona görə bu nömrələr yazılmayacaq."
-              numbers={match.conflicting}
-            />
+          {ambiguous.length ? (
+            <div className="border-destructive/40 bg-destructive/5 rounded-md border p-3">
+              <p className="text-destructive flex items-center gap-1.5 text-sm font-medium">
+                <CircleAlert className="size-4 shrink-0" />
+                Sual nömrələri təkrarlanır — heç nə yazılmayacaq
+              </p>
+              <p className="text-muted-foreground mt-1 text-xs">
+                Bir bölmənin içində bu nömrələr birdən çox dəfə çap olunub, yəni
+                səhifə qrupu düzgün ayrılmayıb. Açarın hansını nəzərdə tutduğu
+                bilinmir.
+              </p>
+              <p className="mt-1.5 font-mono text-xs">
+                {ambiguous.slice(0, 30).join(', ')}
+                {ambiguous.length > 30 ? ` … (${ambiguous.length})` : ''}
+              </p>
+            </div>
           ) : null}
 
-          {match.ambiguous.length ? (
-            <Numbers
-              tone="error"
-              title="Sual nömrələri təkrarlanır — heç nə yazılmayacaq"
-              body="Seçilən səhifələrdə bu nömrələr birdən çox dəfə çap olunub, yəni aralıq bölmə sərhədini keçir. Açarın hansını nəzərdə tutduğu bilinmir. Aralığı bölüb hər bölmə üçün ayrıca oxuyun."
-              numbers={match.ambiguous}
-            />
-          ) : null}
-
-          {nothingCropped ? (
+          {!willWrite && willArchive ? (
             <div className="rounded-md border p-3">
               <p className="flex items-center gap-1.5 text-sm font-medium">
                 <Info className="size-4 shrink-0" />
@@ -176,28 +146,8 @@ export function AnswerKeyDialog({
                 Kəsimlər siyahıda görünür, amma banka yalnız "Növbəyə at" ilə
                 yazılır. İndi arxivləsəniz, həmin sualları göndərəndə cavablar
                 özləri tətbiq olunacaq — açarı yenidən oxumağa ehtiyac qalmır.
-                Əvvəlcə sualları göndərmək istəsəniz, imtina edin və açarı
-                sonra oxuyun.
               </p>
             </div>
-          ) : null}
-
-          {match.unmatched.length && !nothingCropped ? (
-            <Numbers
-              tone="info"
-              title="Açarda var, bankda hələ yoxdur"
-              body="Bu nömrələr üçün sual hələ kəsilməyib. Cavablar arxivlənir və həmin suallar kəsiləndə özləri tətbiq olunacaq."
-              numbers={match.unmatched}
-            />
-          ) : null}
-
-          {match.unanswered.length ? (
-            <Numbers
-              tone="info"
-              title="Sual var, açarda cavabı yoxdur"
-              body="Açar bu nömrələr haqqında heç nə demir. Səhv aralıq seçilibsə, indi düzəltmək lazımdır."
-              numbers={match.unanswered}
-            />
           ) : null}
 
           {notes.length ? (
@@ -213,11 +163,9 @@ export function AnswerKeyDialog({
           <Button variant="outline" onClick={onCancel} disabled={isPending}>
             İmtina
           </Button>
-          <Button onClick={onConfirm} disabled={isPending || blocked || !archivable}>
+          <Button onClick={onConfirm} disabled={isPending || blocked || !willArchive}>
             {isPending ? <Spinner data-icon="inline-start" /> : null}
-            {match.pairs.length
-              ? `${match.pairs.length} cavabı yaz`
-              : `${archivable} cavabı arxivlə`}
+            {willWrite ? `${willWrite} cavabı yaz` : `${willArchive} cavabı arxivlə`}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -225,43 +173,29 @@ export function AnswerKeyDialog({
   )
 }
 
-/** A finding, with the numbers it is about. Long lists are truncated: the
- *  point is the shape of the problem, not a transcript. */
-function Numbers({
-  tone,
-  title,
-  body,
-  numbers,
-}: {
-  tone: 'error' | 'info'
-  title: string
-  body: string
-  numbers: number[]
-}) {
-  const Icon = tone === 'error' ? CircleAlert : Info
+/** One printed section: which pages it covers, which block answers them, and
+ *  what that leaves. */
+function GroupRow({ group }: { group: KeyPlanGroup }) {
+  const { match } = group
   return (
-    <div
-      className={
-        tone === 'error'
-          ? 'border-destructive/40 bg-destructive/5 rounded-md border p-3'
-          : 'rounded-md border p-3'
-      }
-    >
-      <p
-        className={
-          tone === 'error'
-            ? 'text-destructive flex items-center gap-1.5 text-sm font-medium'
-            : 'flex items-center gap-1.5 text-sm font-medium'
-        }
-      >
-        <Icon className="size-4 shrink-0" />
-        {title}
+    <div className="rounded-md border p-3">
+      <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-medium">
+        <span className="font-mono">s.{formatPages(group.pages)}</span>
+        <span className="text-muted-foreground">→</span>
+        <span>{group.section.label}</span>
+        <Badge variant="outline" className="font-normal">
+          {match.pairs.length
+            ? `${match.pairs.length} yazılır`
+            : `${group.entries.length} arxivlənir`}
+        </Badge>
       </p>
-      <p className="text-muted-foreground mt-1 text-xs">{body}</p>
-      <p className="mt-1.5 font-mono text-xs">
-        {numbers.slice(0, 30).join(', ')}
-        {numbers.length > 30 ? ` … (${numbers.length})` : ''}
-      </p>
+      <p className="text-muted-foreground mt-1 text-xs">{group.reason}</p>
+      {match.unanswered.length ? (
+        <p className="text-muted-foreground mt-1 text-xs">
+          Açarda cavabı olmayan sual: {match.unanswered.slice(0, 20).join(', ')}
+          {match.unanswered.length > 20 ? '…' : ''}
+        </p>
+      ) : null}
     </div>
   )
 }

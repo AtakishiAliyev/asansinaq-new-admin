@@ -324,18 +324,23 @@ what each stage needs.
   of tests answers "question 1" a dozen ways: the pairing says which questions
   the key belongs to, not which printed block is meant.
 
-  **That block is WORKED OUT, not asked** (`suggestSection`). Picking one of
-  eleven identical-looking blocks is the worst thing this flow could ask of a
-  person — tedious, and a wrong pick writes a confident wrong answer onto every
-  question in the range. It is also usually unnecessary: these books print
-  "Test 1" in the QUESTION page header and the segmenter already reads it, so
-  two independent parts of the same book agree and the choice is settled.
-  Failing that, a block that does not answer every number the pages print
-  cannot be the right one, and if that leaves exactly one candidate the answer
-  is forced. Only when neither piece of evidence decides is the operator asked,
-  and then the dialog says plainly why and what a wrong pick costs. The
-  evidence comes from the segmentation still in memory, because the crops are
-  usually not sent yet when the key is read.
+  **The unit is the PAGE, not the selection** (`planKeyBatches`). Asking which
+  single block answers a page range has no correct answer: an operator picks
+  ten pages and the book puts two or three tests in that span — Soru Bankası
+  2025 A numbers pages 147-148 as Test 1 and 150-152 as Test 2 — so whichever
+  block is chosen, the other test's questions get nothing. The book already
+  says which test each page belongs to, in its header, and the segmenter reads
+  it. So pages that agree on a test form a group, each group takes the block
+  carrying that number, and a selection spanning three tests writes three
+  batches. Measured on that book: s.147-152 lands 27 of 27 questions across two
+  groups, s.4-12 lands 48 of 48 across three, with nothing asked.
+
+  A page that prints no test of its own is left `unresolved` rather than
+  attached to a guess, and it does not hold up the groups that did resolve. A
+  key with a single block needs no header and no choice. Only for the leftovers
+  is the operator offered a block, and the dialog says what a wrong pick costs.
+  The evidence comes from the segmentation still in memory, because the crops
+  are usually not sent yet when the key is read.
 
   A section is identified by its printed BLOCK (`sectionId`), never by the
   number on it. Soru Bankası 2025 A prints `Test-1` twice on one key page for

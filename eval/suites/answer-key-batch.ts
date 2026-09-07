@@ -11,6 +11,7 @@ import {
   batchAnswerIndex,
   batchAnswerKey,
   matchBatch,
+  planKeyBatches,
   suggestSection,
   type KeySection,
 } from '@/core/answer-key/batch'
@@ -297,5 +298,101 @@ export const answerKeyBatchSuite = suite('answer-key-batch', {
     deepEq([...(map.get('a') ?? [])], [1, 2])
     deepEq([...(map.get('b') ?? [])], [1])
     notOk(map.has('undefined'), 'an entry with no block is not a block')
+  },
+
+  // The failure the plan exists for. An operator picks ten pages; the book
+  // puts Test 1 on 147-148 and Test 2 on 150-152. Asking which single block
+  // answers the range has no correct answer — whichever is chosen, the other
+  // test's questions get nothing.
+  'a selection spanning two tests becomes two groups'() {
+    const entries = [
+      { qNo: 1, answer: 'A' as const, testNo: 1, sectionId: 'a' },
+      { qNo: 2, answer: 'B' as const, testNo: 1, sectionId: 'a' },
+      { qNo: 1, answer: 'E' as const, testNo: 2, sectionId: 'b' },
+      { qNo: 2, answer: 'D' as const, testNo: 2, sectionId: 'b' },
+    ]
+    const questions = [...onPage(147, [1, 2]), ...onPage(150, [1, 2])]
+    const plan = planKeyBatches({
+      questionPages: [147, 150],
+      pageTests: new Map([[147, 1], [150, 2]]),
+      entries,
+      questions,
+    })
+    eq(plan.groups.length, 2, 'one group per printed test')
+    eq(plan.unresolved.length, 0, 'and nothing left behind')
+    deepEq(plan.groups[0]!.pages, [147])
+    deepEq(plan.groups[0]!.match.pairs.map((p) => p.answer), ['A', 'B'])
+    deepEq(plan.groups[1]!.pages, [150])
+    deepEq(plan.groups[1]!.match.pairs.map((p) => p.answer), ['E', 'D'])
+    // The whole selection lands, which one block never could.
+    eq(
+      plan.groups.reduce((n, g) => n + g.match.pairs.length, 0),
+      4,
+      'every question in the selection is answered',
+    )
+  },
+
+  // Two pages of one test are one group, not two.
+  'pages that name the same test are grouped together'() {
+    const entries = [
+      { qNo: 1, answer: 'A' as const, testNo: 1, sectionId: 'a' },
+      { qNo: 7, answer: 'C' as const, testNo: 1, sectionId: 'a' },
+    ]
+    const plan = planKeyBatches({
+      questionPages: [147, 148],
+      pageTests: new Map([[147, 1], [148, 1]]),
+      entries,
+      questions: [...onPage(147, [1]), ...onPage(148, [7])],
+    })
+    eq(plan.groups.length, 1)
+    deepEq(plan.groups[0]!.pages, [147, 148])
+    eq(plan.groups[0]!.match.pairs.length, 2)
+  },
+
+  // A page that prints nothing is not attached to a guess, and it does not
+  // stop the pages that DID name their test from being written.
+  'a page with no header is left unresolved without blocking the rest'() {
+    const entries = [
+      { qNo: 1, answer: 'A' as const, testNo: 1, sectionId: 'a' },
+      { qNo: 1, answer: 'E' as const, testNo: 2, sectionId: 'b' },
+    ]
+    const plan = planKeyBatches({
+      questionPages: [147, 149],
+      pageTests: new Map([[147, 1]]),
+      entries,
+      questions: [...onPage(147, [1]), ...onPage(149, [1])],
+    })
+    eq(plan.groups.length, 1, 'the page that named its test is still written')
+    deepEq(plan.unresolved, [149])
+    deepEq(plan.sections.map((s) => s.label), ['Test 1', 'Test 2'], 'and a choice is offered')
+  },
+
+  'an operator override places the pages nothing resolved'() {
+    const entries = [
+      { qNo: 1, answer: 'A' as const, testNo: 1, sectionId: 'a' },
+      { qNo: 1, answer: 'E' as const, testNo: 2, sectionId: 'b' },
+    ]
+    const plan = planKeyBatches({
+      questionPages: [149],
+      pageTests: new Map(),
+      entries,
+      questions: onPage(149, [1]),
+      fallbackSection: 'b',
+    })
+    eq(plan.unresolved.length, 0)
+    deepEq(plan.groups[0]!.match.pairs.map((p) => p.answer), ['E'])
+  },
+
+  'a key with one block needs no header and no choice'() {
+    const entries = key([[1, 'A'], [2, 'B']]).map((e) => ({ ...e, sectionId: 'only' }))
+    const plan = planKeyBatches({
+      questionPages: [10],
+      pageTests: new Map(),
+      entries,
+      questions: onPage(10, [1, 2]),
+    })
+    eq(plan.groups.length, 1)
+    eq(plan.unresolved.length, 0)
+    eq(plan.groups[0]!.match.pairs.length, 2)
   },
 })

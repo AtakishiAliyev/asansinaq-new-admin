@@ -39,17 +39,20 @@ export async function fetchMatchableQuestions(
   return all
 }
 
-export interface SaveAnswerKeyBatchInput {
-  bookId: number
-  /** The crop pages the operator said this key answers. */
+/** One printed section's worth: the pages it covers and the block that
+ *  answers them. A ten-page selection spanning three tests writes three. */
+export interface AnswerKeyBatchGroup {
   questionPages: number[]
-  /** Where the key was read from. */
-  keyPages: number[]
-  /** What the key pages called this section, when they said anything. */
   label?: string
   entries: AnswerKeyEntry[]
-  /** decided (question id → answer) pairs, already reviewed by the operator */
   pairs: { id: number; answer: string }[]
+}
+
+export interface SaveAnswerKeyBatchInput {
+  bookId: number
+  /** Where the key was read from. The same pages back every group. */
+  keyPages: number[]
+  groups: AnswerKeyBatchGroup[]
 }
 
 // Two writes, in this order: the pairing is archived first — so it can be
@@ -58,41 +61,46 @@ export interface SaveAnswerKeyBatchInput {
 // without it a key read before its crops would have to be read again.
 async function saveAnswerKeyBatch(input: SaveAnswerKeyBatchInput) {
   const { data: userData } = await supabase.auth.getUser()
+  let archived = 0
 
-  const { data: batch, error: batchError } = await supabase
-    .from('answer_key_batches')
-    .insert({
-      book_id: input.bookId,
-      question_pages: input.questionPages,
-      key_pages: input.keyPages,
-      label: input.label ?? null,
-      created_by: userData.user?.id ?? null,
-    })
-    .select('id')
-    .single()
-  if (batchError) throw batchError
+  for (const group of input.groups) {
+    const { data: batch, error: batchError } = await supabase
+      .from('answer_key_batches')
+      .insert({
+        book_id: input.bookId,
+        question_pages: group.questionPages,
+        key_pages: input.keyPages,
+        label: group.label ?? null,
+        created_by: userData.user?.id ?? null,
+      })
+      .select('id')
+      .single()
+    if (batchError) throw batchError
 
-  if (input.entries.length) {
-    const { error } = await supabase.from('answer_key_entries').upsert(
-      input.entries.map((entry) => ({
-        batch_id: batch.id,
-        q_no: entry.qNo,
-        answer: entry.answer,
-      })),
-      { onConflict: 'batch_id,q_no' },
-    )
-    if (error) throw error
+    if (group.entries.length) {
+      const { error } = await supabase.from('answer_key_entries').upsert(
+        group.entries.map((entry) => ({
+          batch_id: batch.id,
+          q_no: entry.qNo,
+          answer: entry.answer,
+        })),
+        { onConflict: 'batch_id,q_no' },
+      )
+      if (error) throw error
+      archived += group.entries.length
+    }
   }
 
+  // One call for every group: the RPC is atomic and a second round trip per
+  // group would only widen the window in which half the answers are written.
+  const pairs = input.groups.flatMap((g) => g.pairs)
   let applied = 0
-  if (input.pairs.length) {
-    const { data, error } = await supabase.rpc('apply_answer_keys', {
-      p_pairs: input.pairs,
-    })
+  if (pairs.length) {
+    const { data, error } = await supabase.rpc('apply_answer_keys', { p_pairs: pairs })
     if (error) throw error
     applied = Number(data ?? 0)
   }
-  return { archived: input.entries.length, applied }
+  return { archived, applied }
 }
 
 export function useSaveAnswerKeys() {

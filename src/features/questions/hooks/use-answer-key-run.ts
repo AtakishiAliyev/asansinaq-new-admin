@@ -1,11 +1,6 @@
 import { useCallback, useState } from 'react'
 import { parseAnswerKeyPage, type AnswerKeyEntry } from '@/core/answer-key/parse'
-import {
-  answeredBySection,
-  matchBatch,
-  suggestSection,
-  type BatchMatch,
-} from '@/core/answer-key/batch'
+import { planKeyBatches, type KeyPlan } from '@/core/answer-key/batch'
 import { readVisionKey } from '@/core/answer-key/vision'
 import { pageTextItems } from '@/core/segment/segmenter'
 import { opParseAnswerKey } from '@/features/questions/api/question-ops'
@@ -26,11 +21,12 @@ export interface AnswerKeyRunState {
   /** The pages the operator paired: the questions, then the key. */
   questionPages: number[]
   keyPages: number[]
-  match: BatchMatch | null
-  /** The block in use — worked out from the book where it can be. */
-  section: string | undefined
-  /** Why that block was chosen, when it was chosen for the operator. */
-  sectionReason: string | null
+  /** One group per printed section in the selection, each with its own block. */
+  plan: KeyPlan | null
+  /** A block chosen by hand, for pages that print no test number. */
+  fallbackSection: string | undefined
+  /** What each page printed, kept so an override can be re-planned. */
+  pageTests: [number, number][]
   notes: string[]
 }
 
@@ -42,9 +38,9 @@ const IDLE: AnswerKeyRunState = {
   labels: [],
   questionPages: [],
   keyPages: [],
-  match: null,
-  section: undefined,
-  sectionReason: null,
+  plan: null,
+  fallbackSection: undefined,
+  pageTests: [],
   notes: [],
 }
 
@@ -73,10 +69,13 @@ export function useAnswerKeyRun() {
        * segmentation still in memory when the crops have not been sent yet,
        * which is the usual case — see `suggestSection`.
        */
-      evidence: { questionTests: number[]; questionNumbers: number[] } = {
-        questionTests: [],
-        questionNumbers: [],
-      },
+      /**
+       * What each question page printed in its header, read from the
+       * segmentation still in memory. This is what lets a ten-page selection
+       * spanning three tests be split into three groups instead of forcing
+       * one block onto all of it.
+       */
+      pageTests: Map<number, number> = new Map(),
     ) => {
       const pages = keyPages
       setState({ ...IDLE, status: 'running', total: pages.length, questionPages, keyPages })
@@ -130,22 +129,13 @@ export function useAnswerKeyRun() {
       }
 
       const questions = await fetchMatchableQuestions(bookId)
-      const first = matchBatch({ questionPages, entries }, questions)
-      // The book usually answers this itself: its question pages print the
-      // test they belong to. Only what cannot be worked out is asked.
-      const onPages = questions.filter((q) => questionPages.includes(q.pageNumber))
-      const suggestion = suggestSection(first.sections, {
-        questionTests: evidence.questionTests.length
-          ? evidence.questionTests
-          : [...new Set(onPages.map((q) => q.testNo).filter((t): t is number => t !== null))],
-        questionNumbers: evidence.questionNumbers.length
-          ? evidence.questionNumbers
-          : onPages.map((q) => q.qNo),
-        answeredBy: answeredBySection(entries),
-      })
-      const section = suggestion?.section.id
-      const match =
-        section === undefined ? first : matchBatch({ questionPages, entries, section }, questions)
+      // Where a page printed nothing, the bank may still know: a row saved
+      // earlier carries the test its page announced.
+      const tests = new Map(pageTests)
+      for (const q of questions) {
+        if (q.testNo !== null && !tests.has(q.pageNumber)) tests.set(q.pageNumber, q.testNo)
+      }
+      const plan = planKeyBatches({ questionPages, pageTests: tests, entries, questions })
       const done: AnswerKeyRunState = {
         status: 'done',
         current: pages.length,
@@ -154,9 +144,9 @@ export function useAnswerKeyRun() {
         labels: [...new Set(labels)],
         questionPages,
         keyPages,
-        match,
-        section,
-        sectionReason: suggestion?.reason ?? null,
+        plan,
+        fallbackSection: undefined,
+        pageTests: [...tests],
         notes,
       }
       // The whole point of the preview: a number the key answers that no
@@ -170,23 +160,20 @@ export function useAnswerKeyRun() {
 
   const reset = useCallback(() => setState(IDLE), [])
 
-  /** Re-match against one printed section, when the key pages held several. */
+  /** Choose a block by hand for the pages that print no test of their own. */
   const chooseSection = useCallback(
-    async (section: string | undefined, bookId: number) => {
+    async (fallbackSection: string, bookId: number) => {
       const questions = await fetchMatchableQuestions(bookId)
       setState((current) => ({
         ...current,
-        section,
-        // An operator override stops being the book's reasoning.
-        sectionReason: null,
-        match: matchBatch(
-          {
-            questionPages: current.questionPages,
-            entries: current.entries,
-            ...(section === undefined ? {} : { section }),
-          },
+        fallbackSection,
+        plan: planKeyBatches({
+          questionPages: current.questionPages,
+          pageTests: new Map(current.pageTests),
+          entries: current.entries,
           questions,
-        ),
+          fallbackSection,
+        }),
       }))
     },
     [],

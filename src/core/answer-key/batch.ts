@@ -284,6 +284,122 @@ export function answeredBySection(entries: AnswerKeyEntry[]): Map<string, Set<nu
   return map
 }
 
+export interface KeyPlanGroup {
+  /** The crop pages this group covers — always one printed section's worth. */
+  pages: number[]
+  /** The test those pages printed, when they printed one. */
+  testNo?: number
+  section: KeySection
+  reason: string
+  /** The block's answers, which is what gets archived for these pages. */
+  entries: AnswerKeyEntry[]
+  match: BatchMatch
+}
+
+export interface KeyPlan {
+  groups: KeyPlanGroup[]
+  /** Pages no block could be found for. Nothing is written for them. */
+  unresolved: number[]
+  /** Every block the key pages printed, for an operator override. */
+  sections: KeySection[]
+}
+
+/**
+ * Split a page selection into one group per printed section, and give each its
+ * own block of the key.
+ *
+ * A selection is not one section. An operator picks ten pages at a time and a
+ * book puts two or three tests in that span — Soru Bankası 2025 A numbers
+ * pages 147-148 as Test 1 and pages 150-152 as Test 2 — so asking which single
+ * block answers the range has no correct answer: whichever is picked, the
+ * other test's questions get nothing. That was the shape of the first version
+ * of this and it was wrong.
+ *
+ * The book already says which test each PAGE belongs to, in its header, and
+ * the segmenter reads it. So the unit is the page: pages that agree on a test
+ * form a group, the group takes the block carrying that number, and a
+ * selection spanning three tests simply produces three groups. Nothing is
+ * asked and nothing is left behind.
+ *
+ * Pages that print no test number end up in `unresolved` unless the key has
+ * exactly one block, in which case there is nothing to be wrong about. An
+ * operator override is offered for the rest rather than a guess.
+ */
+export function planKeyBatches(input: {
+  questionPages: number[]
+  /** What each page printed in its header, where it printed anything. */
+  pageTests: Map<number, number>
+  entries: AnswerKeyEntry[]
+  questions: MatchableQuestion[]
+  /** A block the operator chose for pages nothing could resolve. */
+  fallbackSection?: string
+}): KeyPlan {
+  const probe = matchBatch({ questionPages: input.questionPages, entries: input.entries }, [])
+  const sections = probe.sections
+  const byId = new Map(sections.map((s) => [s.id, s]))
+  const entriesOf = (id: string) => input.entries.filter((e) => e.sectionId === id)
+
+  // Pages that name the same test belong together; the rest are their own
+  // problem and are dealt with below.
+  const grouped = new Map<number, number[]>()
+  const nameless: number[] = []
+  for (const page of input.questionPages) {
+    const testNo = input.pageTests.get(page)
+    if (testNo === undefined) nameless.push(page)
+    else grouped.set(testNo, [...(grouped.get(testNo) ?? []), page])
+  }
+
+  const groups: KeyPlanGroup[] = []
+  const unresolved: number[] = []
+
+  for (const [testNo, pages] of [...grouped].sort((a, b) => a[0] - b[0])) {
+    const named = sections.filter((s) => s.testNo === testNo)
+    if (named.length !== 1) {
+      unresolved.push(...pages)
+      continue
+    }
+    const section = named[0]!
+    const entries = entriesOf(section.id)
+    groups.push({
+      pages,
+      testNo,
+      section,
+      reason: `səhifələr "${section.label}" yazır`,
+      entries,
+      match: matchBatch({ questionPages: pages, entries }, input.questions),
+    })
+  }
+
+  // Pages with no header of their own. One block on the key means there is
+  // nothing to choose; otherwise the operator's override decides, and without
+  // one they stay unresolved rather than being attached to a guess.
+  if (nameless.length) {
+    const only =
+      sections.length === 1
+        ? sections[0]
+        : input.fallbackSection
+          ? byId.get(input.fallbackSection)
+          : undefined
+    if (only) {
+      const entries = entriesOf(only.id)
+      groups.push({
+        pages: nameless,
+        section: only,
+        reason:
+          sections.length === 1
+            ? 'açar səhifəsində yalnız bu bölmə var'
+            : 'bölmə əl ilə seçildi',
+        entries,
+        match: matchBatch({ questionPages: nameless, entries }, input.questions),
+      })
+    } else {
+      unresolved.push(...nameless)
+    }
+  }
+
+  return { groups, unresolved: unresolved.sort((a, b) => a - b), sections }
+}
+
 /** The key a `batchAnswerIndex` is read with. */
 export const batchAnswerKey = (pageNumber: number, qNo: number): string =>
   `${pageNumber}:${qNo}`
