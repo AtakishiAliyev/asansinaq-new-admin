@@ -59,36 +59,54 @@ export interface SaveAnswerKeyBatchInput {
 // applied to questions cropped later — then it is stamped onto the questions
 // that exist now. The archive is what makes the operator's statement durable;
 // without it a key read before its crops would have to be read again.
+/** PostgREST takes a large array happily; this keeps one request bounded. */
+const WRITE_CHUNK = 1000
+
+/** Two groups of a plan never cover the same pages, so the pages name the row. */
+const pagesKey = (pages: number[]) => pages.join(',')
+
 async function saveAnswerKeyBatch(input: SaveAnswerKeyBatchInput) {
   const { data: userData } = await supabase.auth.getUser()
-  let archived = 0
+  if (!input.groups.length) return { archived: 0, applied: 0 }
 
-  for (const group of input.groups) {
-    const { data: batch, error: batchError } = await supabase
-      .from('answer_key_batches')
-      .insert({
+  // One insert for every group, not one per group: reading a book's key in a
+  // single pass produces a batch per printed section, and Soru Bankası 2025 A
+  // has 133 of them. A round trip each would have made confirming a plan a
+  // minute of sequential inserts.
+  const { data: rows, error: batchError } = await supabase
+    .from('answer_key_batches')
+    .insert(
+      input.groups.map((group) => ({
         book_id: input.bookId,
         question_pages: group.questionPages,
         key_pages: input.keyPages,
         label: group.label ?? null,
         created_by: userData.user?.id ?? null,
-      })
-      .select('id')
-      .single()
-    if (batchError) throw batchError
+      })),
+    )
+    .select('id, question_pages')
+  if (batchError) throw batchError
 
-    if (group.entries.length) {
-      const { error } = await supabase.from('answer_key_entries').upsert(
-        group.entries.map((entry) => ({
-          batch_id: batch.id,
-          q_no: entry.qNo,
-          answer: entry.answer,
-        })),
-        { onConflict: 'batch_id,q_no' },
-      )
-      if (error) throw error
-      archived += group.entries.length
+  const ids = new Map((rows ?? []).map((r) => [pagesKey(r.question_pages), r.id]))
+  const entries: { batch_id: number; q_no: number; answer: string }[] = []
+  for (const group of input.groups) {
+    const id = ids.get(pagesKey(group.questionPages))
+    // Writing entries under the wrong batch would attach a section's answers
+    // to another section's pages, so a row that cannot be identified stops the
+    // write rather than guessing which batch it belongs to.
+    if (id === undefined) {
+      throw new Error(`s.${group.questionPages.join(',')} üçün paket qeydi tapılmadı`)
     }
+    for (const entry of group.entries) {
+      entries.push({ batch_id: id, q_no: entry.qNo, answer: entry.answer })
+    }
+  }
+
+  for (let i = 0; i < entries.length; i += WRITE_CHUNK) {
+    const { error } = await supabase
+      .from('answer_key_entries')
+      .upsert(entries.slice(i, i + WRITE_CHUNK), { onConflict: 'batch_id,q_no' })
+    if (error) throw error
   }
 
   // One call for every group: the RPC is atomic and a second round trip per
@@ -100,7 +118,7 @@ async function saveAnswerKeyBatch(input: SaveAnswerKeyBatchInput) {
     if (error) throw error
     applied = Number(data ?? 0)
   }
-  return { archived, applied }
+  return { archived: entries.length, applied }
 }
 
 export function useSaveAnswerKeys() {

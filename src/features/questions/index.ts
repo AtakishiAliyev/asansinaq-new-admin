@@ -7,6 +7,11 @@ export { RecreationCheckDialog } from '@/features/questions/components/recreatio
 export { QuestionsPage } from '@/features/questions/components/questions-page'
 export { AnswerKeyDialog } from '@/features/questions/components/answer-key-dialog'
 export { useAnswerKeyRun } from '@/features/questions/hooks/use-answer-key-run'
+export { BookKeyDialog } from '@/features/questions/components/book-key-dialog'
+export {
+  useBookKeyRun,
+  type BookKeyGroup,
+} from '@/features/questions/hooks/use-book-key-run'
 export { useSaveAnswerKeys } from '@/features/questions/api/answer-keys'
 export { useEnqueue } from '@/features/questions/api/queue'
 export { opDetectQuestions } from '@/features/questions/api/question-ops'

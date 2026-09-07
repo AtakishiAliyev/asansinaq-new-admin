@@ -45,8 +45,10 @@ import { ThumbnailStrip } from '@/features/import/components/thumbnail-strip'
 import { useSegmentation } from '@/features/import/hooks/use-segmentation'
 import {
   AnswerKeyDialog,
+  BookKeyDialog,
   cropKey,
   useAnswerKeyRun,
+  useBookKeyRun,
   useEnqueue,
   useSaveAnswerKeys,
   useSaveCrops,
@@ -118,8 +120,10 @@ export function ImportPage() {
   /** Crops already written and queued. They stop arming the unsaved-work guard. */
   const [sentKeys, setSentKeys] = useState<Set<string>>(new Set())
   const answerKeys = useAnswerKeyRun()
+  const bookKeys = useBookKeyRun()
   const saveAnswerKeys = useSaveAnswerKeys()
   const [keyDialogOpen, setKeyDialogOpen] = useState(false)
+  const [bookKeyDialogOpen, setBookKeyDialogOpen] = useState(false)
 
   useEffect(
     () => () => {
@@ -372,6 +376,53 @@ export function ImportPage() {
         setKeyDialogOpen(true)
       })
       .catch((error) => toast.error(normalizeError(error).message))
+  }
+
+  // The whole book at once. Nothing is named and nothing is paired by hand:
+  // the pass reads every page and works out which block answers which section
+  // from the book's own shape. The page-range flow below stays for what this
+  // cannot settle — a scan, or a section the shape leaves unproved.
+  function startBookKey() {
+    if (!doc || !currentBook) return
+    // Only used if the book turns out to be a scan, where these are the pages
+    // that cost a model call.
+    const named = parsePageRange(keyRangeInput, doc.numPages)
+    void bookKeys
+      .run(doc, currentBook.id, named.ok ? named.pages : [])
+      .then((result) => {
+        if (!result.groups.length) {
+          toast.warning(
+            result.scanned && !named.ok
+              ? 'Bu kitab skandır — açar səhifələrini yazıb yenidən yoxlayın'
+              : 'Kitabda yerləşdirilə bilən cavab açarı tapılmadı',
+          )
+          return
+        }
+        setBookKeyDialogOpen(true)
+      })
+      .catch((error) => toast.error(normalizeError(error).message))
+  }
+
+  function applyBookKeys() {
+    if (!currentBook || !bookKeys.plan || !bookKeys.groups.length) return
+    saveAnswerKeys.mutate(
+      {
+        bookId: currentBook.id,
+        keyPages: bookKeys.plan.keyPages,
+        groups: bookKeys.groups.map((group) => ({
+          questionPages: group.questionPages,
+          label: group.label,
+          entries: group.entries,
+          pairs: group.pairs,
+        })),
+      },
+      {
+        onSuccess: () => {
+          setBookKeyDialogOpen(false)
+          bookKeys.reset()
+        },
+      },
+    )
   }
 
   function applyAnswerKeys() {
@@ -660,11 +711,35 @@ export function ImportPage() {
                   ) : (
                     <FieldDescription>
                       {currentBook
-                        ? 'Yuxarıdakı sual səhifələrinin cavabları burada.'
+                        ? 'Yalnız skan kitablarda və ya avtomatik oxunuş çatmayanda lazımdır.'
                         : 'Kitab açıldıqdan sonra aktivləşir.'}
                     </FieldDescription>
                   )}
                 </Field>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3 rounded-md border p-3">
+                <Button
+                  onClick={startBookKey}
+                  disabled={running || bookKeys.status === 'running' || !currentBook}
+                  title={
+                    currentBook
+                      ? 'Bütün kitabı oxu və hər bölmənin cavab açarını tap'
+                      : 'Əvvəlcə arxivdən kitab açın'
+                  }
+                >
+                  {bookKeys.status === 'running' ? (
+                    <Spinner data-icon="inline-start" />
+                  ) : (
+                    <KeyRound data-icon="inline-start" />
+                  )}
+                  Kitabın açarını oxu
+                </Button>
+                <p className="text-muted-foreground flex-1 text-xs">
+                  {bookKeys.status === 'running'
+                    ? `Oxunur — ${bookKeys.current} / ${bookKeys.total} səhifə`
+                    : 'Bütün kitabı bir dəfəyə oxuyur, hansı açarın hansı bölməyə aid olduğunu özü tapır və planı təsdiqə verir. Pulsuzdur; sonra kəsdiyiniz hər sualın cavabı özü gəlir.'}
+                </p>
               </div>
 
               <p className="text-muted-foreground text-xs">
@@ -922,6 +997,17 @@ export function ImportPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {bookKeyDialogOpen && bookKeys.plan ? (
+        <BookKeyDialog
+          plan={bookKeys.plan}
+          groups={bookKeys.groups}
+          notes={bookKeys.notes}
+          isPending={saveAnswerKeys.isPending}
+          onCancel={() => setBookKeyDialogOpen(false)}
+          onConfirm={applyBookKeys}
+        />
+      ) : null}
 
       {keyDialogOpen && answerKeys.plan ? (
         <AnswerKeyDialog
