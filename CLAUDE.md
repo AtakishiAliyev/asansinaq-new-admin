@@ -342,6 +342,24 @@ what each stage needs.
   The evidence comes from the segmentation still in memory, because the crops
   are usually not sent yet when the key is read.
 
+  **A book that prints no header at all is grouped by its NUMBERING, and asks
+  for at most one choice** (`splitByNumberingRestart`). Seven of the nine books
+  head no question page, so leaving every page unresolved would have meant an
+  operator answering a separate question per page — the thing the per-page unit
+  was introduced to remove. Question numbers restart when a test does, so a page
+  whose first number does not exceed the previous page's highest opens a new
+  group. Each group is then placed by, in order: the key having a single block;
+  COVERAGE — exactly one block answers every number the group carries, which
+  needs no operator at all; and otherwise the operator's one anchor, with the
+  remaining groups following it in the key's printed order (`sections[anchor +
+  index]`). Measured on MANTIK 2025, which heads nothing: s.6-17 against key
+  s.304 lands 46 of 46 from a single choice.
+
+  A page carrying no questions can neither open a group nor split one. A blank
+  page 6 in that same selection opened its own group, took the anchor, and shifted
+  every real section onto the following test — a whole block wrong from one
+  divider.
+
   A section is identified by its printed BLOCK (`sectionId`), never by the
   number on it. Soru Bankası 2025 A prints `Test-1` twice on one key page for
   two subjects, and keyed by the number they collided and both were dropped:

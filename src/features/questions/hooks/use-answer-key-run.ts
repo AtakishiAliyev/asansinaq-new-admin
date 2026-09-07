@@ -27,6 +27,9 @@ export interface AnswerKeyRunState {
   fallbackSection: string | undefined
   /** What each page printed, kept so an override can be re-planned. */
   pageTests: [number, number][]
+  /** The question numbers on each page, which is how a section announces
+   *  itself in a book whose pages print no heading. */
+  pageNumbers: [number, number[]][]
   notes: string[]
 }
 
@@ -41,6 +44,7 @@ const IDLE: AnswerKeyRunState = {
   plan: null,
   fallbackSection: undefined,
   pageTests: [],
+  pageNumbers: [],
   notes: [],
 }
 
@@ -76,6 +80,12 @@ export function useAnswerKeyRun() {
        * one block onto all of it.
        */
       pageTests: Map<number, number> = new Map(),
+      /**
+       * The question numbers on each page. Seven of the nine books print no
+       * test in their page headers, and there the restart in the numbering is
+       * the only thing that says where one section ends.
+       */
+      pageNumbers: Map<number, number[]> = new Map(),
     ) => {
       const pages = keyPages
       setState({ ...IDLE, status: 'running', total: pages.length, questionPages, keyPages })
@@ -135,7 +145,18 @@ export function useAnswerKeyRun() {
       for (const q of questions) {
         if (q.testNo !== null && !tests.has(q.pageNumber)) tests.set(q.pageNumber, q.testNo)
       }
-      const plan = planKeyBatches({ questionPages, pageTests: tests, entries, questions })
+      const numbers = new Map(pageNumbers)
+      for (const q of questions) {
+        if (!numbers.has(q.pageNumber)) numbers.set(q.pageNumber, [])
+        if (!numbers.get(q.pageNumber)!.includes(q.qNo)) numbers.get(q.pageNumber)!.push(q.qNo)
+      }
+      const plan = planKeyBatches({
+        questionPages,
+        pageTests: tests,
+        pageNumbers: numbers,
+        entries,
+        questions,
+      })
       const done: AnswerKeyRunState = {
         status: 'done',
         current: pages.length,
@@ -147,6 +168,7 @@ export function useAnswerKeyRun() {
         plan,
         fallbackSection: undefined,
         pageTests: [...tests],
+        pageNumbers: [...numbers],
         notes,
       }
       // The whole point of the preview: a number the key answers that no
@@ -170,6 +192,7 @@ export function useAnswerKeyRun() {
         plan: planKeyBatches({
           questionPages: current.questionPages,
           pageTests: new Map(current.pageTests),
+          pageNumbers: new Map(current.pageNumbers),
           entries: current.entries,
           questions,
           fallbackSection,

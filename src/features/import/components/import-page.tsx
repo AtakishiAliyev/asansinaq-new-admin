@@ -350,8 +350,20 @@ export function ImportPage() {
         )
         .map((r) => [r.pageNumber, r.testNo] as const),
     )
+    const pageNumbers = new Map(
+      segmentation.results
+        .filter((r) => parsedQuestions.pages.includes(r.pageNumber))
+        .map((r) => [r.pageNumber, r.crops.map((c) => c.number)] as const),
+    )
     void answerKeys
-      .run(doc, parsedKeys.pages, currentBook.id, parsedQuestions.pages, pageTests)
+      .run(
+        doc,
+        parsedKeys.pages,
+        currentBook.id,
+        parsedQuestions.pages,
+        pageTests,
+        pageNumbers,
+      )
       .then((result) => {
         if (!result.entries.length) {
           toast.warning('Seçilən səhifələrdə cavab açarı tapılmadı')

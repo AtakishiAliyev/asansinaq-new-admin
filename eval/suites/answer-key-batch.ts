@@ -12,6 +12,7 @@ import {
   batchAnswerKey,
   matchBatch,
   planKeyBatches,
+  splitByNumberingRestart,
   suggestSection,
   type KeySection,
 } from '@/core/answer-key/batch'
@@ -394,5 +395,108 @@ export const answerKeyBatchSuite = suite('answer-key-batch', {
     eq(plan.groups.length, 1)
     eq(plan.unresolved.length, 0)
     eq(plan.groups[0]!.match.pairs.length, 2)
+  },
+
+  // Seven of the nine books print no test in the question page header — five
+  // are scans — so the header rule does nothing for them. A section still
+  // announces itself: the numbers stop climbing.
+  'headerless pages split where the numbering restarts'() {
+    const numbers = new Map([
+      [147, [1, 2, 3]],
+      [148, [4, 5, 6]],
+      [150, [1, 2, 3]],
+      [151, [4, 5]],
+    ])
+    deepEq(splitByNumberingRestart([147, 148, 150, 151], numbers), [[147, 148], [150, 151]])
+  },
+
+  // A divider carries no questions, so it can cost nothing — and treating it
+  // as a boundary would cut a section in two.
+  'a page with no questions does not start a section'() {
+    const numbers = new Map([
+      [147, [1, 2]],
+      [149, []],
+      [150, [3, 4]],
+    ])
+    deepEq(splitByNumberingRestart([147, 149, 150], numbers), [[147, 149, 150]])
+  },
+
+  // Measured on MANTIK 2025: page 6 is blank, so it opened a group of its own,
+  // took the operator's anchor block, and shifted every real section onto the
+  // next test's answers.
+  'a blank first page joins the section that follows it'() {
+    const numbers = new Map([
+      [6, []],
+      [7, [1, 2]],
+      [8, [3, 4]],
+      [17, [1, 2]],
+    ])
+    deepEq(splitByNumberingRestart([6, 7, 8, 17], numbers), [[6, 7, 8], [17]])
+  },
+
+  'a selection of nothing but blank pages is still one group'() {
+    deepEq(splitByNumberingRestart([1, 2], new Map()), [[1, 2]])
+  },
+
+  // One choice, not one per group: the blocks are in printed order and so are
+  // the book's sections, so naming where to start names the rest.
+  'a headerless selection needs one choice and places the rest in order'() {
+    const entries = [
+      { qNo: 1, answer: 'A' as const, testNo: 1, sectionId: 'a' },
+      { qNo: 2, answer: 'B' as const, testNo: 1, sectionId: 'a' },
+      { qNo: 1, answer: 'E' as const, testNo: 2, sectionId: 'b' },
+      { qNo: 2, answer: 'D' as const, testNo: 2, sectionId: 'b' },
+      { qNo: 1, answer: 'C' as const, testNo: 3, sectionId: 'c' },
+      { qNo: 2, answer: 'C' as const, testNo: 3, sectionId: 'c' },
+    ]
+    const pageNumbers = new Map([
+      [10, [1, 2]],
+      [11, [1, 2]],
+    ])
+    const questions = [...onPage(10, [1, 2]), ...onPage(11, [1, 2])]
+    const asked = planKeyBatches({
+      questionPages: [10, 11],
+      pageTests: new Map(),
+      pageNumbers,
+      entries,
+      questions,
+    })
+    deepEq(asked.unresolved, [10, 11], 'nothing is guessed without an anchor')
+
+    const placed = planKeyBatches({
+      questionPages: [10, 11],
+      pageTests: new Map(),
+      pageNumbers,
+      entries,
+      questions,
+      fallbackSection: 'b',
+    })
+    eq(placed.groups.length, 2, 'two sections, from the numbering restart')
+    eq(placed.unresolved.length, 0, 'and both are placed from one choice')
+    eq(placed.groups[0]!.section.label, 'Test 2', 'the anchor')
+    eq(placed.groups[1]!.section.label, 'Test 3', 'and the next block in order')
+    deepEq(placed.groups[0]!.match.pairs.map((p) => p.answer), ['E', 'D'])
+    deepEq(placed.groups[1]!.match.pairs.map((p) => p.answer), ['C', 'C'])
+  },
+
+  // Coverage can settle it with no choice at all: a block that does not answer
+  // every number the pages print cannot be the right one.
+  'a headerless group with only one covering block needs no choice'() {
+    const entries = [
+      { qNo: 1, answer: 'A' as const, testNo: 1, sectionId: 'a' },
+      { qNo: 1, answer: 'E' as const, testNo: 2, sectionId: 'b' },
+      { qNo: 2, answer: 'D' as const, testNo: 2, sectionId: 'b' },
+      { qNo: 3, answer: 'C' as const, testNo: 2, sectionId: 'b' },
+    ]
+    const plan = planKeyBatches({
+      questionPages: [10],
+      pageTests: new Map(),
+      pageNumbers: new Map([[10, [1, 2, 3]]]),
+      entries,
+      questions: onPage(10, [1, 2, 3]),
+    })
+    eq(plan.unresolved.length, 0, 'the short block cannot cover 1-3')
+    eq(plan.groups[0]!.section.label, 'Test 2')
+    ok(/həmin sual nömrələrinin hamısına/.test(plan.groups[0]!.reason), plan.groups[0]!.reason)
   },
 })

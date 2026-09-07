@@ -98,9 +98,10 @@ export function AnswerKeyDialog({
                 s.{formatPages(plan.unresolved)} üçün bölmə tapılmadı
               </p>
               <p className="text-muted-foreground mt-1 text-xs">
-                Bu səhifələr hansı testə aid olduğunu yazmır və açarda uyğun
-                bölmə tapılmadı. Bölmə seçsəniz, bu səhifələr də yazılacaq;
-                seçməsəniz, onlara heç nə yazılmayacaq — qalan bölmələr yenə
+                Bu səhifələr hansı testə aid olduğunu yazmır. Yalnız BİRİNCİ
+                qrupun bölməsini seçin — qalan qruplar açardakı sıra ilə özləri
+                düzülür və planı təsdiqdən əvvəl burada görəcəksiniz.
+                Seçməsəniz, bu səhifələrə heç nə yazılmır, qalan bölmələr yenə
                 yazılır. Səhv bölmə hər suala əminliklə yanlış cavab yazar.
               </p>
               <Select value={fallbackSection ?? ''} onValueChange={onSection}>

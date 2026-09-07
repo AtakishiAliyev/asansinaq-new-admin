@@ -296,6 +296,53 @@ export interface KeyPlanGroup {
   match: BatchMatch
 }
 
+/**
+ * Split pages that print no test number into sections, by where the book's own
+ * numbering restarts.
+ *
+ * Seven of the nine books in the corpus print no test in the question page
+ * header — five are scans — so the header rule that carries Soru Bankası does
+ * nothing for them, and a whole selection collapsed into one lump that could
+ * only take one block. But a section announces itself another way: the numbers
+ * stop climbing. Pages 147-148 run 1-12 and pages 150-152 run 1-15, and the
+ * restart is as good a boundary as a printed heading.
+ *
+ * A page with no numbers at all (a divider, a blank) joins the group in
+ * progress rather than starting one: it carries no questions, so it can cost
+ * nothing, and treating it as a boundary would split a section in two.
+ */
+export function splitByNumberingRestart(
+  pages: number[],
+  pageNumbers: Map<number, number[]>,
+): number[][] {
+  const groups: number[][] = []
+  /** Blank pages seen before any section has started. */
+  let waiting: number[] = []
+  let highest = Number.POSITIVE_INFINITY
+
+  for (const page of [...pages].sort((a, b) => a - b)) {
+    const numbers = [...(pageNumbers.get(page) ?? [])].sort((a, b) => a - b)
+    if (!numbers.length) {
+      // Carries no questions, so it can neither start a section nor split one.
+      // Letting it start one cost a whole block: a blank first page took the
+      // anchor and shifted every later group onto the wrong test.
+      if (groups.length) groups[groups.length - 1]!.push(page)
+      else waiting.push(page)
+      continue
+    }
+    if (numbers[0]! <= highest) {
+      groups.push([...waiting, page])
+      waiting = []
+    } else {
+      groups[groups.length - 1]!.push(page)
+    }
+    highest = numbers[numbers.length - 1]!
+  }
+  // Nothing but blank pages: one group, so the caller still sees them.
+  if (waiting.length) groups.push(waiting)
+  return groups
+}
+
 export interface KeyPlan {
   groups: KeyPlanGroup[]
   /** Pages no block could be found for. Nothing is written for them. */
@@ -329,14 +376,22 @@ export function planKeyBatches(input: {
   questionPages: number[]
   /** What each page printed in its header, where it printed anything. */
   pageTests: Map<number, number>
+  /** The question numbers on each page, which is how a section announces
+   *  itself in a book that prints no heading. */
+  pageNumbers?: Map<number, number[]>
   entries: AnswerKeyEntry[]
   questions: MatchableQuestion[]
-  /** A block the operator chose for pages nothing could resolve. */
+  /**
+   * The block the operator chose for the FIRST group nothing else resolved.
+   *
+   * One choice, not one per group: the blocks on a key page are in printed
+   * order and so are the sections of the book, so naming where to start names
+   * the rest. The operator sees the whole plan before confirming it.
+   */
   fallbackSection?: string
 }): KeyPlan {
   const probe = matchBatch({ questionPages: input.questionPages, entries: input.entries }, [])
   const sections = probe.sections
-  const byId = new Map(sections.map((s) => [s.id, s]))
   const entriesOf = (id: string) => input.entries.filter((e) => e.sectionId === id)
 
   // Pages that name the same test belong together; the rest are their own
@@ -370,31 +425,65 @@ export function planKeyBatches(input: {
     })
   }
 
-  // Pages with no header of their own. One block on the key means there is
-  // nothing to choose; otherwise the operator's override decides, and without
-  // one they stay unresolved rather than being attached to a guess.
+  // Pages with no header of their own. They are still split into sections —
+  // by where the numbering restarts — and each section is placed by whatever
+  // evidence there is, in order of how much it proves.
   if (nameless.length) {
-    const only =
-      sections.length === 1
-        ? sections[0]
-        : input.fallbackSection
-          ? byId.get(input.fallbackSection)
-          : undefined
-    if (only) {
-      const entries = entriesOf(only.id)
+    const pageNumbers =
+      input.pageNumbers ??
+      new Map(
+        nameless.map((page) => [
+          page,
+          input.questions.filter((q) => q.pageNumber === page).map((q) => q.qNo),
+        ]),
+      )
+    const answered = answeredBySection(input.entries)
+    const restarts = splitByNumberingRestart(nameless, pageNumbers)
+    const anchor = input.fallbackSection
+      ? sections.findIndex((s) => s.id === input.fallbackSection)
+      : -1
+
+    restarts.forEach((pages, index) => {
+      const numbers = pages.flatMap((p) => pageNumbers.get(p) ?? [])
+      let section: KeySection | undefined
+      let reason = ''
+
+      if (sections.length === 1) {
+        section = sections[0]
+        reason = 'açar səhifəsində yalnız bu bölmə var'
+      } else if (numbers.length) {
+        // A block that does not answer every number these pages print cannot
+        // be the right one; one survivor forces the answer with no choice.
+        const covering = sections.filter((s) => {
+          const set = answered.get(s.id)
+          return set ? numbers.every((n) => set.has(n)) : false
+        })
+        if (covering.length === 1) {
+          section = covering[0]
+          reason = 'yalnız bu bölmə həmin sual nömrələrinin hamısına cavab verir'
+        }
+      }
+      if (!section && anchor >= 0) {
+        section = sections[anchor + index]
+        reason =
+          index === 0
+            ? 'bölmə əl ilə seçildi'
+            : 'açardakı sıra ilə seçilən bölmədən sonra gəlir'
+      }
+
+      if (!section) {
+        unresolved.push(...pages)
+        return
+      }
+      const entries = entriesOf(section.id)
       groups.push({
-        pages: nameless,
-        section: only,
-        reason:
-          sections.length === 1
-            ? 'açar səhifəsində yalnız bu bölmə var'
-            : 'bölmə əl ilə seçildi',
+        pages,
+        section,
+        reason,
         entries,
-        match: matchBatch({ questionPages: nameless, entries }, input.questions),
+        match: matchBatch({ questionPages: pages, entries }, input.questions),
       })
-    } else {
-      unresolved.push(...nameless)
-    }
+    })
   }
 
   return { groups, unresolved: unresolved.sort((a, b) => a - b), sections }
