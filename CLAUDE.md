@@ -305,60 +305,58 @@ what each stage needs.
   verifier is told, in as many words, that a shaded region is a difference
   and always critical, and a venn's claims list exactly which regions are
   shaded — it passed two moved shadings with an empty diff before it was.
-- **A printed answer key is placed by the PAGES the operator paired it with**
-  (`core/answer-key/batch.ts`, `answer_key_batches`). The import screen takes
-  both ranges — the question pages and the key pages — and the pairing is what
-  is stored, so a key read before its crops is applied when they arrive. This
-  replaces inferring which section a key answers, which a survey of nine real
-  books showed cannot be done: Soru Bankası 2025 A prints `Test-1` twice on one
-  key page for two subjects, so keyed by test number they collide and 26
-  answers a page are dropped; MANTIK 2025 heads its sections `Deneme 1`, which
-  no pattern reads, so 409 text items produce zero answers; and five of the
-  nine books are pure scans with no header to read at all. `answer_keys` and
-  `match.ts` stay for books imported before the pairing, and `answerFor`
-  prefers the pairing wherever it has an entry.
+- **A book's printed answer key is read ONCE, for the whole book, at import**
+  (`core/answer-key/book.ts`, `answer_key_batches`). The operator presses one
+  button; the pass reads every page, works out which printed block answers
+  which section, and shows a plan to confirm. What is stored is the pairing, so
+  a crop made a week later gets its answer with no further step.
 
-  Two things the pairing cannot settle on its own, and neither is guessed. A
-  question range that spans a numbering restart holds two question 1s, and it
-  refuses by name so the operator can split it. And a key page printing a GRID
-  of tests answers "question 1" a dozen ways: the pairing says which questions
-  the key belongs to, not which printed block is meant.
+  This replaces asking the operator, per batch of crops, which pages held the
+  answers and which block was meant. That question was answerable but tedious,
+  and on a book that heads nothing it had no good answer at all: a ten-page
+  selection sees no order and no structure, so the operator was being asked to
+  supply what only the whole book knows.
 
-  **The unit is the PAGE, not the selection** (`planKeyBatches`). Asking which
-  single block answers a page range has no correct answer: an operator picks
-  ten pages and the book puts two or three tests in that span — Soru Bankası
-  2025 A numbers pages 147-148 as Test 1 and 150-152 as Test 2 — so whichever
-  block is chosen, the other test's questions get nothing. The book already
-  says which test each page belongs to, in its header, and the segmenter reads
-  it. So pages that agree on a test form a group, each group takes the block
-  carrying that number, and a selection spanning three tests writes three
-  batches. Measured on that book: s.147-152 lands 27 of 27 questions across two
-  groups, s.4-12 lands 48 of 48 across three, with nothing asked.
+  The whole book knows a great deal, and knowing it is nearly free — 425 pages
+  read in about four seconds, no model call. Books come in two measured shapes.
+  **INTERLEAVED** (`Q4-10 K11 Q12-18 K19 …`) needs no inference: the key that
+  follows a run of questions is the key to that run, and position beats
+  coverage — demanding coverage on top of it threw away 496 questions on Məntiq
+  Magistr OL over answers a key page had not parsed cleanly. **TRAILING**
+  (`… Q407-412 K413-425`) is settled by order, where as many sections as the
+  key has blocks is itself the proof: there is nothing left for a section to
+  be. Whether a book is interleaved is asked of EVERY key page, not the last
+  one — Golden Group's keys alternate to the final page, so asking only about
+  the last read it as trailing and threw away twelve free pairings.
 
-  A page that prints no test of its own is left `unresolved` rather than
-  attached to a guess, and it does not hold up the groups that did resolve. A
-  key with a single block needs no header and no choice. Only for the leftovers
-  is the operator offered a block, and the dialog says what a wrong pick costs.
-  The evidence comes from the segmentation still in memory, because the crops
-  are usually not sent yet when the key is read.
+  **Order is also what can go silently wrong, so nothing is accepted on
+  plausibility.** Every section numbers 1..16 and every block answers 1..16, so
+  every block "fits" every section and an alignment can slide freely; shift it
+  by one and the whole book is confidently wrong. So the count is checked
+  before it is believed — most pairs must hold up on their own terms, or these
+  are two lists that merely happen to be the same length. Where the counts
+  differ, an alignment keeps only pairings present in EVERY optimal solution: a
+  section two blocks could take, or a block two sections could claim, is left
+  for a person. A section nothing could be proved for is reported, never
+  filled in.
 
-  **A book that prints no header at all is grouped by its NUMBERING, and asks
-  for at most one choice** (`splitByNumberingRestart`). Seven of the nine books
-  head no question page, so leaving every page unresolved would have meant an
-  operator answering a separate question per page — the thing the per-page unit
-  was introduced to remove. Question numbers restart when a test does, so a page
-  whose first number does not exceed the previous page's highest opens a new
-  group. Each group is then placed by, in order: the key having a single block;
-  COVERAGE — exactly one block answers every number the group carries, which
-  needs no operator at all; and otherwise the operator's one anchor, with the
-  remaining groups following it in the key's printed order (`sections[anchor +
-  index]`). Measured on MANTIK 2025, which heads nothing: s.6-17 against key
-  s.304 lands 46 of 46 from a single choice.
+  Measured across seven text-layer books, 8,458 questions: Golden Group and
+  DENEME YY 2025 at 100%, MANTIK 2025 and DENEME 05.04.2025 at 99.9%, Soru
+  Bankası 2025 A at 96.8%, Məntiq Magistr OL at 87.2% — **8,112 of 8,458, or
+  95.9%**, with no operator input beyond one button. Məntiq's shortfall is its
+  last five sections, for which the book prints no key at all.
 
-  A page carrying no questions can neither open a group nor split one. A blank
-  page 6 in that same selection opened its own group, took the anchor, and shifted
-  every real section onto the following test — a whole block wrong from one
-  divider.
+  **Three defects in the reader had to be fixed first, and each was worth a
+  whole book.** A page with no header was left with no block, so Məntiq Magistr
+  OL — a plain `Cavablar` page, 134 answers, questions numbered straight
+  through — placed 0 of 101; an unheaded page is one block. A row carrying a
+  section label was skipped whole, so DENEME 05.04.2025, which prints
+  `Test 1 | 1) C 2) C … 10) E`, lost questions 1..10 of every test on all eight
+  key pages; only the label is dropped now. And a numbering restart was read
+  from where the previous page ENDED, so MANTIK 2025 page 108 misreading a 12
+  as a 13 split a section, left the book with 31 sections against 30 blocks,
+  and cost all 1,186 of its questions; a restart is read from where a page
+  STARTS, which one wrong digit cannot fake.
 
   A section is identified by its printed BLOCK (`sectionId`), never by the
   number on it. Soru Bankası 2025 A prints `Test-1` twice on one key page for
@@ -367,14 +365,20 @@ what each stage needs.
   (`8. DENEME`, `TEST 12`) and, only on a row nothing else could read,
   word-first (`Deneme 1`) — the fallback is restricted because read eagerly it
   invents a third header in the middle of a `1. DENEME  2. DENEME` grid.
-  Measured over the four text-layer books, these two changes took the corpus
-  from 2,194 answers read to 4,874, and MANTIK 2025 from zero to 1,184.
 
   A SCANNED key page is read by a model and then held to the rules the text
   path applies to itself (`core/answer-key/vision.ts`): letters must be A-E,
   numbers must be plausible, a block that answers one number two ways is
-  dropped, and a thin read says so. Five of the nine books are pure scans, so
-  that path is the majority one, and it was the only one going in unchecked.
+  dropped, and a thin read says so. Five of the nine books in the survey are
+  pure scans, so that path is the majority one. A scan has no text layer for
+  the book-wide pass to read, so there the operator names the key pages —
+  **one question per book**, not one per batch of crops — and only those pages
+  cost a call. **This path has never been run against a real scanned key page**;
+  it is wired and checked, not measured.
+
+  The per-selection pairing (`planKeyBatches`) stays for what the book-wide
+  pass cannot settle, and `answer_keys` and `match.ts` stay for books imported
+  before either. `answerFor` prefers the pairing wherever it has an entry.
 - **The browser orchestrates exactly one thing: a single-question interactive
   re-run** from the review screen. That is what the `question-ops` Edge Function
   is still for — that, answer-key parsing and page detection, which stay
