@@ -318,13 +318,24 @@ what each stage needs.
   `match.ts` stay for books imported before the pairing, and `answerFor`
   prefers the pairing wherever it has an entry.
 
-  Two things the pairing cannot settle, and neither is guessed. A question
-  range that spans a numbering restart holds two question 1s, and it refuses by
-  name so the operator can split it. And a key page printing a GRID of tests
-  answers "question 1" a dozen ways: the pairing says which questions the key
-  belongs to, not which printed block is meant, so the operator picks from what
-  the page actually printed — a fact stated, not a guess corrected — and only
-  when there is more than one block.
+  Two things the pairing cannot settle on its own, and neither is guessed. A
+  question range that spans a numbering restart holds two question 1s, and it
+  refuses by name so the operator can split it. And a key page printing a GRID
+  of tests answers "question 1" a dozen ways: the pairing says which questions
+  the key belongs to, not which printed block is meant.
+
+  **That block is WORKED OUT, not asked** (`suggestSection`). Picking one of
+  eleven identical-looking blocks is the worst thing this flow could ask of a
+  person — tedious, and a wrong pick writes a confident wrong answer onto every
+  question in the range. It is also usually unnecessary: these books print
+  "Test 1" in the QUESTION page header and the segmenter already reads it, so
+  two independent parts of the same book agree and the choice is settled.
+  Failing that, a block that does not answer every number the pages print
+  cannot be the right one, and if that leaves exactly one candidate the answer
+  is forced. Only when neither piece of evidence decides is the operator asked,
+  and then the dialog says plainly why and what a wrong pick costs. The
+  evidence comes from the segmentation still in memory, because the crops are
+  usually not sent yet when the key is read.
 
   A section is identified by its printed BLOCK (`sectionId`), never by the
   number on it. Soru Bankası 2025 A prints `Test-1` twice on one key page for

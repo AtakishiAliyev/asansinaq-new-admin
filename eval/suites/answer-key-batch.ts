@@ -6,7 +6,14 @@
 // `Test-1` twice on a single key page for two different subjects, one heads
 // its sections `Deneme 1` in a form no pattern reads, and five have no text
 // layer to read a header from at all.
-import { batchAnswerIndex, batchAnswerKey, matchBatch } from '@/core/answer-key/batch'
+import {
+  answeredBySection,
+  batchAnswerIndex,
+  batchAnswerKey,
+  matchBatch,
+  suggestSection,
+  type KeySection,
+} from '@/core/answer-key/batch'
 import { readVisionKey } from '@/core/answer-key/vision'
 import type { MatchableQuestion } from '@/core/answer-key/match'
 import type { AnswerKeyEntry } from '@/core/answer-key/parse'
@@ -204,5 +211,91 @@ export const answerKeyBatchSuite = suite('answer-key-batch', {
     const read = readVisionKey([{ q_no: 1, answer: 'A' }, { q_no: 2, answer: 'B' }])
     eq(read.entries.length, 2, 'the answers still stand — the operator named this page')
     ok(read.notes.some((n) => /zəif oxunmuş/.test(n)), 'but the thinness is named')
+  },
+
+  // Picking one of eleven identical-looking blocks is the worst thing this
+  // flow ever asked of a person, and it is usually unnecessary: these books
+  // print "Test 1" in the question page header and the segmenter reads it.
+  'the block is worked out from what the question pages print'() {
+    const sections: KeySection[] = [
+      { id: 'a', testNo: 1, label: 'Test 1', count: 16 },
+      { id: 'b', testNo: 2, label: 'Test 2', count: 16 },
+      { id: 'c', testNo: 3, label: 'Test 3', count: 16 },
+    ]
+    const answeredBy = new Map([
+      ['a', new Set([1, 2, 3])],
+      ['b', new Set([1, 2, 3])],
+      ['c', new Set([1, 2, 3])],
+    ])
+    const picked = suggestSection(sections, {
+      questionTests: [1],
+      questionNumbers: [1, 2, 3],
+      answeredBy,
+    })
+    eq(picked?.section.id, 'a', 'the book agreed with itself')
+    ok(/Test 1/.test(picked?.reason ?? ''), picked?.reason ?? 'no reason given')
+  },
+
+  // Coverage decides when the pages carry no header: a block that does not
+  // answer every number cannot be the right one.
+  'a block that cannot cover the questions is ruled out'() {
+    const sections: KeySection[] = [
+      { id: 'a', label: 'Bölmə 1', count: 2 },
+      { id: 'b', label: 'Bölmə 2', count: 5 },
+    ]
+    const picked = suggestSection(sections, {
+      questionTests: [],
+      questionNumbers: [1, 2, 3, 4, 5],
+      answeredBy: new Map([
+        ['a', new Set([1, 2])],
+        ['b', new Set([1, 2, 3, 4, 5])],
+      ]),
+    })
+    eq(picked?.section.id, 'b')
+  },
+
+  // No evidence is not a licence to guess: a wrong block writes a confident
+  // wrong answer onto every question in the range.
+  'with nothing to go on the operator is asked'() {
+    const sections: KeySection[] = [
+      { id: 'a', testNo: 1, label: 'Test 1', count: 3 },
+      { id: 'b', testNo: 2, label: 'Test 2', count: 3 },
+    ]
+    const answeredBy = new Map([
+      ['a', new Set([1, 2, 3])],
+      ['b', new Set([1, 2, 3])],
+    ])
+    eq(
+      suggestSection(sections, { questionTests: [], questionNumbers: [1, 2, 3], answeredBy }),
+      null,
+      'both fit, so neither is chosen',
+    )
+    eq(
+      suggestSection(sections, { questionTests: [7], questionNumbers: [1, 2, 3], answeredBy }),
+      null,
+      'a test number no block carries decides nothing',
+    )
+  },
+
+  'a single block needs no evidence at all'() {
+    const only: KeySection[] = [{ id: 'a', testNo: 9, label: 'Test 9', count: 3 }]
+    const picked = suggestSection(only, {
+      questionTests: [],
+      questionNumbers: [],
+      answeredBy: new Map(),
+    })
+    eq(picked?.section.id, 'a')
+  },
+
+  'the numbers each block answers come from the entries themselves'() {
+    const map = answeredBySection([
+      { qNo: 1, answer: 'A', sectionId: 'a' },
+      { qNo: 2, answer: 'B', sectionId: 'a' },
+      { qNo: 1, answer: 'E', sectionId: 'b' },
+      { qNo: 3, answer: 'C' },
+    ])
+    deepEq([...(map.get('a') ?? [])], [1, 2])
+    deepEq([...(map.get('b') ?? [])], [1])
+    notOk(map.has('undefined'), 'an entry with no block is not a block')
   },
 })

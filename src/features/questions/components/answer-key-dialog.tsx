@@ -43,6 +43,7 @@ export function AnswerKeyDialog({
   keyPages,
   labels,
   section,
+  sectionReason,
   onSection,
   notes,
   isPending,
@@ -54,6 +55,8 @@ export function AnswerKeyDialog({
   keyPages: number[]
   labels: string[]
   section: string | undefined
+  /** Why the block was chosen for the operator, when the book settled it. */
+  sectionReason: string | null
   onSection: (section: string) => void
   notes: string[]
   isPending: boolean
@@ -99,16 +102,37 @@ export function AnswerKeyDialog({
           </div>
 
           {match.sections.length > 1 ? (
-            <div className="rounded-md border p-3">
-              <p className="text-sm font-medium">
-                Açar səhifəsində {match.sections.length} bölmə var — hansını
-                yazaq?
-              </p>
-              <p className="text-muted-foreground mt-1 text-xs">
-                Hər bölmə sualları 1-dən nömrələyir, ona görə səhifə "1-ci
-                sual"a bir neçə cavab verir. Seçilən bölmə yuxarıdakı sual
-                səhifələrinə yazılacaq.
-              </p>
+            <div
+              className={
+                sectionReason
+                  ? 'rounded-md border p-3'
+                  : 'border-destructive/40 bg-destructive/5 rounded-md border p-3'
+              }
+            >
+              {sectionReason ? (
+                <>
+                  <p className="flex items-center gap-1.5 text-sm font-medium">
+                    <Info className="size-4 shrink-0" />
+                    Bölmə kitabın özündən tapıldı
+                  </p>
+                  <p className="text-muted-foreground mt-1 text-xs">
+                    {sectionReason}. Səhvdirsə, aşağıdan dəyişin.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-destructive flex items-center gap-1.5 text-sm font-medium">
+                    <CircleAlert className="size-4 shrink-0" />
+                    Açar səhifəsində {match.sections.length} bölmə var — hansını
+                    yazaq?
+                  </p>
+                  <p className="text-muted-foreground mt-1 text-xs">
+                    Sual səhifələri hansı testə aid olduğunu yazmır, ona görə
+                    bunu maşın həll edə bilmədi. Səhv bölmə seçilsə, hər suala
+                    əminliklə yanlış cavab yazılar.
+                  </p>
+                </>
+              )}
               <Select value={section ?? ''} onValueChange={onSection}>
                 <SelectTrigger className="mt-2 w-72">
                   <SelectValue placeholder="Bölmə seçin" />

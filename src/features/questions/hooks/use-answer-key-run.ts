@@ -1,6 +1,11 @@
 import { useCallback, useState } from 'react'
 import { parseAnswerKeyPage, type AnswerKeyEntry } from '@/core/answer-key/parse'
-import { matchBatch, type BatchMatch } from '@/core/answer-key/batch'
+import {
+  answeredBySection,
+  matchBatch,
+  suggestSection,
+  type BatchMatch,
+} from '@/core/answer-key/batch'
 import { readVisionKey } from '@/core/answer-key/vision'
 import { pageTextItems } from '@/core/segment/segmenter'
 import { opParseAnswerKey } from '@/features/questions/api/question-ops'
@@ -22,8 +27,10 @@ export interface AnswerKeyRunState {
   questionPages: number[]
   keyPages: number[]
   match: BatchMatch | null
-  /** The block the operator picked, when the key pages held several. */
+  /** The block in use — worked out from the book where it can be. */
   section: string | undefined
+  /** Why that block was chosen, when it was chosen for the operator. */
+  sectionReason: string | null
   notes: string[]
 }
 
@@ -37,6 +44,7 @@ const IDLE: AnswerKeyRunState = {
   keyPages: [],
   match: null,
   section: undefined,
+  sectionReason: null,
   notes: [],
 }
 
@@ -59,6 +67,16 @@ export function useAnswerKeyRun() {
       bookId: number,
       /** The crop pages these key pages answer — the operator's own pairing. */
       questionPages: number[],
+      /**
+       * What those pages say about themselves: the test numbers printed in
+       * their headers, and the question numbers on them. Read from the
+       * segmentation still in memory when the crops have not been sent yet,
+       * which is the usual case — see `suggestSection`.
+       */
+      evidence: { questionTests: number[]; questionNumbers: number[] } = {
+        questionTests: [],
+        questionNumbers: [],
+      },
     ) => {
       const pages = keyPages
       setState({ ...IDLE, status: 'running', total: pages.length, questionPages, keyPages })
@@ -112,10 +130,20 @@ export function useAnswerKeyRun() {
       }
 
       const questions = await fetchMatchableQuestions(bookId)
-      // A key page that printed exactly one section needs no choice; several
-      // and the operator makes one, because nothing else can.
       const first = matchBatch({ questionPages, entries }, questions)
-      const section = first.sections.length === 1 ? first.sections[0]!.id : undefined
+      // The book usually answers this itself: its question pages print the
+      // test they belong to. Only what cannot be worked out is asked.
+      const onPages = questions.filter((q) => questionPages.includes(q.pageNumber))
+      const suggestion = suggestSection(first.sections, {
+        questionTests: evidence.questionTests.length
+          ? evidence.questionTests
+          : [...new Set(onPages.map((q) => q.testNo).filter((t): t is number => t !== null))],
+        questionNumbers: evidence.questionNumbers.length
+          ? evidence.questionNumbers
+          : onPages.map((q) => q.qNo),
+        answeredBy: answeredBySection(entries),
+      })
+      const section = suggestion?.section.id
       const match =
         section === undefined ? first : matchBatch({ questionPages, entries, section }, questions)
       const done: AnswerKeyRunState = {
@@ -128,6 +156,7 @@ export function useAnswerKeyRun() {
         keyPages,
         match,
         section,
+        sectionReason: suggestion?.reason ?? null,
         notes,
       }
       // The whole point of the preview: a number the key answers that no
@@ -148,6 +177,8 @@ export function useAnswerKeyRun() {
       setState((current) => ({
         ...current,
         section,
+        // An operator override stops being the book's reasoning.
+        sectionReason: null,
         match: matchBatch(
           {
             questionPages: current.questionPages,

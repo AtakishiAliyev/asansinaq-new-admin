@@ -204,6 +204,86 @@ export function batchAnswerIndex(
   return index
 }
 
+export interface SectionSuggestion {
+  section: KeySection
+  /** Why, in the operator's language. Shown instead of a question. */
+  reason: string
+}
+
+/**
+ * Which block of a key page answers these questions — worked out rather than
+ * asked.
+ *
+ * Picking one of eleven identically-shaped blocks is the worst thing this flow
+ * ever asked of a person: it is tedious, and a wrong pick writes a confident
+ * wrong answer onto every question in the range, which is the failure the
+ * whole pipeline is built to avoid. It is also unnecessary most of the time,
+ * because the QUESTION pages say which test they belong to — these books print
+ * "Test 1" in the page header and the segmenter already reads it.
+ *
+ * Two pieces of evidence, strongest first:
+ *
+ *   1. The test number the question pages print. Decisive when exactly one
+ *      block carries it: two independent parts of the same book agreeing.
+ *   2. Coverage. A block that does not answer every number the pages print
+ *      cannot be the right one, and if that leaves exactly one candidate the
+ *      answer is forced.
+ *
+ * Anything less than exactly one candidate returns null and the operator is
+ * asked — which is the honest outcome, not a fallback to guessing.
+ */
+export function suggestSection(
+  sections: KeySection[],
+  evidence: {
+    /** Test numbers the question pages themselves printed. */
+    questionTests: number[]
+    /** The question numbers cropped from those pages. */
+    questionNumbers: number[]
+    /** Which numbers each block answers. */
+    answeredBy: Map<string, Set<number>>
+  },
+): SectionSuggestion | null {
+  if (sections.length === 1) {
+    return { section: sections[0]!, reason: 'açar səhifəsində yalnız bu bölmə var' }
+  }
+  if (!sections.length) return null
+
+  const tests = new Set(evidence.questionTests)
+  if (tests.size === 1) {
+    const named = sections.filter((s) => s.testNo !== undefined && tests.has(s.testNo))
+    if (named.length === 1) {
+      return {
+        section: named[0]!,
+        reason: `sual səhifələri "${named[0]!.label}" yazır və açarda həmin bölmə var`,
+      }
+    }
+  }
+
+  if (evidence.questionNumbers.length) {
+    const covering = sections.filter((s) => {
+      const answered = evidence.answeredBy.get(s.id)
+      return answered ? evidence.questionNumbers.every((n) => answered.has(n)) : false
+    })
+    if (covering.length === 1) {
+      return {
+        section: covering[0]!,
+        reason: 'yalnız bu bölmə həmin sual nömrələrinin hamısına cavab verir',
+      }
+    }
+  }
+  return null
+}
+
+/** Which numbers each block of a key answers, for `suggestSection`. */
+export function answeredBySection(entries: AnswerKeyEntry[]): Map<string, Set<number>> {
+  const map = new Map<string, Set<number>>()
+  for (const entry of entries) {
+    if (entry.sectionId === undefined) continue
+    map.set(entry.sectionId, (map.get(entry.sectionId) ?? new Set()).add(entry.qNo))
+  }
+  return map
+}
+
 /** The key a `batchAnswerIndex` is read with. */
 export const batchAnswerKey = (pageNumber: number, qNo: number): string =>
   `${pageNumber}:${qNo}`

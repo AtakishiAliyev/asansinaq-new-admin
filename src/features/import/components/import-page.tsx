@@ -338,8 +338,22 @@ export function ImportPage() {
       return
     }
     setKeyRangeError(null)
+    // What the question pages say about themselves, from the segmentation
+    // still in memory — the crops are usually not sent yet, so the bank
+    // cannot answer this. It is what lets the block be worked out instead of
+    // asked; see `suggestSection`.
+    const onPages = segmentation.results.filter((r) =>
+      parsedQuestions.pages.includes(r.pageNumber),
+    )
     void answerKeys
-      .run(doc, parsedKeys.pages, currentBook.id, parsedQuestions.pages)
+      .run(doc, parsedKeys.pages, currentBook.id, parsedQuestions.pages, {
+        questionTests: [
+          ...new Set(
+            onPages.map((r) => r.testNo).filter((t): t is number => t !== undefined),
+          ),
+        ],
+        questionNumbers: onPages.flatMap((r) => r.crops.map((c) => c.number)),
+      })
       .then((result) => {
         if (!result.entries.length) {
           toast.warning('Seçilən səhifələrdə cavab açarı tapılmadı')
@@ -912,6 +926,7 @@ export function ImportPage() {
           keyPages={answerKeys.keyPages}
           labels={answerKeys.labels}
           section={answerKeys.section}
+          sectionReason={answerKeys.sectionReason}
           onSection={(section) => {
             if (currentBook) void answerKeys.chooseSection(section, currentBook.id)
           }}
