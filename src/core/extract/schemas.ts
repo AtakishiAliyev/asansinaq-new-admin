@@ -381,6 +381,7 @@ export const parseAnswerKeySchema = {
       items: {
         type: 'object',
         properties: {
+          block: { type: 'integer', description: 'which printed block on the page this came from, counting from 1 in reading order; a book reuses the same test number for two blocks and only the position tells them apart' },
           test_no: { type: 'integer', description: 'test/deneme number from the section header, omit when none' },
           q_no: { type: 'integer' },
           answer: { type: 'string', enum: ['A', 'B', 'C', 'D', 'E'] },

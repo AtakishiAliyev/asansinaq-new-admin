@@ -209,6 +209,38 @@ export const answerKeyBatchSuite = suite('answer-key-batch', {
     notOk(read.notes.some((n) => /ziddiyyət/.test(n)))
   },
 
+  // Soru Bankası 2025 A prints `Test-1` twice on one key page for two subjects.
+  // Keyed by the printed number the two collide and the conflict rule drops
+  // both, which on the text path cost 14 of that test's 16 answers before
+  // blocks existed there. A scan has no geometry to recover the position from,
+  // so the model is asked which block it read from.
+  'a scanned page tells two blocks the book named the same thing apart'() {
+    const read = readVisionKey([
+      { q_no: 1, answer: 'A', test_no: 1, block: 1 },
+      { q_no: 2, answer: 'B', test_no: 1, block: 1 },
+      { q_no: 1, answer: 'E', test_no: 1, block: 2 },
+      { q_no: 2, answer: 'D', test_no: 1, block: 2 },
+    ])
+    eq(read.entries.length, 4, 'both blocks survive')
+    notOk(read.notes.some((n) => /ziddiyyət/.test(n)))
+    eq(new Set(read.entries.map((e) => e.sectionId)).size, 2, 'two blocks')
+    ok(
+      read.entries.every((e) => e.testNo === 1),
+      'and both keep the number the book printed',
+    )
+  },
+
+  // The field is new, so a model that ignores it must leave the read no worse
+  // than it was before the field was asked for.
+  'a scanned read with no block index falls back to the printed number'() {
+    const read = readVisionKey([
+      { q_no: 1, answer: 'A', test_no: 1 },
+      { q_no: 1, answer: 'E', test_no: 2 },
+    ])
+    eq(read.entries.length, 2, 'still two sections')
+    eq(new Set(read.entries.map((e) => e.sectionId)).size, 2, 'told apart by number')
+  },
+
   'a thin scanned read says so rather than passing quietly'() {
     const read = readVisionKey([{ q_no: 1, answer: 'A' }, { q_no: 2, answer: 'B' }])
     eq(read.entries.length, 2, 'the answers still stand — the operator named this page')

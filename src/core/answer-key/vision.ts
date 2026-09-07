@@ -41,6 +41,8 @@ export interface RawVisionEntry {
   q_no?: unknown
   answer?: unknown
   test_no?: unknown
+  /** Which printed block on the page, counting from 1 in reading order. */
+  block?: unknown
 }
 
 /**
@@ -64,20 +66,45 @@ export function readVisionKey(raw: RawVisionEntry[]): VisionKeyRead {
 
   for (const item of raw) {
     const qNo = typeof item.q_no === 'number' ? item.q_no : Number(item.q_no)
-    const answer = String(item.answer ?? '').trim().toUpperCase()
+    const answer = String(item.answer ?? '')
+      .trim()
+      .toUpperCase()
     const testNo = typeof item.test_no === 'number' ? item.test_no : undefined
+    const printed =
+      typeof item.block === 'number' &&
+      Number.isInteger(item.block) &&
+      item.block >= 1
+        ? item.block
+        : undefined
 
-    if (!Number.isInteger(qNo) || qNo < 1 || qNo > 999 || !LETTERS.has(answer)) {
+    if (
+      !Number.isInteger(qNo) ||
+      qNo < 1 ||
+      qNo > 999 ||
+      !LETTERS.has(answer)
+    ) {
       rejected++
       continue
     }
 
     // A scan has no geometry to tell two identically-named blocks apart, so
-    // the printed number is all there is. Named the same way the text path
-    // names its blocks, so a caller never has to know which read it got.
-    // Where the page named nothing, it is the single implicit block; where it
-    // named some tests but not this entry, the entry belongs to no block.
-    const sectionId = testNo !== undefined ? String(testNo) : named ? undefined : '1'
+    // the model is asked which block it read from and that answer is preferred
+    // over the printed number. It has to be: Soru Bankası 2025 A prints
+    // `Test-1` twice on one key page for two subjects, and keyed by the number
+    // the two collide and the conflict rule below drops both — on the text
+    // path that cost 14 of test 1's 16 answers before blocks existed there.
+    //
+    // Falling back to the printed number keeps a model that ignores the field
+    // no worse than before it was asked for; a page that named nothing at all
+    // is the single implicit block, as on the text path.
+    const sectionId =
+      printed !== undefined
+        ? String(printed)
+        : testNo !== undefined
+          ? String(testNo)
+          : named
+            ? undefined
+            : '1'
     const slot = `${sectionId ?? '0'}:${qNo}`
     if (conflicts.has(slot)) continue
     const existing = seen.get(slot)
@@ -101,7 +128,9 @@ export function readVisionKey(raw: RawVisionEntry[]): VisionKeyRead {
   )
 
   if (rejected) {
-    notes.push(`${rejected} oxunuş atıldı (cavab A-E deyil və ya nömrə düzgün deyil)`)
+    notes.push(
+      `${rejected} oxunuş atıldı (cavab A-E deyil və ya nömrə düzgün deyil)`,
+    )
   }
   if (conflicts.size) {
     const shown = [...conflicts].slice(0, 5).map((k) => k.split(':')[1])

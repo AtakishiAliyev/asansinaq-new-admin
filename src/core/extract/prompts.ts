@@ -26,7 +26,7 @@
 // Four moved shadings in forty-five rows still passed at 15: the figure was a
 // third of the page in the render, and which side of a line a colour sits on
 // is not a comparison to make on a thumbnail.
-export const PROMPT_VERSION = 16
+export const PROMPT_VERSION = 17
 
 // Prompt texts for the question-recreation pipeline. Shared by the
 // question-ops Edge Function and the Node eval harness — ONE source of truth,
@@ -192,6 +192,7 @@ export const PARSE_ANSWER_KEY_PROMPT = `Bu, imtahan kitabının CAVAB AÇARI sə
 Qaydalar:
 - Hər giriş: sual nömrəsi (q_no) + cavab hərfi (A–E).
 - Səhifədə "Test N" / "N. Deneme" başlıqları varsa, ALTINDAKI girişlərə həmin test_no-nu yaz; başlıq yoxdursa test_no vermə.
+- Hər girişə block yaz: bu giriş səhifədəki neçənci BLOKDANDIR (oxunuş sırası ilə 1-dən). Kitab eyni nömrəni ("Test-1") iki fərqli blok üçün təkrar işlədə bilər — onları yalnız mövqe ayırır. Başlıq yoxdursa hamısı block=1.
 - Cədvəl sütunlarla düzülə bilər (1–20 solda, 21–40 sağda) — HAMISINI oxu, sütun sırası ilə.
 - Boş və ya oxunmayan xanaları BURAXIB davam et — uydurma.
 - Səhifə nömrəsini, başlıqları, reklamı sual sayma.`

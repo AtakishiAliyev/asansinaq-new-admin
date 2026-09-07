@@ -75,6 +75,8 @@ export interface BookKeyPlan {
   unpaired: BookSection[]
   blocks: BookBlock[]
   keyPages: number[]
+  /** The pages that carried questions — empty when nothing has been read yet. */
+  questionPages: number[]
   notes: string[]
 }
 
@@ -286,6 +288,7 @@ export function planBookKey(reads: BookPageRead[]): BookKeyPlan {
       unpaired: sectionsOf(questionPages, byPage),
       blocks: [],
       keyPages,
+      questionPages,
       notes: ['Kitabda cavab açarı səhifəsi tapılmadı'],
     }
   }
@@ -421,6 +424,7 @@ export function planBookKey(reads: BookPageRead[]): BookKeyPlan {
     unpaired,
     blocks,
     keyPages,
+    questionPages,
     notes,
   }
 }

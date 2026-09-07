@@ -35,10 +35,13 @@ export const extractResponseSchema = z.object({
   ms: z.number(),
 })
 
-
 export const parseAnswerKeyResponseSchema = z.object({
   entries: z.array(
     z.object({
+      // Which printed block, counting from 1. A book reuses a test number for
+      // two blocks and only the position tells them apart; a scan has no
+      // geometry to recover that from, so the model is asked for it.
+      block: z.number().nullish(),
       test_no: z.number().nullish(),
       q_no: z.number(),
       answer: z.enum(['A', 'B', 'C', 'D', 'E']),

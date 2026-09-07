@@ -425,6 +425,31 @@ export function ImportPage() {
       .catch((error) => toast.error(normalizeError(error).message))
   }
 
+  /**
+   * Why a book-wide read came back with nothing, in the operator's terms.
+   *
+   * A scan needs two things the pass cannot supply, IN ORDER: the pages that
+   * hold the key, and the questions themselves — which on a scan are only
+   * known once they have been cropped and sent, because the page numbers come
+   * from the bank rather than from a text layer. Reporting "no key found" for
+   * either of those sent the operator looking for a defect that was really a
+   * missing step.
+   */
+  function scanKeyHint(result: {
+    scanned: boolean
+    plan: { keyPages: number[]; questionPages: number[] } | null
+  }): string {
+    if (!result.scanned)
+      return 'Kitabda yerləşdirilə bilən cavab açarı tapılmadı'
+    if (!result.plan?.keyPages.length) {
+      return 'Bu kitab skandır — açar səhifələrini yazıb yenidən yoxlayın'
+    }
+    if (!result.plan.questionPages.length) {
+      return 'Açar oxundu, amma bu skan kitabda hələ kəsilmiş sual yoxdur — əvvəlcə səhifələri kəsib növbəyə atın, sonra açarı yenidən oxuyun'
+    }
+    return 'Açar oxundu, amma heç bir bölmə üçün təsdiqlənmədi'
+  }
+
   // The whole book at once. Nothing is named and nothing is paired by hand:
   // the pass reads every page and works out which block answers which section
   // from the book's own shape. The page-range flow below stays for what this
@@ -441,11 +466,7 @@ export function ImportPage() {
           // A scan has no text layer to read, so the pass needs the operator to
           // name the key pages — the one thing it cannot work out for itself.
           if (result.scanned) setManualKeyOpen(true)
-          toast.warning(
-            result.scanned && !named.ok
-              ? 'Bu kitab skandır — açar səhifələrini yazıb yenidən yoxlayın'
-              : 'Kitabda yerləşdirilə bilən cavab açarı tapılmadı',
-          )
+          toast.warning(scanKeyHint(result))
           return
         }
         // Sections the shape could not settle are the other reason to reach for
