@@ -1,0 +1,75 @@
+# The worker on Render, as a Blueprint.
+#
+# A BACKGROUND WORKER, not a web service, and that choice is forced. Render
+# spins a free web service down after fifteen minutes without inbound traffic,
+# and this process has no inbound traffic at all — it polls a queue and waits
+# on batches that take minutes to hours. Background workers run continuously,
+# and Render offers no free plan for them. That is the whole reason this costs
+# anything: a lane that keeps collecting a paid-for batch while nobody is
+# watching cannot be free.
+services:
+  - type: worker
+    name: asansinaq-worker
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    region: frankfurt
+    # 0.5 CPU, 512 MB — the smallest Render sells. The measured idle footprint
+    # is ~160 MB before tesseract loads its model, so the memory has room; the
+    # CPU is the part to watch, because a figure question does real work
+    # (canvas cutting, OCR, MathJax) while a text question mostly waits on a
+    # provider. If a figure-heavy book starves it, lower EXPRESS_CONCURRENCY
+    # or let the batch lane carry it before paying for a bigger box.
+    plan: 0.5c-512mb
+    autoDeploy: true
+    envVars:
+      # Lease identity, and it must be UNIQUE. Two workers sharing one id would
+      # each renew and release the other's rows — precisely the failure the
+      # lease exists to prevent. The Mac daemon is `worker-1`; if both ever run
+      # at once, they must not collide.
+      - key: WORKER_ID
+        value: render-1
+
+      # Never stop when the queue empties. The operator queues work in the UI
+      # expecting it to be picked up, and a container that exited quietly the
+      # last time the queue ran dry is indistinguishable from one that crashed.
+      - key: WORKER_DAEMON
+        value: '1'
+
+      - key: MODEL_TEXT
+        value: claude-haiku-4-5
+      - key: MODEL_FIGURE
+        value: claude-sonnet-5
+      - key: MODEL_VERIFY
+        value: claude-sonnet-5
+
+      - key: GEMINI_IMAGE_MODEL
+        value: gemini-3.1-flash-image
+      # 1K, not the API's own default and not 2K. Image output tokens are
+      # 99.6% of what the figure lane costs, and on the flash tier 2K is about
+      # half as much again per drawing.
+      - key: GEMINI_IMAGE_SIZE
+        value: 1K
+      - key: OPENAI_IMAGE_MODEL
+        value: gpt-image-2
+
+      # Enforced server-side as well, by ops_spend_today(). This is what the
+      # worker reads to stop BEFORE submitting rather than after being refused.
+      - key: DAILY_BUDGET_USD
+        value: '50'
+      - key: BATCH_SIZE
+        value: '20'
+
+      # Secrets, and the project's own address. `sync: false` means Render
+      # prompts for each one when the Blueprint is created and keeps it in the
+      # dashboard afterwards — none of them is ever written to the repository.
+      # SUPABASE_SERVICE_ROLE_KEY bypasses RLS and must never reach a browser.
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false

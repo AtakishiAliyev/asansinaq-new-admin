@@ -149,10 +149,13 @@ what each stage needs.
   **The request itself is documented, not defaulted** (`core/figures/
   gen-request.ts`, pinned by `eval/suites/gen-request.ts`). Three parts of it
   were decided against the API docs rather than left alone. The resolution is
-  ASKED FOR — `GEMINI_IMAGE_SIZE`, default `2K` — because unset the API draws
-  at 1K and both model cards name that size in their own known limitations
-  ("small text often blurry in the 1k model"), which is exactly what an exam
-  label is; on the pro tier 2K bills the same as 1K, so it is free there. No
+  ASKED FOR — `GEMINI_IMAGE_SIZE` — because unset the API draws at 1K and both
+  model cards name that size in their own known limitations ("small text often
+  blurry in the 1k model"), which is exactly what an exam label is; on the pro
+  tier 2K bills the same as 1K, so it is free there. The DEFAULT is `1K`, not
+  `2K`: the flash tier is what this lane runs, image output tokens are 99.6% of
+  what it costs, and 2K is about half as much again per drawing. A default is
+  what runs when nobody chose, so it is the cheap one. No
   SAMPLING parameter is sent: `temperature: 0` used to be, on the reasoning
   that a copy must not compose, but the guidance for this model family is to
   leave it at its default and nothing documents its effect on image output at
@@ -520,7 +523,9 @@ same request from Node.
 - React Hook Form + Zod (forms & validation)
 - Tailwind CSS + shadcn/ui (`src/components/ui/`)
 - Supabase (`@supabase/supabase-js`) — DB, Auth, Storage, Edge Functions
-- Deploy: Vercel
+- Deploy: Vercel (the panel), Render background worker (`worker/`), Supabase
+  (database, storage, auth, the `question-ops` function). See `DEPLOY.md` —
+  including why the worker cannot run on Vercel or on a free Render plan.
 
 ## Commands
 

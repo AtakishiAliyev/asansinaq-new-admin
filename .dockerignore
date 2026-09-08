@@ -1,0 +1,37 @@
+# The image needs the worker's source and nothing else. Everything below is
+# either rebuilt inside the container, belongs to the browser bundle, or must
+# never be in an image at all.
+.git
+.github
+node_modules
+dist
+dist-ssr
+
+# Secrets. The worker reads its configuration from the environment on Render;
+# a .env copied into the image would put the service-role key in every layer.
+.env
+.env.*
+
+# The browser's half: pages, components, the Vite config, the Supabase project
+# and its migrations. `src/` is NOT here — the worker imports `core` from it.
+public
+supabase
+index.html
+vercel.json
+
+# Downloaded at runtime (the tesseract model) or written by the samples.
+local
+samples
+
+# Development-only: the suites, the one-off scripts, the docs. The two loader
+# files under eval/ ARE copied, by name, in the Dockerfile.
+eval/suites
+eval/run.ts
+eval/harness.ts
+scripts
+docs
+*.md
+
+# ...except the one `npm ci` runs as a postinstall hook. Without this negation
+# the COPY in the Dockerfile fails on a file that is not in the build context.
+!scripts/copy-pdfjs-wasm.mjs
