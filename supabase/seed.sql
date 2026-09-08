@@ -5,8 +5,16 @@
 -- Seeds run on `supabase db reset` (local). They do NOT run on `db push`, so a
 -- freshly created hosted project needs this statement executed once by hand —
 -- otherwise nobody can get past the login screen.
+--
+-- Two things are needed per admin, and this file can only do one of them. This
+-- row is what `is_admin()` reads, and every RLS policy resolves through that.
+-- The other is a row in `auth.users`: sign-in passes `shouldCreateUser: false`,
+-- so an address with no auth user is never sent a code at all. Provision that
+-- through the Auth admin API — never by letting someone sign themselves up.
 insert into public.admin_emails (email, note)
-values ('atas.eliyev45@gmail.com', 'owner')
+values
+  ('atas.eliyev45@gmail.com', 'owner'),
+  ('adiyev556@gmail.com', 'admin')
 on conflict (email) do nothing;
 
 -- The starting taxonomy: the YÖS exam system and its three subjects. All of it
