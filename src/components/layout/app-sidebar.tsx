@@ -1,4 +1,5 @@
 import {
+  CircleCheckBig,
   FileUp,
   LayoutDashboard,
   Library,
@@ -40,6 +41,7 @@ const NAV_ITEMS = [
   { to: '/import', label: 'İmport', icon: FileUp },
   { to: '/books', label: 'Kitablar', icon: Library },
   { to: '/questions', label: 'Suallar', icon: ListChecks },
+  { to: '/ready', label: 'Hazır suallar', icon: CircleCheckBig },
   { to: '/taxonomy', label: 'Fənn və kateqoriyalar', icon: ListTree },
   { to: '/ops', label: 'Xərclər', icon: Wallet },
 ]

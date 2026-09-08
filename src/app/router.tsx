@@ -27,6 +27,9 @@ const BooksPage = lazy(async () => ({
 const QuestionsPage = lazy(async () => ({
   default: (await import('@/features/questions')).QuestionsPage,
 }))
+const ReadyPage = lazy(async () => ({
+  default: (await import('@/features/questions')).ReadyPage,
+}))
 const TaxonomyPage = lazy(async () => ({
   default: (await import('@/features/taxonomy')).TaxonomyPage,
 }))
@@ -52,6 +55,7 @@ export const router = createBrowserRouter([
               { path: 'import', element: <ImportPage /> },
               { path: 'books', element: <BooksPage /> },
               { path: 'questions', element: <QuestionsPage /> },
+              { path: 'ready', element: <ReadyPage /> },
               { path: 'taxonomy', element: <TaxonomyPage /> },
               { path: 'ops', element: <OpsPage /> },
               { path: 'profile', element: <ProfilePage /> },

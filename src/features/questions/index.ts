@@ -1,5 +1,6 @@
 export { useSaveCrops, type SaveCropsResult } from '@/features/questions/api/save-crops'
 export { QuestionsPage } from '@/features/questions/components/questions-page'
+export { ReadyPage } from '@/features/questions/components/ready-page'
 export { AnswerKeyDialog } from '@/features/questions/components/answer-key-dialog'
 export { useAnswerKeyRun } from '@/features/questions/hooks/use-answer-key-run'
 export { BookKeyDialog } from '@/features/questions/components/book-key-dialog'

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Eye, Sparkles } from 'lucide-react'
+import { Link } from 'react-router'
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyDescription, EmptyTitle } from '@/components/ui/empty'
 import {
@@ -29,19 +30,15 @@ import { QuestionsTable } from '@/features/questions/components/questions-table'
 import { ReviewScreen } from '@/features/questions/components/review-screen'
 import { STATUS_LABEL } from '@/features/questions/lib/status'
 
-const STATUS_ORDER = [
-  'cropped',
-  'structured',
-  'approved',
-  'rejected',
-  'failed',
-] as const
+// `approved` is deliberately absent: those questions live on the Hazır suallar
+// screen, and the scope filter keeps them off this one whatever is selected
+// here. A chip for a status this list cannot show would always read zero.
+const STATUS_ORDER = ['cropped', 'structured', 'rejected', 'failed'] as const
 
 const CHIP_ACTIVE: Record<string, string> = {
   all: 'border-foreground/25 bg-foreground/5',
   cropped: 'border-muted-foreground/30 bg-muted',
   structured: 'border-sky-300 bg-sky-50 text-sky-800',
-  approved: 'border-emerald-300 bg-emerald-50 text-emerald-800',
   rejected: 'border-muted-foreground/30 bg-muted',
   failed: 'border-destructive/40 bg-destructive/10 text-destructive',
 }
@@ -156,7 +153,16 @@ export function QuestionsPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
-      <h1 className="text-2xl font-semibold tracking-tight">Suallar</h1>
+      <header className="flex flex-col gap-1">
+        <h1 className="text-2xl font-semibold tracking-tight">Suallar</h1>
+        <p className="text-muted-foreground text-sm">
+          Üzərində iş gedən suallar. Təsdiqlədikləriniz{' '}
+          <Link to="/ready" className="underline underline-offset-2">
+            Hazır suallar
+          </Link>{' '}
+          səhifəsinə keçir.
+        </p>
+      </header>
 
       <QueuePanel />
 
@@ -279,9 +285,11 @@ export function QuestionsPage() {
       ) : (
         <QuestionsTable
           items={items}
-          selected={selectedIds}
-          onToggle={toggleOne}
-          onToggleAll={toggleAll}
+          selection={{
+            selected: selectedIds,
+            onToggle: toggleOne,
+            onToggleAll: toggleAll,
+          }}
           onOpen={(item) => setReviewId(item.id)}
         />
       )}

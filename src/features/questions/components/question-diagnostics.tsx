@@ -67,23 +67,39 @@ const FLAG_HINTS: Record<string, string> = {
   venn_empty: 'Venn fiquru boşdur',
 }
 
+const LEVEL_CLASS: Record<Flag['level'], string> = {
+  error: 'border-destructive/30 bg-destructive/10 text-destructive',
+  warning: 'border-amber-200 bg-amber-50 text-amber-800',
+  // Quiet on purpose. An `info` flag is something to READ if the row is open,
+  // not something to be pulled to — it is the level for a check whose false
+  // positives are known and whose objection a stricter check already
+  // overruled. Wearing the amber of a real warning is what made a screenful of
+  // correct questions look like a screenful of problems.
+  info: 'border-muted-foreground/20 bg-muted text-muted-foreground',
+}
+
+/** Loudest first, so the badge a reviewer must act on is the one they read. */
+const LEVEL_RANK: Record<Flag['level'], number> = {
+  error: 0,
+  warning: 1,
+  info: 2,
+}
+
 export function FlagBadges({ flags }: { flags: Flag[] }) {
   if (!flags.length) return null
+  const ordered = [...flags].sort(
+    (a, b) => LEVEL_RANK[a.level] - LEVEL_RANK[b.level],
+  )
   return (
     <div className="flex flex-wrap gap-1.5">
-      {flags.map((f, i) => (
+      {ordered.map((f, i) => (
         <Badge
           key={`${f.code}-${i}`}
           variant="outline"
-          className={cn(
-            'text-[11px]',
-            f.level === 'error'
-              ? 'border-destructive/30 bg-destructive/10 text-destructive'
-              : 'border-amber-200 bg-amber-50 text-amber-800',
-          )}
+          className={cn('text-[11px]', LEVEL_CLASS[f.level])}
           title={f.message}
         >
-          <TriangleAlert />
+          {f.level === 'info' ? <Info /> : <TriangleAlert />}
           {FLAG_HINTS[f.code] ?? f.code}
         </Badge>
       ))}
