@@ -1,3 +1,4 @@
+import { batchAnswerKey } from '@/core/answer-key/batch'
 import { useCallback, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import type { Crop } from '@/core/segment/types'
@@ -144,10 +145,7 @@ export function useRestructure() {
           qNo: crop.number,
           currentStatus: row.status,
           answerSource: row.answer_source ?? null,
-          keyAnswer:
-            book.answerKeys.get(`${row.test_no ?? 0}:${row.q_no}`) ??
-            book.answerKeys.get(`0:${row.q_no}`) ??
-            null,
+          keyAnswer: book.answerKeys.get(batchAnswerKey(row.page_number, row.q_no)) ?? null,
           answerKeysRead: book.answerKeysRead,
           categoryIds: book.categories.map((c) => c.id),
           croppedOptionImages: cut.produced,

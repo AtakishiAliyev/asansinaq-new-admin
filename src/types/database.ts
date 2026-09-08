@@ -106,51 +106,6 @@ export type Database = {
           },
         ]
       }
-      answer_keys: {
-        Row: {
-          answer: string
-          book_id: number
-          created_at: string
-          created_by: string | null
-          q_no: number
-          source_page: number | null
-          test_no: number
-        }
-        Insert: {
-          answer: string
-          book_id: number
-          created_at?: string
-          created_by?: string | null
-          q_no: number
-          source_page?: number | null
-          test_no?: number
-        }
-        Update: {
-          answer?: string
-          book_id?: number
-          created_at?: string
-          created_by?: string | null
-          q_no?: number
-          source_page?: number | null
-          test_no?: number
-        }
-        Relationships: [
-          {
-            foreignKeyName: "answer_keys_book_id_fkey"
-            columns: ["book_id"]
-            isOneToOne: false
-            referencedRelation: "books"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "answer_keys_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       books: {
         Row: {
           content_hash: string | null

@@ -392,8 +392,11 @@ what each stage needs.
   it is wired and checked, not measured.
 
   The per-selection pairing (`planKeyBatches`) stays for what the book-wide
-  pass cannot settle, and `answer_keys` and `match.ts` stay for books imported
-  before either. `answerFor` prefers the pairing wherever it has an entry.
+  pass cannot settle. The table that preceded both, `answer_keys`, and the
+  matcher that inferred sections for it are gone: at the time of the drop the
+  table held 0 rows against 264 batches and 4,051 entries in its replacement,
+  and every read of it had been reading an empty table for as long as the
+  replacement existed. `answerFor` resolves by page and printed number only.
 - **The browser orchestrates exactly one thing: a single-question interactive
   re-run** from the review screen. That is what the `question-ops` Edge Function
   is still for — that, answer-key parsing and page detection, which stay
@@ -452,11 +455,12 @@ lands `verified: false` until the wave has ruled on it, so a full Diqqət lane
 right after an extract batch is expected, not a defect; it empties as the
 verify batches come back.
 
-One shim is deliberate and temporary: `parse_answer_key` and `detect_questions`
-still express their requests in the Gemini builder dialect, translated at the
-door by `geminiToAnthropic`. It works, it keeps prompts and eval fixtures in one
-place, and it is still scheduled for removal along with
-`core/extract/request-gemini.ts`.
+The two reading ops — a printed key page, and where the questions sit on a
+scan — are built in `core/extract/request-reading.ts` as the Anthropic
+requests they are. They used to be written in a Gemini dialect and translated
+at the Edge Function's door; that was the last trace of that provider in the
+reading path, and the survey script had to translate a second time to send the
+same request from Node.
 
 ## Stack
 

@@ -139,7 +139,7 @@ export async function applyResult(
     qNo: row.q_no,
     currentStatus: row.status,
     answerSource: row.answer_source,
-    keyAnswer: answerFor(context, row.test_no, row.q_no, row.page_number),
+    keyAnswer: answerFor(context, row.q_no, row.page_number),
     answerKeysRead: context.answerKeysRead,
     categoryIds: context.categories.map((c) => c.id),
     croppedOptionImages: cut.produced,

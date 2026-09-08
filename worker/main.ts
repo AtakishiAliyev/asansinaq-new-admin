@@ -666,7 +666,7 @@ async function dryRun(): Promise<void> {
     log(
       `  q${row.id}: lane=${request.lane} model=${model} ` +
         `figure_kind=${row.figure_kind} categories=${context.categories.length} ` +
-        `answer_key=${context.answerKeys.size ? 'yes' : 'none'} ` +
+        `answer_key=${context.batchAnswers.size ? 'yes' : 'none'} ` +
         `tokens=${counted.input_tokens}${hit ? ' CACHED (free)' : ''}`,
     )
   }

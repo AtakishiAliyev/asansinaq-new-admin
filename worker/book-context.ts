@@ -10,16 +10,14 @@ import type { CategoryOption } from '@/core/extract/request-anthropic'
 import type { Db } from './db.ts'
 
 export interface BookContext {
-  /** `${test_no}:${q_no}` → answer. Empty when the book has no key imported. */
-  answerKeys: Map<string, string>
   /**
    * `${page_number}:${q_no}` → answer, from the operator's own pairing of key
    * pages to question pages.
    *
-   * Preferred over `answerKeys` wherever it has an entry, because it is the
-   * one lookup that needs no inference: a question's page and printed number
-   * are both facts. The test-number map stays for books imported before the
-   * pairing existed, and for a book whose key was read without one.
+   * The one lookup that needs no inference: a question's page and printed
+   * number are both facts. A map keyed by test number used to sit beside it
+   * for books imported before the pairing existed; it had been reading an
+   * empty table for as long as the pairing had, and is gone.
    */
   batchAnswers: Map<string, string>
   /**
@@ -42,36 +40,6 @@ export interface BookContext {
 
 const PAGE = 1000
 
-async function fetchAnswerKeys(
-  db: Db,
-  bookId: number,
-): Promise<Map<string, string>> {
-  const keys = new Map<string, string>()
-  for (let offset = 0; ; offset += PAGE) {
-    const { data, error } = await db
-      .from('answer_keys')
-      .select('test_no, q_no, answer')
-      .eq('book_id', bookId)
-      .range(offset, offset + PAGE - 1)
-    if (error) throw new Error(error.message)
-    const rows = data ?? []
-    for (const row of rows) {
-      if (row.answer) keys.set(`${row.test_no ?? 0}:${row.q_no}`, row.answer)
-    }
-    // A truncated read would silently shrink the key and leave real answers
-    // looking absent, so page until the server returns a short batch.
-    if (rows.length < PAGE) break
-  }
-  return keys
-}
-
-/**
- * Every operator-paired key for a book, flattened into a page lookup.
- *
- * Two reads rather than a join: PostgREST would nest the entries under each
- * batch and a book with twenty sections passes the 1000-row ceiling on the
- * entries alone, so both are paged the way every other read here is.
- */
 async function fetchBatchAnswers(db: Db, bookId: number): Promise<Map<string, string>> {
   const { data: batches, error } = await db
     .from('answer_key_batches')
@@ -157,11 +125,9 @@ export async function bookContext(db: Db, bookId: number): Promise<BookContext> 
   const hit = cache.get(bookId)
   if (hit) return hit
 
-  let answerKeys = new Map<string, string>()
   let batchAnswers = new Map<string, string>()
   let answerKeysRead = true
   try {
-    answerKeys = await fetchAnswerKeys(db, bookId)
     batchAnswers = await fetchBatchAnswers(db, bookId)
   } catch (error) {
     answerKeysRead = false
@@ -177,7 +143,6 @@ export async function bookContext(db: Db, bookId: number): Promise<BookContext> 
     .maybeSingle()
 
   const context: BookContext = {
-    answerKeys,
     batchAnswers,
     answerKeysRead,
     categories: await fetchCategories(db, bookId),
@@ -194,24 +159,16 @@ export async function bookContext(db: Db, bookId: number): Promise<BookContext> 
 /**
  * The answer for one question, or null. Never a model's opinion.
  *
- * The operator's pairing wins where it has something to say: it resolves by
- * page and printed number, which are facts, while the test-number lookup below
- * rests on a section that had to be inferred and that a survey of nine books
- * showed cannot be inferred reliably.
+ * Resolved by page and printed number, which are facts. A lookup by test
+ * number used to follow as a fallback; it rested on a section that had to be
+ * inferred, a survey of nine books showed the inference cannot be made, and
+ * its table had held nothing for as long as the pairing existed.
  */
 export function answerFor(
   context: BookContext,
-  testNo: number | null,
   qNo: number,
   pageNumber?: number,
 ): string | null {
-  if (pageNumber !== undefined) {
-    const paired = context.batchAnswers.get(batchAnswerKey(pageNumber, qNo))
-    if (paired) return paired
-  }
-  return (
-    context.answerKeys.get(`${testNo ?? 0}:${qNo}`) ??
-    context.answerKeys.get(`0:${qNo}`) ??
-    null
-  )
+  if (pageNumber === undefined) return null
+  return context.batchAnswers.get(batchAnswerKey(pageNumber, qNo)) ?? null
 }

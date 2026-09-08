@@ -3,7 +3,7 @@ import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
 import { normalizeError } from '@/lib/errors'
 import type { AnswerKeyEntry } from '@/core/answer-key/parse'
-import type { MatchableQuestion } from '@/core/answer-key/batch'
+import { batchAnswerIndex, type MatchableQuestion } from '@/core/answer-key/batch'
 import { questionKeys } from '@/features/questions/api/keys'
 
 /** Everything the matcher needs about a book's saved questions. */
@@ -176,28 +176,48 @@ export function useSaveAnswerKeys() {
 }
 
 /**
- * The printed answers for a book, keyed `test:q_no`, used during structuring.
- * Paged for the same reason the matcher is: a book with twenty tests passes
- * PostgREST's 1000-row ceiling, and a truncated read would leave the tail of
- * the book answerless while looking exactly like a book with no key.
+ * The printed answers for a book, keyed `page:q_no`, used during a re-run.
+ *
+ * The same map the worker builds from the pairing, so a question re-read from
+ * the review screen resolves its answer the way a batch would. Paged for the
+ * same reason the matcher is: a truncated read would leave the tail of the
+ * book answerless while looking exactly like a book with no key.
  */
 export async function fetchBookAnswerKeys(
   bookId: number,
 ): Promise<Map<string, string>> {
-  const map = new Map<string, string>()
   const PAGE = 1000
+  const batches: { id: number; question_pages: number[] }[] = []
   for (let offset = 0; ; offset += PAGE) {
     const { data, error } = await supabase
-      .from('answer_keys')
-      .select('test_no, q_no, answer')
+      .from('answer_key_batches')
+      .select('id, question_pages')
       .eq('book_id', bookId)
-      .order('test_no')
-      .order('q_no')
+      // A later batch corrects an earlier one, so it has to be applied last.
+      .order('id')
       .range(offset, offset + PAGE - 1)
     if (error) throw error
     const rows = data ?? []
-    for (const row of rows) map.set(`${row.test_no}:${row.q_no}`, row.answer)
+    batches.push(...rows)
     if (rows.length < PAGE) break
   }
-  return map
+  const entries = new Map<number, { qNo: number; answer: string }[]>()
+  for (let offset = 0; ; offset += PAGE) {
+    const { data, error } = await supabase
+      .from('answer_key_entries')
+      .select('batch_id, q_no, answer')
+      .in('batch_id', batches.map((b) => b.id))
+      .range(offset, offset + PAGE - 1)
+    if (error) throw error
+    const rows = data ?? []
+    for (const row of rows) {
+      const list = entries.get(row.batch_id) ?? []
+      list.push({ qNo: row.q_no, answer: row.answer })
+      entries.set(row.batch_id, list)
+    }
+    if (rows.length < PAGE) break
+  }
+  return batchAnswerIndex(
+    batches.map((b) => ({ questionPages: b.question_pages, entries: entries.get(b.id) ?? [] })),
+  )
 }

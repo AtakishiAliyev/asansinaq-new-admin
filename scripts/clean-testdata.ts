@@ -18,7 +18,6 @@
 //
 // WHAT IT DELETES
 //   questions          every row (nothing in the schema references them)
-//   answer_keys        every row
 //   books              every row  (must follow questions: the FK is RESTRICT)
 //   ops_cache          every row  (its image_path rows point into cache/ below)
 //   question-crops     every object, including the cache/ prefix
@@ -132,7 +131,7 @@ async function refuseIfInFlight(): Promise<void> {
 
 if (!abandonInFlight) await refuseIfInFlight()
 
-async function tableCount(table: 'questions' | 'answer_keys' | 'books' | 'ops_cache' | 'ops_log') {
+async function tableCount(table: 'questions' | 'books' | 'ops_cache' | 'ops_log') {
   const { count, error } = await db.from(table).select('*', { count: 'exact', head: true })
   if (error) throw new Error(`${table}: ${error.message}`)
   return count ?? 0
@@ -174,7 +173,6 @@ console.log('counting before…\n')
 
 const before = {
   questions: await tableCount('questions'),
-  answer_keys: await tableCount('answer_keys'),
   books: await tableCount('books'),
   ops_cache: await tableCount('ops_cache'),
   ops_log: await tableCount('ops_log'),
@@ -186,7 +184,6 @@ const cropCacheObjects = crops.filter((p) => p.startsWith('cache/')).length
 
 console.table({
   questions: before.questions,
-  answer_keys: before.answer_keys,
   books: before.books,
   ops_cache: before.ops_cache,
   'question-crops (objects)': crops.length,
@@ -198,13 +195,6 @@ console.table({
 console.log('\ndeleting…')
 
 // Order follows the FKs, not preference: questions.book_id is ON DELETE
-// RESTRICT, so books cannot go first. answer_keys would cascade with the book,
-// but is cleared explicitly so the count is reported rather than inferred.
-const { error: qError } = await db.from('questions').delete().gt('id', 0)
-if (qError) throw new Error(`questions: ${qError.message}`)
-
-const { error: kError } = await db.from('answer_keys').delete().gt('book_id', 0)
-if (kError) throw new Error(`answer_keys: ${kError.message}`)
 
 const { error: bError } = await db.from('books').delete().gt('id', 0)
 if (bError) throw new Error(`books: ${bError.message}`)
@@ -220,7 +210,6 @@ const pdfsRemoved = await emptyBucket('pdfs')
 
 const after = {
   questions: await tableCount('questions'),
-  answer_keys: await tableCount('answer_keys'),
   books: await tableCount('books'),
   ops_cache: await tableCount('ops_cache'),
   ops_log: await tableCount('ops_log'),
@@ -229,7 +218,6 @@ const after = {
 console.log('\ndeleted:')
 console.table({
   questions: before.questions - after.questions,
-  answer_keys: before.answer_keys - after.answer_keys,
   books: before.books - after.books,
   ops_cache: before.ops_cache - after.ops_cache,
   'question-crops (objects)': cropsRemoved,
@@ -238,7 +226,6 @@ console.table({
 
 const leftovers = [
   after.questions && `questions=${after.questions}`,
-  after.answer_keys && `answer_keys=${after.answer_keys}`,
   after.books && `books=${after.books}`,
   after.ops_cache && `ops_cache=${after.ops_cache}`,
   (await listAll('question-crops')).length && 'question-crops not empty',

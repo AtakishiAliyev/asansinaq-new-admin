@@ -1,0 +1,16 @@
+-- The pre-pairing answer key table.
+--
+-- A key used to be stored by the test number its page announced, and applied
+-- by inferring which section of the book that number meant. A survey of nine
+-- real books showed the inference cannot be done: one prints `Test-1` twice on
+-- a page for two subjects, one heads its sections in a form no pattern reads,
+-- five are scans with no header at all. `answer_key_batches` replaced it —
+-- a key placed by the PAGES it belongs to, which are facts — and the book-wide
+-- pass replaced the operator's part of that.
+--
+-- The table held 0 rows at the time of this migration against 264 batches and
+-- 4,051 entries in its replacement, and every read of it had been reading an
+-- empty table for as long as the replacement existed. The policies go with it.
+-- `apply_answer_keys(jsonb)` stays: it writes answers onto questions from a
+-- list of pairs and never touched this table.
+drop table if exists public.answer_keys;
