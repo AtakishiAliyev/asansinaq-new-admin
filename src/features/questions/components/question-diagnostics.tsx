@@ -7,24 +7,33 @@ const FLAG_HINTS: Record<string, string> = {
   geo_degenerate_angle: 'bucaq eyni nöqtələrdən ibarətdir',
   geo_right_angle_with_arcs: 'bucaq həm düz, həm qövslə işarələnib',
   geo_coincident_points: 'iki nöqtə eyni yerdədir',
-  figure_missing_referenced_angle: 'sual bu bucaqdan danışır, fiqurda çəkilə bilmir',
+  figure_missing_referenced_angle:
+    'sual bu bucaqdan danışır, fiqurda çəkilə bilmir',
   figure_angle_not_marked: 'soruşulan bucaq fiqurda işarələnməyib',
   figure_missing_referenced_segment: 'sual bu parçadan danışır, fiqurda yoxdur',
-  geo_ticks_on_ray: 'şüada bərabər uzunluq işarəsi — paralellik nəzərdə tutulub?',
+  geo_ticks_on_ray:
+    'şüada bərabər uzunluq işarəsi — paralellik nəzərdə tutulub?',
   geo_empty: 'həndəsə fiqurunda çəkiləcək bir şey yoxdur',
-  gen_rejected: '1:1 təkrar çəkiliş qoruyucudan keçmədi — orijinal kəsim saxlanıldı',
-  gen_unverified: 'təkrar çəkiliş göstərilir, quruluş yoxlamasından keçmədi — kəsimlə müqayisə edin',
+  gen_rejected:
+    '1:1 təkrar çəkiliş qoruyucudan keçmədi — orijinal kəsim saxlanıldı',
+  gen_unverified:
+    'təkrar çəkiliş göstərilir, quruluş yoxlamasından keçmədi — kəsimlə müqayisə edin',
+  gen_dropped_colour:
+    'təkrar çəkiliş boyalı bölgəni dəyişdirdi və düzəlişlər həll etmədi — atıldı, orijinalın kəsimi göstərilir',
   gen_failed: 'təkrar çəkiliş alınmadı — orijinal kəsim saxlanıldı',
   gen_skipped: 'təkrar çəkiliş edilmədi (büdcə) — orijinal kəsim saxlanıldı',
-  figure_rerouted: 'seçilmiş fiqur növü bu fiquru ifadə etmir — orijinaldan kəsildi',
-  figure_box_unverified: 'fiqurun yeri piksellərdən təsdiqlənmədi — kəsimi yoxlayın',
+  figure_rerouted:
+    'seçilmiş fiqur növü bu fiquru ifadə etmir — orijinaldan kəsildi',
+  figure_box_unverified:
+    'fiqurun yeri piksellərdən təsdiqlənmədi — kəsimi yoxlayın',
   raster_figure: 'fiqur orijinaldan kəsilib (DSL ifadə etmir) — gözlə təsdiqlə',
   raster_mismatch: 'yaradılan fiqur orijinala uyğun gəlmədi',
   figure_failed: 'fiqur yaradıla bilmədi',
   option_figure_failed: 'variant şəkli yaradıla bilmədi',
   option_figure_mismatch: 'variant şəkli orijinala uyğun gəlmədi',
   missing_figure: 'sual şəklə istinad edir, amma fiqur yoxdur',
-  figure_lane_promoted: 'fiqur piksellərdən görünmədi — model bildirdiyi üçün çəkildi',
+  figure_lane_promoted:
+    'fiqur piksellərdən görünmədi — model bildirdiyi üçün çəkildi',
   option_count: 'variant sayı 5 deyil',
   option_prose: 'variant dəyər deyil, izahat kimi görünür',
   option_boxes_failed: 'variantların yerini tapan addım uğursuz oldu',
@@ -36,8 +45,10 @@ const FLAG_HINTS: Record<string, string> = {
   option_labels: 'variant hərfləri A–E deyil',
   option_latex: 'variant LaTeX-i render olunmur',
   stem_latex: 'sual mətnindəki LaTeX render olunmur',
-  stem_echoes_option: 'variantın məzmunu sual mətninə çəkilib — mənbə ilə tutuşdurun',
-  stem_from_figure: 'şərt şəkildən oxunur — çap olunmuş mətn crop-dan kənardadır',
+  stem_echoes_option:
+    'variantın məzmunu sual mətninə çəkilib — mənbə ilə tutuşdurun',
+  stem_from_figure:
+    'şərt şəkildən oxunur — çap olunmuş mətn crop-dan kənardadır',
   empty_stem: 'sual mətni boşdur',
   illegible: 'model mətni oxuya bilmədi',
   clipped: 'crop kəsilmiş ola bilər',

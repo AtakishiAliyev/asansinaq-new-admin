@@ -15,17 +15,29 @@
 // Geometry matches src/features/questions/lib/image.ts exactly, so the browser
 // and the worker cut the same pixels from the same box.
 import { createCanvas, loadImage } from '@napi-rs/canvas'
-import type { ExtractedOption, ExtractedQuestion } from '@/core/questions/extraction'
+import type {
+  ExtractedOption,
+  ExtractedQuestion,
+} from '@/core/questions/extraction'
 import type { ImageFig } from '@/core/figures/figspec'
 import type { Flag } from '@/core/questions/lint'
 import { cleanCrop, type Pixels } from '@/core/segment/image-clean'
 import type { Box } from '@/core/segment/option-bands'
-import { boxToRect, placeFigureBox, placeOptionBoxes } from '@/core/segment/place-boxes'
+import {
+  boxToRect,
+  placeFigureBox,
+  placeOptionBoxes,
+} from '@/core/segment/place-boxes'
 import { figureImagePath, optionImagePath } from '@/core/questions/image-paths'
 import type { Db, QuestionRow } from './db.ts'
-import { extensionForMime, sniffImageMime, type ImageMime } from '@/core/figures/image-mime'
+import {
+  extensionForMime,
+  sniffImageMime,
+  type ImageMime,
+} from '@/core/figures/image-mime'
 import { FIGURE_GEN_OP, guardedReproduction } from './figure-gen.ts'
-import { editUntilBetter } from './figure-edit.ts'
+import { editProviderFor, editUntilBetter } from './figure-edit.ts'
+import { MAX_GEN_EDITS } from '@/core/figures/gen-policy'
 import { storeSignature } from './signature-store.ts'
 import { budgetExhausted, logOp } from './ops.ts'
 import { config } from './config.ts'
@@ -50,8 +62,15 @@ function writingOnly(result: {
  * `.gen.png` holding it is a name that misleads every later reader — including
  * the one that mattered, the rasteriser the verification wave draws with.
  */
-function figureGenPath(row: QuestionRow, index: number, mime: ImageMime): string {
-  return figureImagePath(row, index).replace(/\.png$/, `.gen.${extensionForMime(mime)}`)
+function figureGenPath(
+  row: QuestionRow,
+  index: number,
+  mime: ImageMime,
+): string {
+  return figureImagePath(row, index).replace(
+    /\.png$/,
+    `.gen.${extensionForMime(mime)}`,
+  )
 }
 
 /**
@@ -63,7 +82,6 @@ function figureGenPath(row: QuestionRow, index: number, mime: ImageMime): string
  * between trying a better cleaner and paying to read every crop again.
  */
 const rawTwin = (path: string): string => path.replace(/\.png$/, '.raw.png')
-
 
 /**
  * Fills in `image` for every option that declared a picture and said where it
@@ -84,7 +102,10 @@ async function pixelsOf(crop: { image: string }): Promise<{
   const ctx = canvas.getContext('2d')
   ctx.drawImage(image, 0, 0)
   const raw = ctx.getImageData(0, 0, image.width, image.height)
-  return { pix: { data: raw.data, width: image.width, height: image.height }, image }
+  return {
+    pix: { data: raw.data, width: image.width, height: image.height },
+    image,
+  }
 }
 
 /** Cut one region, clean it, and store both copies. Returns the stored path. */
@@ -139,7 +160,12 @@ async function runGuardedGeneration(
   row: QuestionRow,
   index: number,
   cut: { png: Buffer; pixels: Pixels },
-): Promise<{ path?: string; flag?: Flag; colourObjection?: string; signature?: string }> {
+): Promise<{
+  path?: string
+  flag?: Flag
+  colourObjection?: string
+  signature?: string
+}> {
   if (await budgetExhausted(db).catch(() => true)) {
     return {
       flag: {
@@ -213,7 +239,8 @@ async function runGuardedGeneration(
       flag: {
         level: 'warning',
         code: 'gen_failed',
-        message: 'Təkrar çəkilişin formatı tanınmadı — orijinal kəsim saxlanıldı',
+        message:
+          'Təkrar çəkilişin formatı tanınmadı — orijinal kəsim saxlanıldı',
       },
     }
   }
@@ -283,7 +310,10 @@ export async function attachOptionImages(
 
   // Measured, not requested: see `placeOptionBoxes` for why the model's boxes
   // are only a hint, and what the row says when nothing could be measured.
-  const placed = placeOptionBoxes(pix, wanted.map((o) => o.box))
+  const placed = placeOptionBoxes(
+    pix,
+    wanted.map((o) => o.box),
+  )
   for (const [index, option] of wanted.entries()) {
     option.box = placed.boxes[index] ?? undefined
   }
@@ -343,7 +373,6 @@ export async function attachFigureImages(
   let produced = 0
   let failed = 0
 
-
   for (const { item, index } of wanted) {
     try {
       // Same rule as the option boxes: the model's coordinates are a hint about
@@ -392,7 +421,14 @@ export async function attachFigureImages(
         // the verifier.
         let colourUnresolved = Boolean(gen.path && gen.colourObjection)
         if (gen.path && gen.colourObjection) {
-          const edit = await editUntilBetter(db, row, index, item, gen.colourObjection, gen.signature)
+          const edit = await editUntilBetter(
+            db,
+            row,
+            index,
+            item,
+            gen.colourObjection,
+            gen.signature,
+          )
           item.genEditAttempts = edit.attempts
           if (edit.path) {
             item.genSrc = edit.path
@@ -408,7 +444,9 @@ export async function attachFigureImages(
               code: 'gen_edited',
               message:
                 `Fiqur ${index + 1}: qoruyucunun rəng etirazına görə ${edit.provider} ilə düzəldildi` +
-                (edit.rejection ? `; qoruyucu yenə etiraz etdi: ${edit.rejection}` : ' — kəsimlə müqayisə edin'),
+                (edit.rejection
+                  ? `; qoruyucu yenə etiraz etdi: ${edit.rejection}`
+                  : ' — kəsimlə müqayisə edin'),
             })
           } else if (edit.discarded) {
             flags.push({
@@ -426,13 +464,42 @@ export async function attachFigureImages(
         // passed all ten rows of a live run with an empty diff while five of
         // them had exactly this objection standing.
         if (colourUnresolved) {
-          flags.push({
-            level: 'warning',
-            code: 'gen_colour_unresolved',
-            message:
-              `Fiqur ${index + 1}: qoruyucu boyalı bölgənin dəyişdiyini deyir və düzəliş bunu həll etmədi — ` +
-              'kəsimlə yan-yana gözlə yoxlayın',
-          })
+          // Whether this drawing can still be improved. Spent means every edit
+          // it was ever going to get has been drawn and measured.
+          const attempts = item.genEditAttempts ?? 0
+          const canRetry =
+            attempts < MAX_GEN_EDITS && editProviderFor(attempts) !== null
+          if (canRetry) {
+            flags.push({
+              level: 'warning',
+              code: 'gen_colour_unresolved',
+              message:
+                `Fiqur ${index + 1}: qoruyucu boyalı bölgənin dəyişdiyini deyir və düzəliş bunu həll etmədi — ` +
+                'kəsimlə yan-yana gözlə yoxlayın',
+            })
+          } else {
+            // The edits are spent and the objection still stands, so this
+            // drawing is not going to get better — and what it gets wrong is
+            // the shaded region, which on these questions IS the answer. The
+            // cut is the source's own pixels and cannot be wrong about the
+            // page, so it takes the drawing's place.
+            //
+            // The verifier-blamed path in `applyVerdict` already does exactly
+            // this and could not reach this row: it fires on CRITICAL
+            // differences naming the figure, and the wave called this row a
+            // match with an empty diff at 0.97 while the guard was measuring
+            // its shaded area 22% out. Live: p307/8.
+            delete item.genSrc
+            delete item.genProvider
+            item.genRejected = `Qoruyucu rəng etirazı ${attempts} düzəlişdən sonra da qaldı — kəsim göstərilir`
+            flags.push({
+              level: 'warning',
+              code: 'gen_dropped_colour',
+              message:
+                `Fiqur ${index + 1}: təkrar çəkiliş boyalı bölgəni dəyişdirdi və ${attempts} düzəliş bunu ` +
+                'həll etmədi — çəkiliş atıldı, orijinalın kəsimi göstərilir',
+            })
+          }
         }
       }
     } catch (error) {

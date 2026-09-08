@@ -170,8 +170,19 @@ what each stage needs.
   `genEditAttempts` counts tries, `editUntilBetter` walks the providers within
   one pass, and a discarded Gemini edit hands the work straight to OpenAI.
 
-  **A colour objection the edit did not answer keeps the row out of the
-  verified lane** (`core/questions/verification-block.ts`). The wave called all
+  **A colour objection that outlives its edits DROPS the drawing.** When every
+  edit the drawing can get has been drawn and measured and the guard still says
+  the shaded region moved, the reproduction is not going to improve — and what
+  it has wrong is the one thing these questions turn on. The cut takes its
+  place: the source's own pixels, which cannot be wrong about the page. The
+  verifier-blamed path does the same thing and could not reach these rows,
+  because it fires on CRITICAL differences naming the figure and the wave calls
+  them a match: live, p307/8 came back `matches` with an empty diff at 0.97
+  while the guard was measuring its shaded area 22% out, two edits were drawn
+  and both measured worse, and the wrong drawing stayed on the question.
+
+  **A colour objection still standing while a retry remains keeps the row out
+  of the verified lane** (`core/questions/verification-block.ts`). The wave called all
   ten rows of that run a match with an empty diff at 0.95-0.97 while five
   carried a standing objection from the deterministic guard. Where a
   measurement and a model disagree about the shading, the measurement wins and
