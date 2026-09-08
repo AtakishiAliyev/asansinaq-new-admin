@@ -600,6 +600,8 @@ export type Database = {
       }
       worker_control: {
         Row: {
+          auto_approve: boolean
+          auto_approve_needs_answer: boolean
           desired_state: string
           express: boolean
           id: number
@@ -607,6 +609,8 @@ export type Database = {
           updated_by: string | null
         }
         Insert: {
+          auto_approve?: boolean
+          auto_approve_needs_answer?: boolean
           desired_state?: string
           express?: boolean
           id?: number
@@ -614,6 +618,8 @@ export type Database = {
           updated_by?: string | null
         }
         Update: {
+          auto_approve?: boolean
+          auto_approve_needs_answer?: boolean
           desired_state?: string
           express?: boolean
           id?: number

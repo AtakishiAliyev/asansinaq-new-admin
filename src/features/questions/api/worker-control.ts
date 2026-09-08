@@ -41,6 +41,12 @@ export interface WorkerStatus {
   /** The operator's express override. The worker also enters express on its
    *  own for a small queue, so false does NOT mean the next run is batched. */
   express: boolean
+  /** Approve, without a reviewer, questions that cleared every automatic
+   *  check. Read by the WORKER, which is why it lives here and not in a
+   *  browser store — see the migration for what happened when it did. */
+  autoApprove: boolean
+  /** While auto-approving, pass only questions that already have an answer. */
+  autoApproveNeedsAnswer: boolean
   /** Today's spend split by which lane paid for it. Rows written before the
    *  column existed are counted as neither — see `via_batch`. */
   spend: { batch: number; express: number }
@@ -55,8 +61,17 @@ export function useWorkerStatus() {
     queryKey: questionKeys.worker(),
     queryFn: async (): Promise<WorkerStatus> => {
       const [control, heartbeats] = await Promise.all([
-        supabase.from('worker_control').select('desired_state, express').eq('id', 1).maybeSingle(),
-        supabase.from('worker_heartbeat').select('*').order('last_seen', { ascending: false }),
+        supabase
+          .from('worker_control')
+          .select(
+            'desired_state, express, auto_approve, auto_approve_needs_answer',
+          )
+          .eq('id', 1)
+          .maybeSingle(),
+        supabase
+          .from('worker_heartbeat')
+          .select('*')
+          .order('last_seen', { ascending: false }),
       ])
       if (control.error) throw control.error
       if (heartbeats.error) throw heartbeats.error
@@ -71,7 +86,9 @@ export function useWorkerStatus() {
       const spend = { batch: 0, express: 0 }
       for (const entry of ledger.data ?? []) {
         if (entry.via_batch === null) continue
-        spend[entry.via_batch ? 'batch' : 'express'] += Number(entry.est_cost_usd ?? 0)
+        spend[entry.via_batch ? 'batch' : 'express'] += Number(
+          entry.est_cost_usd ?? 0,
+        )
       }
 
       const now = Date.now()
@@ -86,8 +103,12 @@ export function useWorkerStatus() {
         return { ...parsed, ageMs, online }
       })
       return {
-        desiredState: control.data?.desired_state === 'paused' ? 'paused' : 'running',
+        desiredState:
+          control.data?.desired_state === 'paused' ? 'paused' : 'running',
         express: control.data?.express === true,
+        autoApprove: control.data?.auto_approve === true,
+        autoApproveNeedsAnswer:
+          control.data?.auto_approve_needs_answer !== false,
         spend,
         workers,
         anyOnline: workers.some((w) => w.online),
@@ -129,7 +150,9 @@ export function useSetWorkerState() {
       )
     },
     onError: (error) =>
-      toast.error(`Worker vəziyyəti dəyişmədi: ${normalizeError(error).message}`),
+      toast.error(
+        `Worker vəziyyəti dəyişmədi: ${normalizeError(error).message}`,
+      ),
   })
 }
 
@@ -141,6 +164,56 @@ export function useSetWorkerState() {
  * to cost in order to finish sooner" — and the worker reads it at the top of
  * every pass, so it takes effect on the next set rather than the current one.
  */
+/**
+ * Turn auto-approve on or off, and whether it requires an answer.
+ *
+ * Written to the worker's control plane rather than to a browser store,
+ * because the worker is what acts on it. The switch used to write to a store
+ * nothing read: it had lost its only reader when structuring moved off the
+ * browser, so for that whole period the dialog offered a control with nothing
+ * on the other end and not one row was ever auto-approved.
+ */
+export function useSetAutoApprove() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (patch: {
+      autoApprove?: boolean
+      autoApproveNeedsAnswer?: boolean
+    }) => {
+      const { data: userData } = await supabase.auth.getUser()
+      const { error } = await supabase
+        .from('worker_control')
+        .update({
+          ...(patch.autoApprove !== undefined
+            ? { auto_approve: patch.autoApprove }
+            : {}),
+          ...(patch.autoApproveNeedsAnswer !== undefined
+            ? { auto_approve_needs_answer: patch.autoApproveNeedsAnswer }
+            : {}),
+          updated_at: new Date().toISOString(),
+          updated_by: userData.user?.id ?? null,
+        })
+        .eq('id', 1)
+      if (error) throw error
+      return patch
+    },
+    onSuccess: (patch) => {
+      queryClient.invalidateQueries({ queryKey: questionKeys.worker() })
+      if (patch.autoApprove !== undefined) {
+        // Said as a request rather than as a fact: the worker reads the switch
+        // at the top of its next pass, so nothing changes for rows already in
+        // flight.
+        toast.success(
+          patch.autoApprove
+            ? 'Avtomatik təsdiq açıldı — növbəti keçiddən etibarən'
+            : 'Avtomatik təsdiq bağlandı',
+        )
+      }
+    },
+    onError: (error) => toast.error(normalizeError(error).message),
+  })
+}
+
 export function useSetExpress() {
   const queryClient = useQueryClient()
   return useMutation({
@@ -165,6 +238,7 @@ export function useSetExpress() {
           : 'Express bağlandı — böyük dəstlər yenidən batch ilə (yarı qiymət)',
       )
     },
-    onError: (error) => toast.error(`Express dəyişmədi: ${normalizeError(error).message}`),
+    onError: (error) =>
+      toast.error(`Express dəyişmədi: ${normalizeError(error).message}`),
   })
 }

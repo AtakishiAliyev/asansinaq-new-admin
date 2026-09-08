@@ -18,6 +18,7 @@ import {
   announceStart,
   announceStop,
   beat,
+  readAutoApprove,
   readDesiredState,
 } from './control.ts'
 import { db } from './db.ts'
@@ -134,11 +135,15 @@ while (!stopping) {
     // switch, the tree and the key are all things an operator changes while
     // the daemon is up, and a restart must not be the way they take effect.
     forgetBookContexts()
+    // Read once per pass, beside the pause switch and for the same reason: a
+    // setting the operator changes mid-run takes effect on the next pass, not
+    // on the next row.
+    const autoApprove = await readAutoApprove(db)
     // Always first, and in both modes: a batch submitted before the queue got
     // small enough for express is still out there, still paid for, and still
     // has to be collected.
-    await pollPass()
-    if (await expressWanted()) await expressPass()
+    await pollPass(autoApprove)
+    if (await expressWanted()) await expressPass(autoApprove)
     else {
       await submitPass()
       await verifyPass()

@@ -1,4 +1,5 @@
 import { setActivity, pulse } from './activity.ts'
+import type { AutoApproveSettings } from '@/core/questions/auto-approve'
 import { config } from './config.ts'
 import { readExpressOverride } from './control.ts'
 import { db } from './db.ts'
@@ -40,7 +41,9 @@ export async function expressWanted(): Promise<boolean> {
  * claim, so a repair re-queued before it is silently dropped and the row comes
  * back to be verified again unchanged instead of re-read.
  */
-export async function expressPass(): Promise<number> {
+export async function expressPass(
+  autoApprove: AutoApproveSettings,
+): Promise<number> {
   if (await budgetExhausted(db)) {
     log(`daily budget of $${config.DAILY_BUDGET_USD} is spent — not running`)
     return 0
@@ -62,6 +65,7 @@ export async function expressPass(): Promise<number> {
   const outcome = await runExpress(
     db,
     rows,
+    autoApprove,
     log,
     noteFigureKinds,
     (finished, total) => pulse(`express: ${finished}/${total} sual işlənib`),

@@ -607,8 +607,22 @@ layers, none of which the system may self-certify:
    what earns `verified`. This covers the figure and the text in one pass,
    because both are in the render.
 
-Anything that fails a layer lands in the Diqqət queue with a flag. Auto-approve
-(off by default) only ever passes questions that cleared all three.
+Anything that fails a layer lands in the Diqqət queue with a flag.
+
+**Auto-approve** (off by default, `core/questions/auto-approve.ts`) passes only
+a question that cleared all three: the wave called it a match, no deterministic
+guard objection stands, and the lint raised no ERROR. A warning does not block
+— `raster_figure` sits on essentially every figure question on a `gen` book,
+because every drawn figure is cut from the original, so blocking on it would
+mean the rule never fired on a figure at all. It also needs the operator's
+category, and an answer unless the operator says otherwise.
+
+The switch lives in `worker_control`, beside the pause switch, and the worker
+reads it once per pass. It used to live in a browser store, and it lost its
+only reader when structuring moved off the browser: for that whole period the
+dialog offered a control with nothing on the other end and not one row was ever
+auto-approved. A setting the worker cannot reach is a setting that does not
+exist.
 
 This is **three** layers where there used to be four, and the change is load
 bearing. The dropped layer was a second, hint-free read compared against the

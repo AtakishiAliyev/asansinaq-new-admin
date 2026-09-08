@@ -21,6 +21,10 @@ import type { ExtractedQuestion } from '@/core/questions/extraction'
 import { decideRepair, parseStoredVersion } from '@/core/questions/repair-guard'
 import { reproductionBlamed } from '@/core/questions/verdict-blame'
 import { verificationBlocked } from '@/core/questions/verification-block'
+import {
+  autoApprovable,
+  type AutoApproveSettings,
+} from '@/core/questions/auto-approve'
 import { MAX_GEN_EDITS } from '@/core/figures/gen-policy'
 import type { FigureDoc, ImageFig } from '@/core/figures/figspec'
 import { editProviderFor, editUntilBetter } from './figure-edit.ts'
@@ -91,6 +95,8 @@ export interface VerifyOutcome {
   verdict: Verdict
   /** True when the row was sent back for another read. */
   repairing: boolean
+  /** True when the row cleared every automatic check and was approved by rule. */
+  autoApproved?: boolean
 }
 
 /**
@@ -105,6 +111,7 @@ export async function applyVerdict(
   db: Db,
   row: QuestionRow,
   verdict: Verdict,
+  autoApprove: AutoApproveSettings = { enabled: false, needsAnswer: true },
 ): Promise<VerifyOutcome> {
   const critical = verdict.differences.filter((d) => d.severity === 'critical')
 
@@ -114,10 +121,16 @@ export async function applyVerdict(
   // back to an image model as an edit, up to MAX_GEN_EDITS times — and past
   // that, dropping the redraw so the cut takes its place. Either way the wave
   // rules again next pass on what the row now shows — see verdict-blame.ts.
-  const blamed = verdict.matches ? [] : reproductionBlamed(row.figures, verdict.differences)
+  const blamed = verdict.matches
+    ? []
+    : reproductionBlamed(row.figures, verdict.differences)
   if (blamed.length) {
     const doc = row.figures as unknown as FigureDoc
-    const why = critical.map((d) => d.note.trim()).filter(Boolean).join('; ').slice(0, 400)
+    const why = critical
+      .map((d) => d.note.trim())
+      .filter(Boolean)
+      .join('; ')
+      .slice(0, 400)
     const notes: string[] = []
     const items: FigureDoc['items'] = []
     /** Drawings this verdict replaces or discards. Deleted only after the row
@@ -142,7 +155,8 @@ export async function applyVerdict(
             )
           : null
       if (edit?.path) {
-        if (figure.genSrc && figure.genSrc !== edit.path) superseded.push(figure.genSrc)
+        if (figure.genSrc && figure.genSrc !== edit.path)
+          superseded.push(figure.genSrc)
         const { genRejected: _cleared, ...rest } = figure
         items.push({
           ...rest,
@@ -168,15 +182,28 @@ export async function applyVerdict(
       })
       notes.push(
         `Fiqur ${index + 1}: təkrar çəkiliş atıldı, kəsim göstərilir` +
-          (edit?.failure ? ` (${edit.failure})` : round >= MAX_GEN_EDITS ? ` (${MAX_GEN_EDITS} düzəliş cəhdi bitdi)` : ''),
+          (edit?.failure
+            ? ` (${edit.failure})`
+            : round >= MAX_GEN_EDITS
+              ? ` (${MAX_GEN_EDITS} düzəliş cəhdi bitdi)`
+              : ''),
       )
     }
-    const edited = items.some((it, i) => blamed.includes(i) && it.kind === 'image' && Boolean((it as ImageFig).genSrc))
+    const edited = items.some(
+      (it, i) =>
+        blamed.includes(i) &&
+        it.kind === 'image' &&
+        Boolean((it as ImageFig).genSrc),
+    )
     const kept = ((row.flags ?? []) as unknown as Flag[]).filter(
       (f) =>
-        !['verify_mismatch', 'verify_low_confidence', 'gen_unverified', 'gen_rejected_by_verifier', 'gen_edited'].includes(
-          f.code,
-        ),
+        ![
+          'verify_mismatch',
+          'verify_low_confidence',
+          'gen_unverified',
+          'gen_rejected_by_verifier',
+          'gen_edited',
+        ].includes(f.code),
     )
     await db
       .from('questions')
@@ -187,7 +214,11 @@ export async function applyVerdict(
           {
             level: 'warning',
             code: edited ? 'gen_edited' : 'gen_rejected_by_verifier',
-            message: `${notes.join(' · ')} — yoxlayıcı: ${why || 'səbəb bildirilmədi'}`.slice(0, 500),
+            message:
+              `${notes.join(' · ')} — yoxlayıcı: ${why || 'səbəb bildirilmədi'}`.slice(
+                0,
+                500,
+              ),
           },
         ] as never,
         verified: false,
@@ -207,8 +238,13 @@ export async function applyVerdict(
     // outlives its row costs storage, a failed delete that undid the verdict
     // would cost the work.
     if (superseded.length) {
-      const { error } = await db.storage.from('question-crops').remove(superseded)
-      if (error) console.warn(`[q${row.id}] superseded drawing(s) not removed: ${error.message}`)
+      const { error } = await db.storage
+        .from('question-crops')
+        .remove(superseded)
+      if (error)
+        console.warn(
+          `[q${row.id}] superseded drawing(s) not removed: ${error.message}`,
+        )
     }
     return { verdict, repairing: false }
   }
@@ -216,10 +252,13 @@ export async function applyVerdict(
   // Another read is only worth paying for when there is a concrete, critical
   // difference to feed back. A minor difference, or a low-confidence pass with
   // nothing named, is a reviewer's call rather than a second attempt.
-  const repairing = !verdict.matches && critical.length > 0 && row.repair_round < MAX_REPAIRS
+  const repairing =
+    !verdict.matches && critical.length > 0 && row.repair_round < MAX_REPAIRS
 
   const flags = [
-    ...((row.flags ?? []) as { level: string; code: string; message: string }[]).filter(
+    ...(
+      (row.flags ?? []) as { level: string; code: string; message: string }[]
+    ).filter(
       (f) => f.code !== 'verify_mismatch' && f.code !== 'verify_low_confidence',
     ),
   ]
@@ -277,14 +316,18 @@ export async function applyVerdict(
     return { verdict, repairing: false }
   }
 
+  const verified =
+    verdict.matches &&
+    verdict.confidence >= LOW_CONFIDENCE &&
+    !verificationBlocked(row.flags)
+
   await db
     .from('questions')
     .update({
       prev_version: null,
       // `verified` drives the generated needs_attention column, so a row that
       // passes leaves the Diqqət lane without anything else being touched.
-      verified:
-        verdict.matches && verdict.confidence >= LOW_CONFIDENCE && !verificationBlocked(row.flags),
+      verified,
       verify_confidence: clamp01(verdict.confidence),
       verify_diff: verdict.differences as never,
       verified_at: new Date().toISOString(),
@@ -301,6 +344,40 @@ export async function applyVerdict(
     })
     .eq('id', row.id)
 
+  // Approved by rule, on the row as it now stands: this verdict's `verified`,
+  // this verdict's flags, and the answer and category the row already carried.
+  // A second update rather than one, because the first is what a reviewer's
+  // Diqqət queue is computed from and it must land whether or not this fires.
+  if (
+    !repairing &&
+    autoApprovable(
+      {
+        status: row.status,
+        verified,
+        answer: row.answer,
+        category_id: row.category_id,
+        flags,
+      },
+      autoApprove,
+    )
+  ) {
+    const { error } = await db
+      .from('questions')
+      .update({
+        status: 'approved',
+        auto_approved: true,
+        reviewed_at: new Date().toISOString(),
+      })
+      .eq('id', row.id)
+      // Only from the state this verdict just wrote. Between the two updates a
+      // reviewer may have ruled on the row by hand, and a rule must never
+      // overwrite a person.
+      .eq('status', 'structured')
+    if (error)
+      console.warn(`[q${row.id}] auto-approve failed: ${error.message}`)
+    else return { verdict, repairing, autoApproved: true }
+  }
+
   return { verdict, repairing }
 }
 
@@ -310,8 +387,6 @@ const MAX_REPAIRS = 2
 
 /** Below this a "match" is not trusted enough to leave the review lane. */
 const LOW_CONFIDENCE = 0.7
-
-
 
 const clamp01 = (n: number): number => (n < 0 ? 0 : n > 1 ? 1 : n)
 

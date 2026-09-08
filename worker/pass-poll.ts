@@ -21,10 +21,13 @@ import { log } from './log.ts'
 import { modelFor } from './models.ts'
 import { cacheKey, cachePut, logOp } from './ops.ts'
 import { finish, inFlight, release, renew, requeue } from './queue.ts'
+import type { AutoApproveSettings } from '@/core/questions/auto-approve'
 import { applyVerdict, idFromVerifyCustomId, VERIFY_OP } from './verify.ts'
 
 /** Collect anything this worker has outstanding that the provider has finished. */
-export async function pollPass(): Promise<number> {
+export async function pollPass(
+  autoApprove: AutoApproveSettings,
+): Promise<number> {
   const rows = await inFlight(db)
   if (!rows.length) return 0
 
@@ -68,6 +71,7 @@ export async function pollPass(): Promise<number> {
     let structured = 0
     let failed = 0
     let repaired = 0
+    let approved = 0
     for await (const outcome of batchResults(
       batchId,
       stage === 'verify' ? EMIT_VERDICT_TOOL_NAME : EMIT_QUESTION_TOOL_NAME,
@@ -111,13 +115,14 @@ export async function pollPass(): Promise<number> {
 
       if (stage === 'verify') {
         const verdict = parseVerdict(outcome.wire)
-        const applied = await applyVerdict(db, row, verdict)
+        const applied = await applyVerdict(db, row, verdict, autoApprove)
         if (verdict.matches) structured++
         else failed++
         if (applied.repairing) {
           repaired++
           repairIds.push(row.id)
         }
+        if (applied.autoApproved) approved++
         done.push(row.id)
         written++
         continue
@@ -176,6 +181,7 @@ export async function pollPass(): Promise<number> {
     log(
       stage === 'verify'
         ? `batch ${batchId}: ${structured} verified, ${failed} mismatched` +
+            (approved ? `, ${approved} auto-approved` : '') +
             (repaired ? `, ${repaired} sent back for a repair round` : '') +
             (missing.length ? `, ${missing.length} released` : '')
         : `batch ${batchId}: ${structured} structured, ${failed} failed` +

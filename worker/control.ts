@@ -9,6 +9,7 @@
 // Everything is best-effort. A control plane that can take the worker down when
 // the database blinks is worse than no control plane: the work is already
 // claimed and paid for, and a network hiccup must not turn into a stalled queue.
+import type { AutoApproveSettings } from '@/core/questions/auto-approve'
 import type { Db } from './db.ts'
 import { config } from './config.ts'
 
@@ -41,6 +42,32 @@ export async function readDesiredState(db: Db): Promise<DesiredState> {
  * switched a large queue to full price would be an expensive way to find out
  * the database was unreachable.
  */
+/**
+ * The operator's auto-approve settings, read at the top of every pass.
+ *
+ * Beside the pause switch and the express override, and read the same way and
+ * for the same reason: the worker is a daemon in another process, and a
+ * setting it cannot reach is a setting that does not exist — which is exactly
+ * what this one was, in a browser store nothing read, from the refactor that
+ * moved structuring off the browser until now.
+ *
+ * Fails towards approving nothing. A blip that silently started approving
+ * questions unread would be the most expensive way to find out the database
+ * was unreachable.
+ */
+export async function readAutoApprove(db: Db): Promise<AutoApproveSettings> {
+  const { data, error } = await db
+    .from('worker_control')
+    .select('auto_approve, auto_approve_needs_answer')
+    .eq('id', 1)
+    .maybeSingle()
+  if (error || !data) return { enabled: false, needsAnswer: true }
+  return {
+    enabled: data.auto_approve === true,
+    needsAnswer: data.auto_approve_needs_answer !== false,
+  }
+}
+
 export async function readExpressOverride(db: Db): Promise<boolean> {
   const { data, error } = await db
     .from('worker_control')
@@ -82,7 +109,10 @@ export async function beat(db: Db, hb: Heartbeat): Promise<void> {
     stopped_at: null,
     ...(hb.lastError === undefined
       ? {}
-      : { last_error: hb.lastError, last_error_at: hb.lastError ? new Date().toISOString() : null }),
+      : {
+          last_error: hb.lastError,
+          last_error_at: hb.lastError ? new Date().toISOString() : null,
+        }),
   }
   try {
     await db.from('worker_heartbeat').upsert(row, { onConflict: 'worker_id' })
