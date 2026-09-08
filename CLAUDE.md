@@ -466,7 +466,6 @@ place, and it is still scheduled for removal along with
 - React Hook Form + Zod (forms & validation)
 - Tailwind CSS + shadcn/ui (`src/components/ui/`)
 - Supabase (`@supabase/supabase-js`) — DB, Auth, Storage, Edge Functions
-- Axios — external (non-Supabase) APIs only
 - Deploy: Vercel
 
 ## Commands
@@ -632,7 +631,7 @@ Supabase is the source of truth. This file may be outdated; the schema is not.
 
 - **Server state**: anything from Supabase or external APIs → TanStack Query.
   Every call goes through a query/mutation hook in `src/features/<feature>/api/`.
-  Components never import the supabase client or axios directly.
+  Components never import the supabase client directly.
 - **Client state**: Zustand. Stores in `src/stores/`, one store per concern.
   Persist only what must survive reload.
 - **Local UI state**: useState/useReducer. Modal-open booleans and hover
@@ -662,7 +661,7 @@ Supabase is the source of truth. This file may be outdated; the schema is not.
 ## Error handling
 
 - `src/lib/errors.ts` exports a normalizer: PostgrestError / AuthError /
-  AxiosError / ZodError → `AppError { code, message, cause }`.
+  ZodError → `AppError { code, message, cause }`.
 - **Queries**: render an inline error state (early return in the component).
 - **Mutations**: toast (sonner) with the normalized message.
 - **Routes**: React Router `errorElement` per route branch as the boundary.
@@ -714,7 +713,6 @@ src/
 ├── hooks/                  # cross-feature hooks
 ├── lib/
 │   ├── supabase.ts         # supabase client (created once, exported)
-│   ├── api-client.ts       # axios instance for external APIs
 │   ├── errors.ts           # error normalizer
 │   ├── env.ts              # Zod-validated import.meta.env
 │   └── utils.ts
@@ -813,7 +811,7 @@ nobody owns.
 ## What NOT to do
 
 - Don't use `any`. Use `unknown` and narrow. Last resort: ask.
-- Don't call supabase/axios/fetch from components — only through feature
+- Don't call supabase/fetch from components — only through feature
   api hooks.
 - Don't store server data in Zustand. Don't put modal booleans in Zustand.
 - Don't import another feature's internals — cross-feature imports go
