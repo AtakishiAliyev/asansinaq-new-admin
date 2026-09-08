@@ -11,6 +11,20 @@ review the extracted questions, then assemble exams from the question bank.
 Also: user management, credits, and general operations. Fresh build,
 no legacy code.
 
+**The bank is split across two screens, and the split is the product's own.**
+`/questions` (Suallar) is everything still being made — cropped, structured,
+rejected, failed — with the queue panel, the worker controls, the review flow
+and the bulk actions. `/ready` (Hazır suallar) is `approved` alone: the
+questions a student could be shown, as a catalogue rather than a queue, with
+the filters someone browsing reaches for (book, topic, difficulty, whether an
+answer exists, a search over the wording) and exactly one write — sending a
+question back to review.
+
+The scope is enforced server-side under every other filter, `status: 'all'`
+included, so neither list can leak into the other. Money never appears on
+either: cost belongs to `/ops` (Xərclər), and a number an operator cannot act
+on from a question screen is noise beside the counts they came for.
+
 ## Branches
 
 Work only on `main`. There are no other branches, and there is no branch to
@@ -45,7 +59,7 @@ what each stage needs.
   `CROP_RENDER_SCALE` (5.5x, the most A4 takes under the canvas cap) because
   the crop is the source of every picture the bank shows — a figure cut at the
   old 3x read as a soft scan next to the book. The MODEL never sees that
-  resolution: the worker and the review screen shrink a copy to
+  resolution: the worker shrinks a copy to
   `MODEL_CROP_MAX_WIDTH` (800px, the width every crop had before) so image
   tokens are unchanged and an existing crop is sent byte for byte, keeping its
   cache key. Re-importing a worked page refreshes the crop object and re-cuts
@@ -93,8 +107,8 @@ what each stage needs.
   the review screen and the worker draw from one implementation. Marks that
   carry meaning (equal ticks, parallel chevrons, right-angle squares, congruent
   arcs) are DATA on the figure, not strokes a model happened to draw: a mark
-  that is a field can be linted, compared, edited on the review screen and
-  re-rendered, and one buried in `raw_svg` can only be looked at. The model is
+  that is a field can be linted, compared and re-rendered, and one buried in
+  `raw_svg` can only be looked at. The model is
   never asked to draw a raster; the only image-generating call in the system is
   the reproduction lane, and it is handed a cut, not a description.
 
@@ -233,9 +247,8 @@ what each stage needs.
   failing a queue. The cut is never lost — it stays in `ImageFig.src` as the
   source of truth and as the fallback — but the reproduction lands in `genSrc`,
   the field the renderers DISPLAY, whether or not the structural guard was
-  satisfied. The lane runs only in the worker: the review screen's single
-  re-run cuts and shows the cut, flags `gen_skipped`, and leaves the redraw to
-  the next queue run.
+  satisfied. The lane runs only in the worker; nothing in the browser draws or
+  redraws a figure.
 
   **The guard is a REVIEWER'S SIGNAL, not a gate on what is displayed, and that
   changed after it was measured against real output.** It compares pixel
@@ -419,22 +432,23 @@ what each stage needs.
   so the model cannot answer it and `ai_category_id` stays empty because
   nothing was suggested. One send is one topic; different topics go in
   separate sends. `treeFor` is the one place the rule lives, because the
-  request builder, the cache key and the review screen's re-run must agree or
-  the key disagrees with the request.
-- **The browser orchestrates exactly one thing: a single-question interactive
-  re-run** from the review screen. That is what the `question-ops` Edge Function
-  is still for — that, answer-key parsing and page detection, which stay
-  interactive because import needs immediate feedback. It is not a batch path,
-  and no batch work may be added to it. The re-run writes the row the worker
-  would: it routes figures by the book's lane, measures option and figure boxes
-  against the ink, cuts and cleans them, and builds the payload through the
-  same `core` modules (`kind-eligibility`, `segment/place-boxes`,
-  `questions/row-payload`, `questions/image-paths`). Only the canvas differs.
-  What it cannot do is reproduce a figure or verify: the row lands with its
-  verdict cleared and the worker's next pass compares it. Category selection is
-  folded into extraction rather than being its own op: the model has read the
-  question by the time it could answer, so a second call re-sends the crop to
-  learn nothing.
+  request builder and the cache key must agree or the key disagrees with the
+  request.
+- **The browser never structures a question.** Extraction belongs to the worker
+  alone. The `question-ops` Edge Function survives for answer-key parsing and
+  page detection, which stay interactive because import needs immediate
+  feedback; it is not a batch path and no batch work may be added to it.
+
+  It used to do more. A single-question re-run lived on the review screen and
+  reimplemented the worker in the browser — routing figures by the book's lane,
+  measuring boxes against the ink, cutting and cleaning them, building the row
+  payload — so a row could be written by two pipelines that were never checked
+  against each other. It is gone, with the two other repair paths that sat
+  beside it (editing a question's fields, editing a figure's geometry). A row
+  that is wrong is REJECTED and goes back through the pipeline, which is the
+  path that gets measured. Category selection is folded into extraction rather
+  than being its own op: the model has read the question by the time it could
+  answer, so a second call re-sends the crop to learn nothing.
 - **The worker's CONTROL PLANE is in the UI; the worker is not.** The process
   stays a daemon because its independence from any open tab is the point of the
   batch lane — a run that dies when someone closes a window is what this
@@ -620,6 +634,18 @@ layers, none of which the system may self-certify:
 
 Anything that fails a layer lands in the Diqqət queue with a flag.
 
+**A flag has three levels, and two of them are the Diqqət lane.** The
+`needs_attention` generated column matches exactly `error` and `warning`, so
+the level a check chooses and the SQL are one rule written in two places.
+`info` is the third: something a reviewer should READ if they open the row, but
+which must not pull them to it — the level for a check whose false positives
+are known and whose objection a stricter check has already overruled. The
+writing-only figure objection is the case it exists for: structure and colour
+both passed and only an OCR reading is in doubt, and as a warning it was the
+largest single reason a correct question did not read as clean. Adding a level
+needed no migration, which is the point — a flag demoted to `info` leaves the
+lane by construction.
+
 **Auto-approve** (off by default, `core/questions/auto-approve.ts`) passes only
 a question that cleared all three: the wave called it a match, no deterministic
 guard objection stands, and the lint raised no ERROR. A warning does not block
@@ -627,6 +653,13 @@ guard objection stands, and the lint raised no ERROR. A warning does not block
 because every drawn figure is cut from the original, so blocking on it would
 mean the rule never fired on a figure at all. It also needs the operator's
 category, and an answer unless the operator says otherwise.
+
+It also refuses a row whose `reviewed_at` is set. On a `structured` row that
+timestamp can only have come from the Hazır suallar screen's "təsdiqi geri al",
+because approving and rejecting both move the row out of `structured` — so it
+is the exact signal for "a person pulled this back on purpose". Without it
+every other condition still held on such a row and the sweep re-approved it on
+its next pass, the panel silently undoing its own operator.
 
 The rule is applied where the verdict is written, and swept over rows verified
 BEFORE the switch was turned on — the rule does not depend on when a row was
