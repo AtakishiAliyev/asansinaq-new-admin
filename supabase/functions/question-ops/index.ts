@@ -46,14 +46,11 @@ import {
   EMIT_ANSWER_KEY_TOOL_NAME,
   EMIT_DETECTION_TOOL_NAME,
   EMIT_QUESTION_TOOL_NAME,
-  emitAnswerKeySchema,
-  emitDetectionSchema,
 } from '@/core/extract/tool-schema'
 import {
-  buildDetectQuestions,
-  buildParseAnswerKey,
-  type GeminiRequest,
-} from '@/core/extract/request-gemini'
+  buildDetectQuestionsRequest,
+  buildParseAnswerKeyRequest,
+} from '@/core/extract/request-reading'
 import { estimateCost, promptTokens, samplingFor, usageFrom } from '@/core/models'
 import { PROMPT_VERSION, promptFingerprint } from '@/core/extract/prompts'
 
@@ -222,74 +219,6 @@ function parseJsonAnswer(text: string): unknown {
     }
     return JSON.parse(trimmed.slice(start, end + 1))
   }
-}
-
-/**
- * A Gemini request body, re-expressed as an Anthropic one.
- *
- * The utility ops keep their Gemini builders because their PROMPTS are the
- * asset and are shared with the eval fixtures. What does NOT survive the
- * translation is `responseSchema`: in Gemini it forced the output to be JSON of
- * that shape, and this used to append it to the prompt and ask for JSON in
- * words. Asking is not forcing — a detection call answered with a Markdown
- * table on every page of a book with no text layer, and the parser threw on it
- * because there was no `{`, so those pages produced nothing at all.
- *
- * So the shape now travels as a forced TOOL, which is structural, and the
- * schema-as-prose is dropped: it would only be tokens repeating what the tool
- * already guarantees.
- */
-function geminiToAnthropic(
-  request: GeminiRequest,
-  tool?: { name: string; schema: Record<string, unknown> },
-): Record<string, unknown> {
-  const body = request.body as {
-    contents: { parts: { text?: string; inlineData?: { mimeType: string; data: string } }[] }[]
-    generationConfig?: { responseSchema?: unknown }
-  }
-  const parts = body.contents[0]?.parts ?? []
-  const content: Record<string, unknown>[] = []
-  for (const part of parts) {
-    if (part.inlineData) {
-      content.push({
-        type: 'image',
-        source: {
-          type: 'base64',
-          media_type: part.inlineData.mimeType,
-          data: part.inlineData.data,
-        },
-      })
-    } else if (part.text) {
-      content.push({ type: 'text', text: part.text })
-    }
-  }
-  if (tool) {
-    return {
-      max_tokens: 8192,
-      messages: [{ role: 'user', content }],
-      tools: [
-        {
-          name: tool.name,
-          description: 'Nəticəni bu alətlə qaytar.',
-          input_schema: tool.schema,
-        },
-      ],
-      tool_choice: { type: 'tool', name: tool.name },
-    }
-  }
-
-  // No tool for this op: the schema still has to reach the model somehow.
-  const schema = body.generationConfig?.responseSchema
-  if (schema) {
-    content.push({
-      type: 'text',
-      text:
-        'Cavabı YALNIZ bu JSON sxeminə uyğun JSON kimi qaytar. ' +
-        'Heç bir izahat, heç bir markdown çərçivəsi əlavə etmə.\n' +
-        JSON.stringify(schema),
-    })
-  }
-  return { max_tokens: 8192, messages: [{ role: 'user', content }] }
 }
 
 interface LogEntry {
@@ -513,10 +442,6 @@ Deno.serve(async (req) => {
       const bad = badImage(body)
       if (bad) return json(400, { error: bad })
       const input = { image: body.image as string, mime: body.mime as string }
-      const request: GeminiRequest =
-        op === 'parse_answer_key'
-          ? buildParseAnswerKey(input)
-          : buildDetectQuestions(input)
       const cachePayload: Record<string, unknown> = input
 
       const model = MODELS.utility
@@ -540,15 +465,15 @@ Deno.serve(async (req) => {
       const refusal = await budgetRefusal(db)
       if (refusal) return refusal
 
-      const tool =
+      const [request, toolName] =
         op === 'parse_answer_key'
-          ? { name: EMIT_ANSWER_KEY_TOOL_NAME, schema: emitAnswerKeySchema }
-          : { name: EMIT_DETECTION_TOOL_NAME, schema: emitDetectionSchema }
+          ? [buildParseAnswerKeyRequest(input), EMIT_ANSWER_KEY_TOOL_NAME]
+          : [buildDetectQuestionsRequest(input), EMIT_DETECTION_TOOL_NAME]
       const answer = await callAnthropic(
         model,
-        geminiToAnthropic(request, tool),
+        request as unknown as Record<string, unknown>,
         deadline,
-        tool.name,
+        toolName,
       )
       // The tool is forced, so its input is the answer. Text is kept as a
       // fallback rather than removed: a model that answered in prose anyway is

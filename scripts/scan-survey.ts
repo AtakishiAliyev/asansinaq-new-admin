@@ -28,8 +28,7 @@ import { createCanvas } from '@napi-rs/canvas'
 import Anthropic from '@anthropic-ai/sdk'
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs'
 import type { PDFPageProxy } from 'pdfjs-dist'
-import { buildDetectQuestions } from '@/core/extract/request-gemini'
-import { EMIT_DETECTION_TOOL_NAME, emitDetectionSchema } from '@/core/extract/tool-schema'
+import { buildDetectQuestionsRequest } from '@/core/extract/request-reading'
 import { renderCrops } from '@/core/segment/crop'
 import { scanDetectionSchema, scanPageSeg } from '@/core/segment/scan'
 import { readEnvFile } from './env-file.ts'
@@ -68,42 +67,10 @@ async function renderForDetection(page: PDFPageProxy) {
 
 /** The same request the Edge Function sends, with the shape forced by a tool. */
 async function detect(imageBase64: string): Promise<{ raw: unknown; cost: number }> {
-  const gemini = buildDetectQuestions({
-    image: imageBase64,
-    mime: 'image/jpeg',
-  }) as unknown as {
-    body: {
-      contents: {
-        parts: { text?: string; inlineData?: { mimeType: string; data: string } }[]
-      }[]
-    }
-  }
-  const parts = gemini.body.contents[0]?.parts ?? []
-  const content = parts.map((p) =>
-    p.text
-      ? { type: 'text' as const, text: p.text }
-      : {
-          type: 'image' as const,
-          source: {
-            type: 'base64' as const,
-            media_type: p.inlineData!.mimeType as 'image/jpeg',
-            data: p.inlineData!.data,
-          },
-        },
-  )
   const res = await client.messages.create({
     model: MODEL,
-    max_tokens: 8192,
     temperature: 0,
-    messages: [{ role: 'user', content }],
-    tools: [
-      {
-        name: EMIT_DETECTION_TOOL_NAME,
-        description: 'Nəticəni bu alətlə qaytar.',
-        input_schema: emitDetectionSchema as never,
-      },
-    ],
-    tool_choice: { type: 'tool', name: EMIT_DETECTION_TOOL_NAME },
+    ...buildDetectQuestionsRequest({ image: imageBase64, mime: 'image/jpeg' }),
   })
   const tool = res.content.find((c) => c.type === 'tool_use')
   // Haiku's published rate, near enough for a survey line.

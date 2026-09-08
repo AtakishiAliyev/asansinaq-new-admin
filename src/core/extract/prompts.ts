@@ -168,12 +168,6 @@ export const EXTRACT_SYSTEM_RASTER = [SYSTEM_HEAD, SYSTEM_NO_FIGURE_RULE].join('
 
 
 
-export const COMPARE_FIGURES_PROMPT = `İki şəkil verilir: (1) ORİJİNAL fiqur (watermark ola bilər), (2) YENİDƏN YARADILMIŞ fiqur.
-Bunlar EYNİ fiqurdurmu? Topoloji/semantik müqayisə et, piksel dəqiqliyi YOX:
-- Eyni formalar, eyni kəsişmə/yerləşmə strukturu?
-- Bütün etiketlər, rəqəmlər, simvollar eynidirmi və DÜZGÜN bölgədədirmi?
-- Ştrixlənmiş/rəngli bölgə eyni yerdədirmi?
-Fərq varsa differences-də konkret yaz (məs. "b etiketi ellipsdən kənara sürüşüb", "3 rəqəmi çatışmır"). Watermark və kiçik üslub fərqlərini SAYMA.`
 
 
 export const DETECT_QUESTIONS_PROMPT = `Bu, imtahan sual bankının BİR səhifəsidir. Vəzifən: HƏR sualın yerini tapmaq.
