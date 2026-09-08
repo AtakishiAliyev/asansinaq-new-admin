@@ -9,6 +9,10 @@ export { AnswerKeyDialog } from '@/features/questions/components/answer-key-dial
 export { useAnswerKeyRun } from '@/features/questions/hooks/use-answer-key-run'
 export { BookKeyDialog } from '@/features/questions/components/book-key-dialog'
 export {
+  CategoryPicker,
+  categoryLabel,
+} from '@/features/questions/components/category-picker'
+export {
   useBookKeyRun,
   type BookKeyGroup,
 } from '@/features/questions/hooks/use-book-key-run'
