@@ -1,355 +1,96 @@
-import { useEffect, useRef, useState } from 'react'
-import { FileUp, KeyRound, Play, Send, Square } from 'lucide-react'
-import { useBlocker, useNavigate, useSearchParams } from 'react-router'
+import { useRef, useState } from 'react'
+import { FileUp, Square } from 'lucide-react'
 import { toast } from 'sonner'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
-import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
 import { Progress } from '@/components/ui/progress'
 import { Spinner } from '@/components/ui/spinner'
 import { normalizeError } from '@/lib/errors'
-import {
-  formatPages,
-  parsePageRange,
-  parsePagesLenient,
-} from '@/core/segment/page-range'
+import { parsePageRange } from '@/core/segment/page-range'
 import {
   BookFormDialog,
-  findBookByHash,
-  sha256Hex,
   titleFromFilename,
-  useBackfillPageCount,
-  useBooks,
-  useCreateBook,
   useMarkPagesWorked,
-  type Book,
 } from '@/features/books'
-import { useDownloadPdf } from '@/features/import/api/use-download-pdf'
 import { BookPicker } from '@/features/import/components/book-picker'
+import { CropActions } from '@/features/import/components/crop-actions'
 import { CropGrid } from '@/features/import/components/crop-grid'
-import { PagePreviewDialog } from '@/features/import/components/page-preview-dialog'
-import { ThumbnailStrip } from '@/features/import/components/thumbnail-strip'
-import { useSegmentation } from '@/features/import/hooks/use-segmentation'
 import {
-  AnswerKeyDialog,
-  BookKeyDialog,
-  cropKey,
-  useAnswerKeyRun,
-  useBookKeyRun,
-  useEnqueue,
-  useSaveAnswerKeys,
-  useSaveCrops,
-} from '@/features/questions'
-import { loadPdf, type PDFDocumentProxy } from '@/features/import/lib/pdf'
+  DuplicateBookDialog,
+  LeaveImportDialog,
+  ReplaceRunDialog,
+  SendConfirmDialog,
+} from '@/features/import/components/import-dialogs'
+import { PagePreviewDialog } from '@/features/import/components/page-preview-dialog'
+import { PageRangeFields } from '@/features/import/components/page-range-fields'
+import { ThumbnailStrip } from '@/features/import/components/thumbnail-strip'
+import { useCropQueue } from '@/features/import/hooks/use-crop-queue'
+import { useImportAnswerKeys } from '@/features/import/hooks/use-import-answer-keys'
+import { useOpenDocument } from '@/features/import/hooks/use-open-document'
+import { usePageRanges } from '@/features/import/hooks/use-page-ranges'
+import { useSegmentation } from '@/features/import/hooks/use-segmentation'
+import { AnswerKeyDialog, BookKeyDialog } from '@/features/questions'
 import { usePageTitle } from '@/hooks/use-page-title'
 
-interface PendingBook {
-  file: File
-  hash: string
-  pageCount: number | null
-}
-
-interface DuplicateHit {
-  book: Book
-  file: File
-}
-
+// Composition only. Each concern the page used to carry — getting a document
+// open, the two page ranges, the answer key, the crop selection and its send —
+// is a hook beside this file, and each dialog is a component. What is left
+// here is the one thing that needs all of them: what happens when a new
+// document replaces the current one.
 export function ImportPage() {
   usePageTitle('İmport')
   const fileInputRef = useRef<HTMLInputElement>(null)
-  /** Picking a book whose PDF was too large to archive asks for the file. */
   const reopenInputRef = useRef<HTMLInputElement>(null)
-  const reopenBook = useRef<Book | null>(null)
-  const [fileName, setFileName] = useState<string | null>(null)
-  const [doc, setDoc] = useState<PDFDocumentProxy | null>(null)
-  const [docSeq, setDocSeq] = useState(0)
-  const loadSeq = useRef(0)
-  const docRef = useRef<PDFDocumentProxy | null>(null)
-  // The parse started at file-pick time; committed to the viewer only after
-  // the metadata dialog is confirmed.
-  const pendingDocRef = useRef<Promise<PDFDocumentProxy> | null>(null)
-  // ?book=ID auto-open bookkeeping — reset on unmount so a remount (incl.
-  // StrictMode's simulated one) handles the param again.
-  const handledBook = useRef<number | null>(null)
-  const [pendingBook, setPendingBook] = useState<PendingBook | null>(null)
-  const [duplicate, setDuplicate] = useState<DuplicateHit | null>(null)
-  // Hash + duplicate-check gap after the OS picker closes needs a visible
-  // pending state — on a 45MB file it is a multi-second silence otherwise.
-  const [isChecking, setIsChecking] = useState(false)
+  const [previewPage, setPreviewPage] = useState<number | null>(null)
   // Opening another document mid-run silently kills the run; the operator
   // confirms first, and the confirmed action runs from here.
   const [pendingReplace, setPendingReplace] = useState<(() => void) | null>(
     null,
   )
-  const [archiveBadge, setArchiveBadge] = useState<
-    'uploaded' | 'skipped-size' | null
-  >(null)
-  const [previewPage, setPreviewPage] = useState<number | null>(null)
-  // The book the open document belongs to — the processing trail hangs off it.
-  const [currentBook, setCurrentBook] = useState<Book | null>(null)
-  const [rangeInput, setRangeInput] = useState('')
-  const [rangeError, setRangeError] = useState<string | null>(null)
-  // Questions and answer keys are different page sets — one shared input meant
-  // retyping the other every time you switched task. Clicking a thumbnail
-  // fills whichever field the operator last touched.
-  const [keyRangeInput, setKeyRangeInput] = useState('')
-  const [keyRangeError, setKeyRangeError] = useState<string | null>(null)
-  const [activeRange, setActiveRange] = useState<'questions' | 'keys'>(
-    'questions',
-  )
-  const [searchParams, setSearchParams] = useSearchParams()
-  const books = useBooks()
-  const createBook = useCreateBook()
-  const backfillPageCount = useBackfillPageCount()
-  const markPagesWorked = useMarkPagesWorked()
-  const download = useDownloadPdf()
+
   const segmentation = useSegmentation()
-  const saveCrops = useSaveCrops()
-  const enqueue = useEnqueue()
-  const navigate = useNavigate()
-  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set())
-  const [sendConfirmOpen, setSendConfirmOpen] = useState(false)
-  /** Crops already written and queued. They stop arming the unsaved-work guard. */
-  const [sentKeys, setSentKeys] = useState<Set<string>>(new Set())
-  const answerKeys = useAnswerKeyRun()
-  const bookKeys = useBookKeyRun()
-  const saveAnswerKeys = useSaveAnswerKeys()
-  const [keyDialogOpen, setKeyDialogOpen] = useState(false)
-  const [bookKeyDialogOpen, setBookKeyDialogOpen] = useState(false)
-  /** The by-hand key path, shown only where the book-wide pass cannot serve. */
-  const [manualKeyOpen, setManualKeyOpen] = useState(false)
-
-  useEffect(
-    () => () => {
-      // Supersede any in-flight load so a parse resolving after unmount
-      // destroys itself in commitLoaded instead of repopulating a dead ref.
-      loadSeq.current += 1
-      handledBook.current = null
-      void docRef.current?.loadingTask.destroy().catch(() => {})
-      const pending = pendingDocRef.current
-      pendingDocRef.current = null
-      void pending?.then((d) => d.loadingTask.destroy()).catch(() => {})
-    },
-    [],
-  )
-
-  function commitLoaded(
-    seq: number,
-    name: string,
-    loaded: PDFDocumentProxy,
-    opts: {
-      badge?: 'uploaded' | 'skipped-size' | null
-      book?: Book | null
-      initialRange?: string
-    } = {},
-  ) {
-    if (seq !== loadSeq.current) {
-      void loaded.loadingTask.destroy().catch(() => {})
-      return
-    }
-    void docRef.current?.loadingTask.destroy().catch(() => {})
-    docRef.current = loaded
+  const ranges = usePageRanges()
+  const document = useOpenDocument(({ initialRange }) => {
+    // A new document has none of the previous one's work: not its crops, not
+    // its selection, not its key plan, not its ranges.
     segmentation.reset()
-    answerKeys.reset()
-    setSelectedKeys(new Set())
-    setRangeInput(opts.initialRange ?? '')
-    setRangeError(null)
-    setKeyRangeInput('')
-    setKeyRangeError(null)
-    setActiveRange('questions')
-    setFileName(name)
-    setDoc(loaded)
-    setDocSeq(seq)
-    setArchiveBadge(opts.badge ?? null)
-    setCurrentBook(opts.book ?? null)
+    keys.reset()
+    queue.reset()
+    ranges.reset(initialRange)
     setPreviewPage(null)
+  })
+  const { doc, currentBook } = document
+  const running = segmentation.status === 'running'
+  const keys = useImportAnswerKeys({
+    doc,
+    book: currentBook,
+    results: segmentation.results,
+    ranges,
+  })
+  const queue = useCropQueue({
+    book: currentBook,
+    results: segmentation.results,
+    running,
+  })
+  const markPagesWorked = useMarkPagesWorked()
+
+  function guardReplace(action: () => void) {
+    if (running) setPendingReplace(() => action)
+    else action()
   }
 
-  async function openBuffer(
-    seq: number,
-    name: string,
-    buffer: Promise<ArrayBuffer>,
-    opts: { book?: Book | null; initialRange?: string } = {},
-  ) {
-    try {
-      const loaded = await loadPdf(await buffer)
-      commitLoaded(seq, name, loaded, opts)
-    } catch (error) {
-      if (seq !== loadSeq.current) return
-      toast.error(normalizeError(error).message)
-    }
-  }
-
-  // New file: hash → duplicate check → metadata dialog. The PDF parse runs in
-  // parallel so the page count is ready by the time the admin fills the form.
-  async function handleFile(file: File) {
-    let docPromise: Promise<PDFDocumentProxy> | undefined
-    setIsChecking(true)
-    try {
-      const buffer = await file.arrayBuffer()
-      const hash = await sha256Hex(buffer)
-      const existing = await findBookByHash(hash).catch(() => null)
-      if (existing) {
-        setIsChecking(false)
-        setDuplicate({ book: existing, file })
-        return
-      }
-      // Release a previous still-pending parse before replacing it.
-      const previous = pendingDocRef.current
-      if (previous)
-        void previous.then((d) => d.loadingTask.destroy()).catch(() => {})
-      docPromise = loadPdf(buffer)
-      pendingDocRef.current = docPromise
-      setPendingBook({ file, hash, pageCount: null })
-      // The metadata dialog is open from here on — the badge's job is done.
-      setIsChecking(false)
-      const loaded = await docPromise
-      setPendingBook((current) =>
-        current && current.file === file
-          ? { ...current, pageCount: loaded.numPages }
-          : current,
-      )
-    } catch (error) {
-      // Only the call that still owns the pending state may clear it — a late
-      // rejection from an older pick must not close a newer pick's dialog.
-      if (docPromise && pendingDocRef.current !== docPromise) return
-      setIsChecking(false)
-      pendingDocRef.current = null
-      setPendingBook((current) =>
-        current && current.file === file ? null : current,
-      )
-      toast.error(normalizeError(error).message)
-    }
-  }
-
-  function cancelPending() {
-    const promise = pendingDocRef.current
-    pendingDocRef.current = null
-    setPendingBook(null)
-    void promise?.then((d) => d.loadingTask.destroy()).catch(() => {})
-  }
-
-  // First page the operator has not touched yet — the "continue from" hint.
-  function nextUnworkedPage(book: Book): number | null {
-    if (!book.page_count) return null
-    const worked = new Set(book.worked_pages)
-    for (let p = 1; p <= book.page_count; p++) {
-      if (!worked.has(p)) return p
-    }
-    return null
-  }
-
-  function openStoredBook(book: Book) {
-    if (!book.storage_path) {
-      // Over MAX_UPLOAD_BYTES the archive keeps the metadata and not the bytes,
-      // so the file has to come from the operator's disk. It is verified
-      // against the book's hash before anything is opened.
-      reopenBook.current = book
-      reopenInputRef.current?.click()
-      return
-    }
-    const seq = ++loadSeq.current
-    const next = nextUnworkedPage(book)
-    void openBuffer(seq, book.title, download.mutateAsync(book.storage_path), {
-      book,
-      initialRange:
-        next !== null && book.worked_pages.length > 0 ? String(next) : '',
-    })
-  }
-
-  // The file for a book the archive holds no bytes for. Verified by hash: a
-  // different PDF opened under this book's name would attach its crops, its
-  // worked pages and its answer key to the wrong pages.
-  async function reopenWithFile(file: File) {
-    const book = reopenBook.current
-    reopenBook.current = null
-    if (!book) return
-    setIsChecking(true)
-    try {
-      const buffer = await file.arrayBuffer()
-      if (book.content_hash) {
-        const hash = await sha256Hex(buffer)
-        if (hash !== book.content_hash) {
-          toast.error(
-            `Bu fayl «${book.title}» deyil — kitabın öz PDF-ini seçin`,
-          )
-          return
-        }
-      }
-      const next = nextUnworkedPage(book)
-      const seq = ++loadSeq.current
-      await openBuffer(seq, book.title, Promise.resolve(buffer), {
-        book,
-        initialRange:
-          next !== null && book.worked_pages.length > 0 ? String(next) : '',
-      })
-    } catch (error) {
-      toast.error(normalizeError(error).message)
-    } finally {
-      setIsChecking(false)
-    }
-  }
-
-  // /import?book=ID — the Kitablar page's "open in import" action.
-  useEffect(() => {
-    const id = Number(searchParams.get('book'))
-    if (!id || !books.data) return
-    if (handledBook.current === id) return
-    handledBook.current = id
-    const book = books.data.find((b) => b.id === id)
-    setSearchParams({}, { replace: true })
-    if (book) openStoredBook(book)
-    else toast.error('Kitab tapılmadı')
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- fires when the list arrives
-  }, [books.data, searchParams])
-
-  // The auto-open can't run while the archive list is failing; say so instead
-  // of silently ignoring the ?book param (it stays, so a retry resumes it).
-  useEffect(() => {
-    if (books.isError && searchParams.get('book')) {
-      toast.error('Arxiv siyahısı yüklənmədi — kitab avtomatik açıla bilmədi')
-    }
-  }, [books.isError, searchParams])
-
-  function toggleThumb(page: number) {
-    if (!doc) return
-    const isKeys = activeRange === 'keys'
-    const value = isKeys ? keyRangeInput : rangeInput
-    const setValue = isKeys ? setKeyRangeInput : setRangeInput
-    const setError = isKeys ? setKeyRangeError : setRangeError
-    const strict = parsePageRange(value, doc.numPages)
-    if (strict.ok || value.trim() === '') {
-      const pages = parsePagesLenient(value, doc.numPages)
-      if (pages.has(page)) pages.delete(page)
-      else pages.add(page)
-      setValue(formatPages([...pages]))
-    } else {
-      setValue(value.trim() ? `${value}, ${page}` : String(page))
-    }
-    setError(null)
-  }
+  const askForFile = () => reopenInputRef.current?.click()
 
   function startSegmentation() {
-    if (!doc || segmentation.status === 'running') return
-    const parsed = parsePageRange(rangeInput, doc.numPages)
+    if (!doc || running) return
+    const parsed = parsePageRange(ranges.rangeInput, doc.numPages)
     if (!parsed.ok) {
-      setRangeError(parsed.error)
+      ranges.setRangeError(parsed.error)
       return
     }
-    setRangeError(null)
+    ranges.setRangeError(null)
     const book = currentBook
     void segmentation
       .run(doc, parsed.pages)
@@ -366,271 +107,6 @@ export function ImportPage() {
       .catch((error) => toast.error(normalizeError(error).message))
   }
 
-  const running = segmentation.status === 'running'
-  // Answer keys read the SAME page-range input in a different mode: the
-  // operator is already looking at the book with the page numbers in view.
-  // The key run needs BOTH ranges: the pages it reads, and the pages those
-  // answers belong to. The pairing is the operator's own statement and it
-  // replaces every attempt to infer which section a key answers — see
-  // `core/answer-key/batch.ts` for the books that made inference untenable.
-  function startAnswerKeys() {
-    if (!doc || !currentBook) return
-    const parsedKeys = parsePageRange(keyRangeInput, doc.numPages)
-    if (!parsedKeys.ok) {
-      setKeyRangeError(parsedKeys.error)
-      return
-    }
-    const parsedQuestions = parsePageRange(rangeInput, doc.numPages)
-    if (!parsedQuestions.ok) {
-      setKeyRangeError(
-        'Əvvəlcə sual səhifələrini yazın — açar məhz onlara aid olacaq',
-      )
-      return
-    }
-    setKeyRangeError(null)
-    // What the question pages say about themselves, from the segmentation
-    // still in memory — the crops are usually not sent yet, so the bank
-    // cannot answer this. It is what lets the block be worked out instead of
-    // asked; see `suggestSection`.
-    const pageTests = new Map(
-      segmentation.results
-        .filter(
-          (r): r is typeof r & { testNo: number } =>
-            parsedQuestions.pages.includes(r.pageNumber) &&
-            r.testNo !== undefined,
-        )
-        .map((r) => [r.pageNumber, r.testNo] as const),
-    )
-    const pageNumbers = new Map(
-      segmentation.results
-        .filter((r) => parsedQuestions.pages.includes(r.pageNumber))
-        .map((r) => [r.pageNumber, r.crops.map((c) => c.number)] as const),
-    )
-    void answerKeys
-      .run(
-        doc,
-        parsedKeys.pages,
-        currentBook.id,
-        parsedQuestions.pages,
-        pageTests,
-        pageNumbers,
-      )
-      .then((result) => {
-        if (!result.entries.length) {
-          toast.warning('Seçilən səhifələrdə cavab açarı tapılmadı')
-          return
-        }
-        setKeyDialogOpen(true)
-      })
-      .catch((error) => toast.error(normalizeError(error).message))
-  }
-
-  /**
-   * Why a book-wide read came back with nothing, in the operator's terms.
-   *
-   * A scan needs two things the pass cannot supply, IN ORDER: the pages that
-   * hold the key, and the questions themselves — which on a scan are only
-   * known once they have been cropped and sent, because the page numbers come
-   * from the bank rather than from a text layer. Reporting "no key found" for
-   * either of those sent the operator looking for a defect that was really a
-   * missing step.
-   */
-  function scanKeyHint(result: {
-    scanned: boolean
-    plan: { keyPages: number[]; questionPages: number[] } | null
-  }): string {
-    if (!result.scanned)
-      return 'Kitabda yerləşdirilə bilən cavab açarı tapılmadı'
-    if (!result.plan?.keyPages.length) {
-      // Deliberately does not promise there IS one. GALATA IQ SORU BANKASI is
-      // 496 scanned pages with no printed key anywhere in the file, and a
-      // message telling the operator to name its key pages sent them hunting
-      // for something the book does not contain.
-      return 'Bu kitab skandır — açar səhifələri avtomatik tapıla bilmir. Kitabda çap olunmuş açar varsa (adətən kitabın və ya bölmənin sonunda), səhifə nömrələrini yazın'
-    }
-    if (!result.plan.questionPages.length) {
-      return 'Açar oxundu, amma bu skan kitabda hələ kəsilmiş sual yoxdur — əvvəlcə səhifələri kəsib növbəyə atın, sonra açarı yenidən oxuyun'
-    }
-    return 'Açar oxundu, amma heç bir bölmə üçün təsdiqlənmədi'
-  }
-
-  // The whole book at once. Nothing is named and nothing is paired by hand:
-  // the pass reads every page and works out which block answers which section
-  // from the book's own shape. The page-range flow below stays for what this
-  // cannot settle — a scan, or a section the shape leaves unproved.
-  function startBookKey() {
-    if (!doc || !currentBook) return
-    // Only used if the book turns out to be a scan, where these are the pages
-    // that cost a model call.
-    const named = parsePageRange(keyRangeInput, doc.numPages)
-    void bookKeys
-      .run(doc, currentBook.id, named.ok ? named.pages : [])
-      .then((result) => {
-        if (!result.groups.length) {
-          // A scan has no text layer to read, so the pass needs the operator to
-          // name the key pages — the one thing it cannot work out for itself.
-          if (result.scanned) setManualKeyOpen(true)
-          toast.warning(scanKeyHint(result))
-          return
-        }
-        // Sections the shape could not settle are the other reason to reach for
-        // the by-hand path, so it is offered rather than hunted for.
-        if (result.plan?.unpaired.length) setManualKeyOpen(true)
-        setBookKeyDialogOpen(true)
-      })
-      .catch((error) => toast.error(normalizeError(error).message))
-  }
-
-  function applyBookKeys() {
-    if (!currentBook || !bookKeys.plan || !bookKeys.groups.length) return
-    saveAnswerKeys.mutate(
-      {
-        bookId: currentBook.id,
-        keyPages: bookKeys.plan.keyPages,
-        groups: bookKeys.groups.map((group) => ({
-          questionPages: group.questionPages,
-          label: group.label,
-          entries: group.entries,
-          pairs: group.pairs,
-        })),
-      },
-      {
-        onSuccess: () => {
-          setBookKeyDialogOpen(false)
-          bookKeys.reset()
-        },
-      },
-    )
-  }
-
-  function applyAnswerKeys() {
-    const plan = answerKeys.plan
-    if (!currentBook || !plan?.groups.length) return
-    // One batch per printed section. A selection spanning three tests writes
-    // three, each holding only its own block's answers — storing the whole key
-    // page under one pairing would let the worker apply another test's answers
-    // to these questions by number.
-    saveAnswerKeys.mutate(
-      {
-        bookId: currentBook.id,
-        keyPages: answerKeys.keyPages,
-        groups: plan.groups.map((group) => ({
-          questionPages: group.pages,
-          label: group.section.label,
-          entries: group.entries,
-          pairs: group.match.pairs.map((p) => ({ id: p.id, answer: p.answer })),
-        })),
-      },
-      {
-        onSuccess: () => {
-          setKeyDialogOpen(false)
-          answerKeys.reset()
-        },
-      },
-    )
-  }
-
-  // Crops stay in memory until the operator SENDS them — only selected crops
-  // are persisted (as rows + storage objects) right before queueing, so the
-  // bank never fills with drafts nobody asked for.
-  const allCrops = segmentation.results.flatMap((page) => page.crops)
-  // What is actually at risk: crops that were never sent.
-  const hasUnsentCrops = allCrops.some((c) => !sentKeys.has(cropKey(c)))
-  // Crops persist only when SENT — leaving with unsent results discards them
-  // (recoverable by re-running the range, but usually accidental).
-  const dirty = running || saveCrops.isPending || hasUnsentCrops
-
-  const blocker = useBlocker(dirty)
-
-  useEffect(() => {
-    if (!dirty) return
-    const handler = (e: BeforeUnloadEvent) => {
-      e.preventDefault()
-    }
-    window.addEventListener('beforeunload', handler)
-    return () => window.removeEventListener('beforeunload', handler)
-  }, [dirty])
-
-  function guardReplace(action: () => void) {
-    if (running) {
-      setPendingReplace(() => action)
-    } else {
-      action()
-    }
-  }
-
-  const eligibleKeys = new Set(
-    currentBook
-      ? allCrops.map((c) => cropKey(c)).filter((key) => !sentKeys.has(key))
-      : [],
-  )
-  const selectedCrops = allCrops.filter(
-    (c) => selectedKeys.has(cropKey(c)) && eligibleKeys.has(cropKey(c)),
-  )
-  // Rough per-lane cost constants (documented estimates, not billing). The
-  // scheme lane is a range, not a number: a `rule` crop whose DSL render fails
-  // escalates to image generation, so $0.03 is its floor and $0.18 its ceiling.
-  const laneCounts = { none: 0, rule: 0, colored: 0 }
-  for (const c of selectedCrops) laneCounts[c.figureKind]++
-  const costBase = laneCounts.none * 0.006 + laneCounts.colored * 0.16
-  const costLow = costBase + laneCounts.rule * 0.03
-  const costHigh = costBase + laneCounts.rule * 0.18
-
-  function toggleSelected(key: string) {
-    setSelectedKeys((current) => {
-      const next = new Set(current)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
-  }
-
-  function sendToQueue() {
-    setSendConfirmOpen(false)
-    const book = currentBook
-    if (!book) return
-    const selectedResults = segmentation.results
-      .map((page) => ({
-        ...page,
-        crops: page.crops.filter((c) => selectedKeys.has(cropKey(c))),
-      }))
-      .filter((page) => page.crops.length > 0)
-    setSelectedKeys(new Set())
-    // Persist ONLY what is being sent, then queue exactly those rows.
-    //
-    // There is no "structure in this tab" any more. Draining questions belongs
-    // to the worker: it batches them at half price, is not bounded by an Edge
-    // Function's wall clock, and does not stop when the tab closes. What this
-    // page owes the operator is the crops and a place in the queue.
-    saveCrops.mutate(
-      { book, results: selectedResults },
-      {
-        onSuccess: (res) => {
-          if (!res.saved.length) return
-          // Sent crops stop arming the unsaved-work guard: they are rows now,
-          // and leaving the page no longer loses them.
-          setSentKeys((prev) => {
-            const next = new Set(prev)
-            for (const entry of res.saved) next.add(cropKey(entry.crop))
-            return next
-          })
-          void enqueue
-            .mutateAsync(res.saved.map((e) => e.row.id))
-            .then(() =>
-              toast.info(`${res.saved.length} sual növbəyə əlavə edildi`, {
-                action: {
-                  label: 'Suallara keç',
-                  onClick: () => navigate('/questions'),
-                },
-              }),
-            )
-            .catch(() => undefined)
-        },
-        onError: (error) => toast.error(normalizeError(error).message),
-      },
-    )
-  }
-
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
       <h1 className="text-2xl font-semibold tracking-tight">İmport</h1>
@@ -644,7 +120,7 @@ export function ImportPage() {
             className="sr-only"
             onChange={(e) => {
               const file = e.target.files?.[0]
-              if (file) guardReplace(() => void handleFile(file))
+              if (file) guardReplace(() => void document.handleFile(file))
               e.target.value = ''
             }}
           />
@@ -654,44 +130,47 @@ export function ImportPage() {
             accept="application/pdf"
             className="sr-only"
             onChange={(e) => {
-              const file = e.target.files?.[0]
-              if (file) guardReplace(() => void reopenWithFile(file))
-              else reopenBook.current = null
+              const file = e.target.files?.[0] ?? null
+              guardReplace(() => void document.reopenWithFile(file))
               e.target.value = ''
             }}
           />
           <div className="flex flex-wrap items-center gap-3">
             <Button
-              disabled={isChecking}
+              disabled={document.isChecking}
               onClick={() => fileInputRef.current?.click()}
             >
               <FileUp data-icon="inline-start" />
               PDF yüklə
             </Button>
             <BookPicker
-              disabled={download.isPending}
-              onPick={(book) => guardReplace(() => openStoredBook(book))}
+              disabled={document.isDownloading}
+              onPick={(book) =>
+                guardReplace(() => document.openStoredBook(book, askForFile))
+              }
             />
-            {download.isPending ? (
+            {document.isDownloading ? (
               <Badge variant="secondary">arxivdən endirilir…</Badge>
             ) : null}
-            {isChecking ? (
+            {document.isChecking ? (
               <Badge variant="secondary">
                 <Spinner />
                 yoxlanılır…
               </Badge>
             ) : null}
-            {fileName ? (
-              <span className="min-w-0 truncate text-sm">{fileName}</span>
+            {document.fileName ? (
+              <span className="min-w-0 truncate text-sm">
+                {document.fileName}
+              </span>
             ) : (
               <span className="text-muted-foreground text-sm">
                 Yeni PDF yükləyin və ya arxivdən kitab seçin.
               </span>
             )}
-            {archiveBadge === 'uploaded' ? (
+            {document.archiveBadge === 'uploaded' ? (
               <Badge variant="secondary">arxivləndi</Badge>
             ) : null}
-            {archiveBadge === 'skipped-size' ? (
+            {document.archiveBadge === 'skipped-size' ? (
               <Badge variant="outline">
                 arxivlənmədi — 50MB limitindən böyükdür
               </Badge>
@@ -701,170 +180,26 @@ export function ImportPage() {
           {doc ? (
             <>
               <ThumbnailStrip
-                key={docSeq}
+                key={document.docSeq}
                 doc={doc}
                 pageCount={doc.numPages}
-                selected={parsePagesLenient(
-                  activeRange === 'keys' ? keyRangeInput : rangeInput,
-                  doc.numPages,
-                )}
+                selected={ranges.activePages(doc)}
                 onOpen={setPreviewPage}
               />
-              <div
-                className={
-                  manualKeyOpen ? 'grid gap-3 sm:grid-cols-2' : 'grid gap-3'
-                }
-              >
-                <Field data-invalid={rangeError ? true : undefined}>
-                  <FieldLabel htmlFor="range">Sual səhifələri</FieldLabel>
-                  <div className="flex gap-2">
-                    <Input
-                      id="range"
-                      value={rangeInput}
-                      placeholder="məs. 4-8, 11"
-                      aria-invalid={rangeError ? true : undefined}
-                      onFocus={() => setActiveRange('questions')}
-                      onChange={(e) => {
-                        setRangeInput(e.target.value)
-                        setRangeError(null)
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') startSegmentation()
-                      }}
-                    />
-                    <Button onClick={startSegmentation} disabled={running}>
-                      {running ? (
-                        <Spinner data-icon="inline-start" />
-                      ) : (
-                        <Play data-icon="inline-start" />
-                      )}
-                      Çıxar
-                    </Button>
-                  </div>
-                  {rangeError ? (
-                    <p className="text-destructive text-sm">{rangeError}</p>
-                  ) : (
-                    <FieldDescription>
-                      {activeRange === 'questions'
-                        ? 'Səhifələrə kliklə seçim bu sahəyə düşür.'
-                        : 'Kliklə seçim üçün bu sahəyə toxunun.'}
-                    </FieldDescription>
-                  )}
-                </Field>
-
-                {manualKeyOpen ? (
-                  <Field data-invalid={keyRangeError ? true : undefined}>
-                    <FieldLabel htmlFor="key-range">
-                      Cavab açarı səhifələri
-                    </FieldLabel>
-                    <div className="flex gap-2">
-                      <Input
-                        id="key-range"
-                        value={keyRangeInput}
-                        placeholder="məs. 11, 19"
-                        aria-invalid={keyRangeError ? true : undefined}
-                        onFocus={() => setActiveRange('keys')}
-                        onChange={(e) => {
-                          setKeyRangeInput(e.target.value)
-                          setKeyRangeError(null)
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') startAnswerKeys()
-                        }}
-                      />
-                      <Button
-                        variant="outline"
-                        onClick={startAnswerKeys}
-                        disabled={
-                          running ||
-                          answerKeys.status === 'running' ||
-                          !currentBook ||
-                          !keyRangeInput.trim() ||
-                          // The key is stored against the question pages, so
-                          // there is nothing to pair it with until they exist.
-                          !rangeInput.trim()
-                        }
-                        title={
-                          currentBook
-                            ? 'Seçilən səhifələri cavab açarı kimi oxu'
-                            : 'Əvvəlcə arxivdən kitab açın'
-                        }
-                      >
-                        {answerKeys.status === 'running' ? (
-                          <Spinner data-icon="inline-start" />
-                        ) : (
-                          <KeyRound data-icon="inline-start" />
-                        )}
-                        Oxu
-                      </Button>
-                    </div>
-                    {keyRangeError ? (
-                      <p className="text-destructive text-sm">
-                        {keyRangeError}
-                      </p>
-                    ) : (
-                      <FieldDescription>
-                        {currentBook
-                          ? 'Bu səhifələr yuxarıdakı sual səhifələri ilə cütlənir.'
-                          : 'Kitab açıldıqdan sonra aktivləşir.'}
-                      </FieldDescription>
-                    )}
-                  </Field>
-                ) : null}
-              </div>
-
-              <div className="flex flex-wrap items-center gap-3 rounded-md border p-3">
-                <Button
-                  onClick={startBookKey}
-                  disabled={
-                    running || bookKeys.status === 'running' || !currentBook
-                  }
-                  title={
-                    currentBook
-                      ? 'Bütün kitabı oxu və hər bölmənin cavab açarını tap'
-                      : 'Əvvəlcə arxivdən kitab açın'
-                  }
-                >
-                  {bookKeys.status === 'running' ? (
-                    <Spinner data-icon="inline-start" />
-                  ) : (
-                    <KeyRound data-icon="inline-start" />
-                  )}
-                  Kitabın açarını oxu
-                </Button>
-                <p className="text-muted-foreground flex-1 text-xs">
-                  {bookKeys.status === 'running'
-                    ? `Oxunur — ${bookKeys.current} / ${bookKeys.total} səhifə`
-                    : 'Bütün kitabı bir dəfəyə oxuyur, hansı açarın hansı bölməyə aid olduğunu özü tapır və planı təsdiqə verir. Pulsuzdur; sonra kəsdiyiniz hər sualın cavabı özü gəlir.'}
-                </p>
-                {manualKeyOpen ? null : (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setManualKeyOpen(true)}
-                    className="text-muted-foreground"
-                  >
-                    Əl ilə seç
-                  </Button>
-                )}
-              </div>
-
-              <p className="text-muted-foreground text-xs">
-                Yazı ilə (4-8, 11) və ya yuxarıdakı səhifələrə kliklə seçin —
-                cəmi {doc.numPages} səhifə.
-              </p>
-
+              <PageRangeFields
+                pageCount={doc.numPages}
+                ranges={ranges}
+                keys={keys}
+                running={running}
+                hasBook={currentBook !== null}
+                onSegment={startSegmentation}
+              />
               <PagePreviewDialog
                 doc={doc}
                 pageCount={doc.numPages}
                 page={previewPage}
-                isSelected={(page) =>
-                  parsePagesLenient(
-                    activeRange === 'keys' ? keyRangeInput : rangeInput,
-                    doc.numPages,
-                  ).has(page)
-                }
-                onToggleSelected={toggleThumb}
+                isSelected={(page) => ranges.activePages(doc).has(page)}
+                onToggleSelected={(page) => ranges.toggleThumb(doc, page)}
                 onNavigate={setPreviewPage}
                 onClose={() => setPreviewPage(null)}
               />
@@ -895,45 +230,26 @@ export function ImportPage() {
         <CropGrid
           results={segmentation.results}
           selection={
-            eligibleKeys.size > 0
+            queue.eligibleKeys.size > 0
               ? {
-                  eligible: eligibleKeys,
-                  selected: selectedKeys,
-                  onToggle: toggleSelected,
+                  eligible: queue.eligibleKeys,
+                  selected: queue.selectedKeys,
+                  onToggle: queue.toggleSelected,
                 }
               : undefined
           }
         />
       ) : null}
 
-      {eligibleKeys.size > 0 ? (
-        <div className="bg-background sticky bottom-0 z-10 flex flex-wrap items-center gap-2 rounded-lg border p-2 shadow-xs">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setSelectedKeys(new Set(eligibleKeys))}
-          >
-            Hamısını seç ({eligibleKeys.size})
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={selectedKeys.size === 0}
-            onClick={() => setSelectedKeys(new Set())}
-          >
-            Təmizlə
-          </Button>
-          <div className="ml-auto flex items-center gap-2">
-            <Button
-              size="sm"
-              disabled={selectedCrops.length === 0}
-              onClick={() => setSendConfirmOpen(true)}
-            >
-              <Send data-icon="inline-start" />
-              Çıxarılmaya göndər ({selectedCrops.length})
-            </Button>
-          </div>
-        </div>
+      {queue.eligibleKeys.size > 0 ? (
+        <CropActions
+          eligible={queue.eligibleKeys.size}
+          selected={queue.selectedKeys.size}
+          sendable={queue.selectedCrops.length}
+          onSelectAll={() => queue.setSelectedKeys(new Set(queue.eligibleKeys))}
+          onClear={() => queue.setSelectedKeys(new Set())}
+          onSend={() => queue.setSendConfirmOpen(true)}
+        />
       ) : null}
 
       {segmentation.status === 'done' &&
@@ -948,226 +264,88 @@ export function ImportPage() {
         </Alert>
       ) : null}
 
-      {pendingBook ? (
+      {document.pendingBook ? (
         <BookFormDialog
           open
           title="Yeni kitab"
-          description={`${pendingBook.file.name} — ${(pendingBook.file.size / 1024 / 1024).toFixed(1)} MB${pendingBook.pageCount ? `, ${pendingBook.pageCount} səhifə` : ''}`}
+          description={`${document.pendingBook.file.name} — ${(document.pendingBook.file.size / 1024 / 1024).toFixed(1)} MB${document.pendingBook.pageCount ? `, ${document.pendingBook.pageCount} səhifə` : ''}`}
           submitLabel="Yüklə və aç"
-          isPending={createBook.isPending}
+          isPending={document.isCreating}
           defaults={{
-            title: titleFromFilename(pendingBook.file.name),
+            title: titleFromFilename(document.pendingBook.file.name),
             program_id: 0,
             subject_id: null,
             tags: [],
             note: '',
           }}
-          onCancel={cancelPending}
-          onSubmit={(form) =>
-            createBook.mutate(
-              {
-                form,
-                file: pendingBook.file,
-                contentHash: pendingBook.hash,
-                pageCount: pendingBook.pageCount,
-              },
-              {
-                onSuccess: async ({ book, archive }) => {
-                  const promise = pendingDocRef.current
-                  pendingDocRef.current = null
-                  setPendingBook(null)
-                  if (!promise) return
-                  const seq = ++loadSeq.current
-                  try {
-                    const loaded = await promise
-                    // The dialog can be submitted before the parse resolves;
-                    // fill the page count in once it is known.
-                    if (book.page_count === null) {
-                      backfillPageCount.mutate({
-                        id: book.id,
-                        pageCount: loaded.numPages,
-                      })
-                    }
-                    commitLoaded(seq, book.title, loaded, {
-                      badge: archive,
-                      book,
-                    })
-                  } catch (error) {
-                    toast.error(normalizeError(error).message)
-                  }
-                },
-              },
-            )
-          }
+          onCancel={document.cancelPending}
+          onSubmit={document.submitPendingBook}
         />
       ) : null}
 
-      <AlertDialog
-        open={duplicate !== null}
-        onOpenChange={(open) => {
-          if (!open) setDuplicate(null)
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Bu PDF artıq arxivdədir</AlertDialogTitle>
-            <AlertDialogDescription>
-              Eyni fayl «{duplicate?.book.title}» adı ilə qeydiyyatdadır —
-              yenidən yükləməyə ehtiyac yoxdur.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>İmtina</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                if (!duplicate) return
-                if (duplicate.book.storage_path) {
-                  openStoredBook(duplicate.book)
-                } else {
-                  const seq = ++loadSeq.current
-                  void openBuffer(
-                    seq,
-                    duplicate.book.title,
-                    duplicate.file.arrayBuffer(),
-                    { book: duplicate.book },
-                  )
-                }
-                setDuplicate(null)
-              }}
-            >
-              Kitabı aç
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <DuplicateBookDialog
+        book={document.duplicate?.book ?? null}
+        onOpen={() => document.openDuplicate(askForFile)}
+        onClose={document.dismissDuplicate}
+      />
 
-      {/* Leaving /import with unsaved crops (or a live run) needs a yes. */}
-      <AlertDialog
-        open={blocker.state === 'blocked'}
-        onOpenChange={(open) => {
-          if (!open) blocker.reset?.()
+      <LeaveImportDialog
+        blocker={queue.blocker}
+        running={running}
+        onLeave={() => {
+          segmentation.stop()
+          queue.blocker.proceed?.()
         }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Emal nəticələri itəcək</AlertDialogTitle>
-            <AlertDialogDescription>
-              {running
-                ? 'Emal hələ davam edir. Səhifəni tərk etsəniz, dayandırılacaq və çıxarılan suallar silinəcək.'
-                : 'Bazaya yalnız göndərdiyin suallar yazılır — qalan crop-lar səhifəni tərk etdikdə silinəcək (yenidən emal ilə bərpa olunur).'}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => blocker.reset?.()}>
-              Qal
-            </AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              onClick={() => {
-                segmentation.stop()
-                blocker.proceed?.()
-              }}
-            >
-              Tərk et
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      />
 
-      {/* Paid step: show the lane mix and the price before any model runs. */}
-      <AlertDialog
-        open={sendConfirmOpen}
-        onOpenChange={(open) => {
-          if (!open) setSendConfirmOpen(false)
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {selectedCrops.length} sual çıxarılmaya göndərilsin?
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              Seçilən crop-lar bazaya yazılacaq və AI hər sualı təmiz formada
-              yenidən yaradacaq (mətn, variantlar, fiqurlar). Təxmini xərc: ≈ $
-              {costLow.toFixed(2)}–${costHigh.toFixed(2)}
-              {laneCounts.colored > 0 || laneCounts.rule > 0
-                ? ` (mətn: ${laneCounts.none}, sxem: ${laneCounts.rule}, rəngli fiqur: ${laneCounts.colored}; şəkilli variantlar xərci artıra bilər)`
-                : ''}
-              .{' '}
-              {laneCounts.rule > 0
-                ? 'Sxem fiquru DSL ilə çəkilə bilməsə, şəkil generasiyasına keçir — bu halda xərc yuxarı hədə yaxınlaşır. '
-                : ''}
-              Nəticələr Suallar səhifəsində görünür.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>İmtina</AlertDialogCancel>
-            <AlertDialogAction onClick={sendToQueue}>
-              Növbəyə at
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <SendConfirmDialog
+        open={queue.sendConfirmOpen}
+        count={queue.selectedCrops.length}
+        laneCounts={queue.laneCounts}
+        costLow={queue.costLow}
+        costHigh={queue.costHigh}
+        onCancel={() => queue.setSendConfirmOpen(false)}
+        onConfirm={queue.sendToQueue}
+      />
 
-      {bookKeyDialogOpen && bookKeys.plan ? (
+      {keys.bookKeyDialogOpen && keys.bookKeys.plan ? (
         <BookKeyDialog
-          plan={bookKeys.plan}
-          groups={bookKeys.groups}
-          notes={bookKeys.notes}
-          isPending={saveAnswerKeys.isPending}
-          onCancel={() => setBookKeyDialogOpen(false)}
-          onConfirm={applyBookKeys}
+          plan={keys.bookKeys.plan}
+          groups={keys.bookKeys.groups}
+          notes={keys.bookKeys.notes}
+          isPending={keys.isSaving}
+          onCancel={() => keys.setBookKeyDialogOpen(false)}
+          onConfirm={keys.applyBookKeys}
         />
       ) : null}
 
-      {keyDialogOpen && answerKeys.plan ? (
+      {keys.keyDialogOpen && keys.answerKeys.plan ? (
         <AnswerKeyDialog
-          plan={answerKeys.plan}
-          questionPages={answerKeys.questionPages}
-          keyPages={answerKeys.keyPages}
-          fallbackSection={answerKeys.fallbackSection}
+          plan={keys.answerKeys.plan}
+          questionPages={keys.answerKeys.questionPages}
+          keyPages={keys.answerKeys.keyPages}
+          fallbackSection={keys.answerKeys.fallbackSection}
           onSection={(section) => {
             if (currentBook)
-              void answerKeys.chooseSection(section, currentBook.id)
+              void keys.answerKeys.chooseSection(section, currentBook.id)
           }}
-          notes={answerKeys.notes}
-          isPending={saveAnswerKeys.isPending}
-          onCancel={() => setKeyDialogOpen(false)}
-          onConfirm={applyAnswerKeys}
+          notes={keys.answerKeys.notes}
+          isPending={keys.isSaving}
+          onCancel={() => keys.setKeyDialogOpen(false)}
+          onConfirm={keys.applyAnswerKeys}
         />
       ) : null}
 
-      {/* Opening another PDF/book while a run is live also needs a yes. */}
-      <AlertDialog
+      <ReplaceRunDialog
         open={pendingReplace !== null}
-        onOpenChange={(open) => {
-          if (!open) setPendingReplace(null)
+        onCancel={() => setPendingReplace(null)}
+        onConfirm={() => {
+          const action = pendingReplace
+          setPendingReplace(null)
+          segmentation.stop()
+          action?.()
         }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Emal davam edir</AlertDialogTitle>
-            <AlertDialogDescription>
-              Yeni sənəd açılsa, gedən emal dayandırılacaq və çıxarılan suallar
-              silinəcək.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>İmtina</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              onClick={() => {
-                const action = pendingReplace
-                setPendingReplace(null)
-                segmentation.stop()
-                action?.()
-              }}
-            >
-              Dayandır və aç
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      />
     </div>
   )
 }
