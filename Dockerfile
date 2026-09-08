@@ -25,8 +25,15 @@ RUN npm ci --omit=dev
 # `erasableSyntaxOnly` guarantees every source file is strippable — and
 # `loader.mjs` only teaches it the `@/` alias. What runs in production is the
 # same source the eval harness runs.
+#
+# `core` and `types` only, not all of `src`. The worker imports exactly those
+# two trees — `@/core/…` and `@/types/…`, and `core` imports nothing outside
+# itself — so copying the React half put code in the image that nothing there
+# can reach, and, worse, made every button tweak invalidate this layer and
+# rebuild everything after it.
 COPY eval/loader.mjs eval/hooks.mjs ./eval/
-COPY src ./src
+COPY src/core ./src/core
+COPY src/types ./src/types
 COPY worker ./worker
 
 # tesseract downloads its ~5MB language model here on first use. The container

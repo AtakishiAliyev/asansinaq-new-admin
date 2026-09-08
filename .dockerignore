@@ -13,7 +13,9 @@ dist-ssr
 .env.*
 
 # The browser's half: pages, components, the Vite config, the Supabase project
-# and its migrations. `src/` is NOT here — the worker imports `core` from it.
+# and its migrations. `src/` is not listed because the Dockerfile does not copy
+# it wholesale — it names `src/core` and `src/types`, the only two trees the
+# worker imports.
 public
 supabase
 index.html

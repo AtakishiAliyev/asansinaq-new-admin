@@ -21,6 +21,30 @@ services:
     # or let the batch lane carry it before paying for a bigger box.
     plan: 0.5c-512mb
     autoDeploy: true
+    # Deploy for the worker's own files, and nothing else.
+    #
+    # Without this every push rebuilt a ~1GB image and restarted the process,
+    # including for a CSS tweak that cannot reach it. The restart is safe —
+    # SIGTERM is handled, batch handles live on the rows and the next container
+    # adopts them — but it is minutes of build and an interrupted pass bought
+    # for nothing.
+    #
+    # The list is the Dockerfile's COPY lines plus what decides them. `src` is
+    # narrowed to the two trees the worker actually imports: it reaches
+    # `@/core/…` and `@/types/…`, and `core` imports nothing outside itself.
+    buildFilter:
+      paths:
+        - worker/**
+        - src/core/**
+        - src/types/**
+        - eval/loader.mjs
+        - eval/hooks.mjs
+        - scripts/copy-pdfjs-wasm.mjs
+        - package.json
+        - package-lock.json
+        - Dockerfile
+        - .dockerignore
+        - render.yaml
     envVars:
       # Lease identity, and it must be UNIQUE. Two workers sharing one id would
       # each renew and release the other's rows — precisely the failure the
