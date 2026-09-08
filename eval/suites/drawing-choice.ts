@@ -70,6 +70,40 @@ export const drawingChoiceSuite = suite('drawing-choice', {
     )
   },
 
+  // The live regression this pinned after: two shaded set diagrams have a
+  // 60-pixel skeleton in a 180,000-pixel image, `structural-diff` declares ink
+  // unmeasurable at that size, and this file was vetoing on it anyway — 0.05
+  // against 0.00, both noise, read as "the edit lost lines". Each veto threw
+  // away a repair, bought the same figure from a second provider, threw that
+  // away too, and dropped the reproduction the operator had asked to be fixed.
+  'the ink veto abstains where ink is not measurable'() {
+    const choice = decideDrawing(
+      diff({ colourIoU: 0.6, inkIoU: 0.05, inkMeasurable: false }),
+      diff({ colourIoU: 0.95, inkIoU: 0, inkMeasurable: false }),
+    )
+    ok(choice.keepNew, choice.reason)
+    ok(/boyanı yaxşılaşdırdı/.test(choice.reason), choice.reason)
+  },
+
+  // Abstaining is about the MEASURE, not about being lenient: where the figure
+  // has line art to lose, losing it still sinks the edit.
+  'ink measurable on only one side is not enough to veto'() {
+    ok(
+      decideDrawing(
+        diff({ colourIoU: 0.6, inkIoU: 0.9, inkMeasurable: true }),
+        diff({ colourIoU: 0.95, inkIoU: 0.5, inkMeasurable: false }),
+      ).keepNew,
+      'the new drawing has no ink worth comparing, so colour decides',
+    )
+    notOk(
+      decideDrawing(
+        diff({ colourIoU: 0.6, inkIoU: 0.9, inkMeasurable: true }),
+        diff({ colourIoU: 0.95, inkIoU: 0.5, inkMeasurable: true }),
+      ).keepNew,
+      'both measurable, and the line loss stands',
+    )
+  },
+
   'an unmeasurable edit is never taken, an unmeasured incumbent is never kept'() {
     notOk(decideDrawing(diff(), null).keepNew, 'nothing to judge the edit by')
     ok(decideDrawing(null, diff()).keepNew, 'nothing to compare the edit against')

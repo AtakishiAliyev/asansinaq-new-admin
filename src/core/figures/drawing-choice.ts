@@ -65,7 +65,18 @@ export function decideDrawing(
   const inkLoss = previous.inkIoU - next.inkIoU
   const shown = `rəng ${pct(previous.colourIoU)}→${pct(next.colourIoU)}`
 
-  if (inkLoss > MARGIN) {
+  // ...but only where there is enough line art for the measure to mean
+  // anything. `structural-diff` already refuses to judge ink on a figure that
+  // is almost entirely colour — `inkMeasurable` is exactly that guard — and
+  // this file was not asking. On the operator's first two banks that gap
+  // vetoed real repairs: two shaded set diagrams scored 0.05 and 0.00 ink,
+  // both noise on a 60-pixel skeleton, and the 0.05 difference read as
+  // "the edit lost lines". Each veto discarded a drawing, spent a second
+  // provider on the same figure, discarded that too, and dropped the
+  // reproduction — so the figure the operator asked to have fixed came back
+  // as the untouched cut, twice paid for. The colour axis is the one an edit
+  // is asked about; where ink cannot be measured, it decides alone.
+  if (previous.inkMeasurable && next.inkMeasurable && inkLoss > MARGIN) {
     return { keepNew: false, reason: `düzəliş xətləri itirdi (${pct(previous.inkIoU)}→${pct(next.inkIoU)})` }
   }
   if (colourGain > MARGIN) return { keepNew: true, reason: `düzəliş boyanı yaxşılaşdırdı (${shown})` }
