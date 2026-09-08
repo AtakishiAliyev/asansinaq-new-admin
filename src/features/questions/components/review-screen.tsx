@@ -107,6 +107,19 @@ export function ReviewScreen({
   const busy = approve.isPending || reject.isPending
   const canApprove = Boolean(item && categoryId && item.status === 'structured')
 
+  // What still stands between this row and an approval, in the order a
+  // reviewer would fix them. Only for a row that could BE approved: on a
+  // cropped or failed question neither is a complaint worth making.
+  const blockers =
+    item?.status === 'structured'
+      ? [
+          categoryId ? null : 'Təsdiq üçün mövzu seçilməlidir',
+          answer === null
+            ? 'Cavab yoxdur — açarı idxal edin və ya Shift+A…E ilə seçin'
+            : null,
+        ].filter((b): b is string => b !== null)
+      : []
+
   /** The id to land on after this row leaves the list — captured before the
    *  mutation, because the refetch reorders/removes rows under us. */
   function nextId(): number | null {
@@ -258,16 +271,11 @@ export function ReviewScreen({
           onReject={handleReject}
           onApprove={handleApprove}
         />
-        {!categoryId && item.status === 'structured' ? (
-          <p className="text-muted-foreground text-xs">
-            Təsdiq üçün kateqoriya seçilməlidir.
-          </p>
-        ) : null}
-        {answer === null && item.status === 'structured' ? (
-          <p className="text-xs text-amber-700">
-            Cavab yoxdur — cavab açarını idxal edin və ya Shift+A…E ilə seçin.
-            Cavabsız sual bankda istifadə oluna bilməz.
-          </p>
+        {/* One line, not two stacked paragraphs that each appear and disappear
+            on their own — the footer kept changing height under the reviewer's
+            cursor as they filled the fields in. */}
+        {blockers.length ? (
+          <p className="text-xs text-amber-700">{blockers.join(' · ')}</p>
         ) : null}
 
         {/* `aria-disabled` rather than `disabled` keeps both arrows in the tab
