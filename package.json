@@ -29,6 +29,7 @@
     "worker:uninstall": "node scripts/worker-daemon.mjs uninstall",
     "worker:status": "node scripts/worker-daemon.mjs status",
     "clean:testdata": "node --disable-warning=ExperimentalWarning scripts/clean-testdata.ts",
+    "prune:storage": "node --import ./eval/loader.mjs --disable-warning=ExperimentalWarning scripts/prune-storage.ts",
     "seed:categories": "node --disable-warning=ExperimentalWarning scripts/seed-categories.ts",
     "types:gen": "node scripts/gen-types.mjs",
     "config:push": "node scripts/config-push.mjs",

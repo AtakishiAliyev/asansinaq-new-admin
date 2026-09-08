@@ -503,6 +503,14 @@ place, and it is still scheduled for removal along with
   read — a worker that can claim but not renew looks healthy until its lease
   expires and every row it held is paid for twice. It restores every row it
   touches and makes no model call.
+- `npm run prune:storage` — lists every object in `question-crops` and `pdfs`
+  that no row names any more, by kind and size; `-- --apply` deletes them.
+  Operator-run against the LIVE project. An object is kept if a question's crop,
+  option images, figure cut or reproduction names it, if the version parked in
+  `prev_version` names it (a rejected repair rolls back to that), if
+  `ops_cache.image_path` names it, or if a book's `storage_path` does. The
+  first run found 529 of 588 objects orphaned — rows deleted from the dashboard
+  and drawings superseded by edits before the worker removed the old one.
 - `npm run worker` — the batch worker. Needs `.env` loaded
   (`set -a; . ./.env; set +a`) for the service-role and Anthropic keys, plus the
   worker's own variables (see `worker/config.ts`, which is their source of
