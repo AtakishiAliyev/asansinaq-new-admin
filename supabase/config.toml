@@ -164,11 +164,15 @@ site_url = "env(SUPABASE_AUTH_SITE_URL)"
 # The public URL that Auth serves on. Defaults to the API external URL with `/auth/v1` appended.
 # external_url = ""
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
-# NOTE: env() substitution inside an ARRAY is not documented, unlike the scalar
-# form above, and could not be verified locally. Check the first `config push`
-# output: if these arrive at the project literally, replace them with the two
-# URLs spelled out. Failing that way is safe — the allowlist can only get
-# narrower, never more permissive.
+# env() substitution inside an ARRAY is undocumented, unlike the scalar form
+# above — but it works. Verified on the push that first pointed the project at
+# Vercel: both entries arrived substituted, not literal.
+#
+# Sign-in barely depends on this list. It is a six-digit code typed into the
+# page: `signInWithOtp` sends no `emailRedirectTo` and `verifyOtp` is an API
+# call with no redirect at all. What `site_url` above DOES decide is the
+# "Daxil ol" link in the email template, which is why it must be the deployed
+# domain and not a laptop.
 additional_redirect_urls = [
   "env(SUPABASE_AUTH_SITE_URL)",
   "env(SUPABASE_AUTH_REDIRECT_WILDCARD)",
