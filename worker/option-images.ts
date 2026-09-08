@@ -277,13 +277,18 @@ async function runGuardedGeneration(
       ...(signature ? { signature } : {}),
       ...(colourObjection ? { colourObjection } : {}),
       flag: {
-        level: 'warning',
+        // A writing objection does not pull a reviewer to the row. Structure
+        // and colour — the checks that decide whether this is the same figure
+        // — both PASSED; what is left is one OCR engine's reading, and its
+        // false positives are known: on a reviewed row it reported the letter
+        // C missing from a reproduction that plainly shows it, beside a green
+        // verdict. As a warning it was the single largest source of rows in
+        // the Diqqət lane that a person then approved unchanged. `info` keeps
+        // the sentence on the row for anyone who opens it and keeps the row
+        // out of the lane; the model-based verification wave still compares
+        // the rendered question against the crop and can still fault it.
+        level: writingOnly(result) ? 'info' : 'warning',
         code: 'gen_unverified',
-        // A writing objection is not a structure failure, and calling it one
-        // sent a reviewer hunting for a moved line on a drawing whose only
-        // complaint was an OCR reading. The engine's false positives are
-        // known: on one reviewed row it reported the letter C missing from a
-        // reproduction that plainly shows it, beside a green verdict.
         message: writingOnly(result)
           ? `Təkrar çəkiliş göstərilir; quruluş və rəng yoxlamasından KEÇDİ, yalnız ` +
             `yazı oxunuşu şübhəlidir (${result.rejection ?? 'səbəb bilinmir'}). ` +

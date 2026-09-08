@@ -26,7 +26,9 @@ export function parseFlags(value: unknown): Flag[] {
       typeof f === 'object' &&
       f !== null &&
       typeof (f as Flag).code === 'string' &&
-      ((f as Flag).level === 'error' || (f as Flag).level === 'warning'),
+      ((f as Flag).level === 'error' ||
+        (f as Flag).level === 'warning' ||
+        (f as Flag).level === 'info'),
   )
 }
 

@@ -10,7 +10,21 @@ import { figureRefs } from '@/core/questions/figure-refs'
 import type { FigureDoc } from '@/core/figures/figspec'
 
 export interface Flag {
-  level: 'error' | 'warning'
+  /**
+   * How loudly the row asks for a person.
+   *
+   * `error` and `warning` both put the row in the Diqqət lane — the
+   * `needs_attention` generated column matches exactly those two, so the level
+   * here and the SQL there are one rule in two places. `info` is the level for
+   * something a reviewer should READ if they open the row but that must not
+   * pull them to it: a check whose false positives are known and whose
+   * objection has already been overruled by a stricter one that passed.
+   *
+   * Adding a third level therefore needs no migration, which is the point: a
+   * flag demoted to `info` leaves the lane by construction rather than by a
+   * second rule that could disagree with the first.
+   */
+  level: 'error' | 'warning' | 'info'
   code: string
   message: string
 }
@@ -471,8 +485,11 @@ function extractTex(text: string): string[] {
   return out
 }
 
-export function worstLevel(flags: Flag[]): 'error' | 'warning' | 'clean' {
+export function worstLevel(
+  flags: Flag[],
+): 'error' | 'warning' | 'info' | 'clean' {
   if (flags.some((f) => f.level === 'error')) return 'error'
   if (flags.some((f) => f.level === 'warning')) return 'warning'
+  if (flags.some((f) => f.level === 'info')) return 'info'
   return 'clean'
 }
