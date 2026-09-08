@@ -38,8 +38,9 @@ export type WorkerHeartbeat = z.infer<typeof workerHeartbeatSchema>
 
 export interface WorkerStatus {
   desiredState: 'running' | 'paused'
-  /** The operator's express override. The worker also enters express on its
-   *  own for a small queue, so false does NOT mean the next run is batched. */
+  /** The operator's express switch, and the whole rule: on means every
+   *  question runs synchronously — structuring and verification — at any size;
+   *  off means every question goes to the batch queue, however few. */
   express: boolean
   /** Approve, without a reviewer, questions that cleared every automatic
    *  check. Read by the WORKER, which is why it lives here and not in a
