@@ -12,17 +12,30 @@
  * Which lane a pass should use.
  *
  * Pure so it can be argued about in the suite rather than inferred from a live
- * run. The operator's toggle only ever turns express ON: a small set is fast
- * either way, and there is no reason to make someone wait on a batch queue to
- * process four questions — so the threshold is not something the flag can push
- * back the other way.
+ * run. The rule is the operator's switch and nothing else: on means every
+ * question goes synchronously, whether there are four of them or a thousand;
+ * off means every question goes to the batch queue, however few.
+ *
+ * It used to escalate to express on its own for any set at or under a
+ * threshold, on the reasoning that nobody should wait on a batch queue for
+ * four questions. What that produced was a switch the operator could not
+ * predict: a run split across the two lanes by nothing but which pass happened
+ * to see how much work, so half a set came back in a minute and half sat in
+ * the provider's queue. A lane is a price/latency trade, and the person paying
+ * makes it — the panel says which lane the next set will use, and it is now
+ * simply the switch.
+ *
+ * `pending` counts everything a pass could act on, structuring AND
+ * verification. Counting only the structuring queue is what let a verdict fall
+ * to the batch lane with express turned on, because a row waiting to be
+ * verified is not queued for anything.
  */
 export function shouldExpress(
-  queued: number,
-  options: { threshold: number; operatorWants: boolean },
+  pending: number,
+  options: { operatorWants: boolean },
 ): boolean {
-  if (queued === 0) return false
-  return options.operatorWants || queued <= options.threshold
+  if (pending === 0) return false
+  return options.operatorWants
 }
 
 /**

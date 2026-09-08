@@ -153,14 +153,36 @@ async function runOne(
     .maybeSingle()
   if (!fresh) return { structured: 1, done: [row.id] }
 
+  return { ...(await verifyRowSync(db, fresh, autoApprove, log)), structured: 1 }
+}
+
+/**
+ * Verify ONE row synchronously: render it, ask the model, apply the verdict.
+ *
+ * Extracted because express now has two ways in. A row it structured itself is
+ * verified in the same breath, which is what made a small set finish in under a
+ * minute; a row structured by a BATCH arrives already written, with nothing
+ * queued behind it, and used to have no synchronous path at all — its verdict
+ * went to the batch lane however the operator had set the switch.
+ *
+ * Returns the outcome fields it can speak to. `structured` is the caller's to
+ * report: the row was structured by whoever structured it, and counting it
+ * again here would double it on the pass that did both.
+ */
+export async function verifyRowSync(
+  db: Db,
+  fresh: QuestionRow,
+  autoApprove: AutoApproveSettings,
+  log: (message: string) => void,
+): Promise<Partial<ExpressOutcome>> {
   let verifyItem
   try {
     verifyItem = await verifyItemFor(db, fresh)
   } catch (error) {
-    log(`q${row.id} could not be rendered: ${String(error)}`)
+    log(`q${fresh.id} could not be rendered: ${String(error)}`)
     verifyItem = null
   }
-  if (!verifyItem) return { structured: 1, done: [row.id] }
+  if (!verifyItem) return { done: [fresh.id] }
 
   const started = Date.now()
   const verdictOutcome = await runSync(verifyItem, EMIT_VERDICT_TOOL_NAME)
@@ -182,18 +204,17 @@ async function runOne(
   if (!verdictOutcome.wire) {
     // Structured but unjudged. The row stays unverified, which is already the
     // state the review queue understands.
-    log(`q${row.id} verify failed: ${verdictOutcome.error ?? 'no answer'}`)
-    return { structured: 1, done: [row.id] }
+    log(`q${fresh.id} verify failed: ${verdictOutcome.error ?? 'no answer'}`)
+    return { done: [fresh.id] }
   }
 
   const verdict = parseVerdict(verdictOutcome.wire)
   const result = await applyVerdict(db, fresh, verdict, autoApprove)
   return {
-    structured: 1,
     verified: verdict.matches ? 1 : 0,
     mismatched: verdict.matches ? 0 : 1,
-    repairIds: result.repairing ? [row.id] : [],
-    done: [row.id],
+    repairIds: result.repairing ? [fresh.id] : [],
+    done: [fresh.id],
   }
 }
 

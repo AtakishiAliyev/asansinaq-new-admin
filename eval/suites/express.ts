@@ -3,56 +3,27 @@
 // The decision spends money either way, so it is worth pinning rather than
 // inferring from a live run: choosing batch for a set someone is watching costs
 // them ten minutes of waiting, and choosing express for a bulk import costs
-// twice the token price across thousands of questions.
+// twice the token price across thousands of questions. Which is why it is the
+// operator's switch alone — they are the one paying for whichever way it goes.
 import { mapLimit, shouldExpress } from '../../worker/pace.ts'
 import { eq, ok, suite } from '../harness.ts'
 
 export const expressSuite = suite('express', {
-  'a small set goes express on its own'() {
-    ok(
-      shouldExpress(8, { threshold: 20, operatorWants: false }),
-      'eight questions is a set someone is watching',
-    )
+  // The switch, and nothing else. An earlier rule escalated to express on its
+  // own for any set at or under a threshold, which made the lane something the
+  // operator could not predict: one live run of 40 questions split across both
+  // lanes by nothing but which pass saw how much work, so half came back in a
+  // minute and half sat in the provider's queue.
+  'the operator switch decides, at every size'() {
+    ok(shouldExpress(3, { operatorWants: true }), 'three, express')
+    ok(shouldExpress(1000, { operatorWants: true }), 'a thousand, still express')
+    ok(!shouldExpress(3, { operatorWants: false }), 'three, batch')
+    ok(!shouldExpress(1000, { operatorWants: false }), 'a thousand, batch')
   },
 
-  'a bulk set stays on batch'() {
-    ok(
-      !shouldExpress(500, { threshold: 20, operatorWants: false }),
-      'an import must not quietly run at full price',
-    )
-  },
-
-  'the operator can force express for a large set'() {
-    ok(
-      shouldExpress(500, { threshold: 20, operatorWants: true }),
-      'someone waiting on a large set may pay to skip the queue',
-    )
-  },
-
-  // The toggle only ever turns express ON. There is no reason to make anyone
-  // wait for a batch queue to process four questions, so a small set is not
-  // something the flag pushes back onto batch.
-  'the toggle cannot push a small set back onto batch'() {
-    ok(
-      shouldExpress(3, { threshold: 20, operatorWants: false }),
-      'small stays express regardless of the flag',
-    )
-  },
-
-  'an empty queue is neither'() {
-    ok(!shouldExpress(0, { threshold: 20, operatorWants: true }), 'nothing to run')
-  },
-
-  'the threshold boundary is inclusive'() {
-    ok(shouldExpress(20, { threshold: 20, operatorWants: false }), 'at the threshold')
-    ok(!shouldExpress(21, { threshold: 20, operatorWants: false }), 'past it')
-  },
-
-  // A threshold of zero is how the lane is switched off entirely: bulk
-  // behaviour for everything, unless the operator asks otherwise.
-  'a zero threshold means batch unless the operator asks'() {
-    ok(!shouldExpress(1, { threshold: 0, operatorWants: false }), 'off by threshold')
-    ok(shouldExpress(1, { threshold: 0, operatorWants: true }), 'still available by hand')
+  'nothing pending is neither lane'() {
+    ok(!shouldExpress(0, { operatorWants: true }), 'nothing to run')
+    ok(!shouldExpress(0, { operatorWants: false }), 'still nothing to run')
   },
 
   async 'the concurrency limit is respected and order is preserved'() {

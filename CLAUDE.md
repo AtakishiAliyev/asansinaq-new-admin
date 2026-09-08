@@ -488,7 +488,19 @@ tables — is deliberately not carried over.
 
 **Status.** Everything above is built: the worker, the batch and express
 lanes, the verification wave with its repair rounds, the cut lane and the
-guarded reproduction lane, and the control plane. Every row the worker writes
+guarded reproduction lane, and the control plane.
+
+**Which lane runs is the operator's switch and only that.** On means every
+question goes synchronously — structuring AND verification — whether there are
+four or a thousand; off means every question goes to the batch queue, however
+few. The worker used to escalate to express by itself under a size threshold,
+and the result was a lane nobody could predict: one 40-question run split
+across both lanes by nothing but which pass happened to see how much work, so
+half came back in a minute and half sat in the provider's queue. The verdict
+half was worse — `expressWanted` counted only the STRUCTURING queue, and a row
+waiting to be verified is queued for nothing, so once structuring finished
+every verdict went to batch however the switch was set. A lane is a
+price/latency trade; the person paying makes it. Every row the worker writes
 lands `verified: false` until the wave has ruled on it, so a full Diqqət lane
 right after an extract batch is expected, not a defect; it empties as the
 verify batches come back.
@@ -771,7 +783,7 @@ worker/                     # the batch worker — `npm run worker`. Node + the
 ├── pass-submit.ts          # claim → build one request each → submit a batch
 ├── pass-poll.ts            # collect finished batches → write rows back
 ├── pass-verify.ts          # render-and-compare, as a second batch
-├── pass-express.ts         # the same three, synchronously, for a small set
+├── pass-express.ts         # the same three, synchronously, when the switch is on
 ├── dry-run.ts              # `--dry-run`: price what would be sent, send nothing
 ├── activity.ts             # the heartbeat the control panel judges liveness by
 ├── config.ts               # Zod-validated env; every model id lives here

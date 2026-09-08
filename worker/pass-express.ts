@@ -3,14 +3,27 @@ import type { AutoApproveSettings } from '@/core/questions/auto-approve'
 import { config } from './config.ts'
 import { readExpressOverride } from './control.ts'
 import { db } from './db.ts'
-import { runExpress } from './express.ts'
+import {
+  runExpress,
+  verifyRowSync,
+  type ExpressOutcome,
+} from './express.ts'
 import { noteFigureKinds, reportFigureKinds } from './figure-tally.ts'
 import { log } from './log.ts'
 import { budgetExhausted } from './ops.ts'
 import { shouldExpress } from './pace.ts'
-import { claim, finish, nextQueuedBook, release, requeue } from './queue.ts'
+import {
+  claim,
+  claimForVerify,
+  finish,
+  nextQueuedBook,
+  release,
+  requeue,
+  unheld,
+} from './queue.ts'
+import { mapLimit } from './pace.ts'
 
-/** How many questions are waiting, for the express/batch decision. */
+/** How many questions are waiting to be STRUCTURED. */
 export async function queuedCount(): Promise<number> {
   const { count } = await db
     .from('questions')
@@ -20,16 +33,34 @@ export async function queuedCount(): Promise<number> {
   return count ?? 0
 }
 
-/** Express when the operator asks, or when the set is small enough to watch. */
+/**
+ * How many are waiting to be VERIFIED — the same rows `verifyPass` selects.
+ *
+ * Counted for the lane decision because a verdict is work like any other. Left
+ * out, a set whose structuring had finished looked like an empty queue, express
+ * was never chosen again however the switch was set, and every verdict went to
+ * the batch lane: half of one run came back in a minute and half sat in the
+ * provider's queue for a quarter of an hour.
+ */
+export async function awaitingVerifyCount(): Promise<number> {
+  const { count } = await db
+    .from('questions')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'structured')
+    .is('verified_at', null)
+    .is('queued_at', null)
+    .or(unheld())
+  return count ?? 0
+}
+
+/** Express when the operator asks, for everything there is to do. */
 export async function expressWanted(): Promise<boolean> {
-  const [queued, override] = await Promise.all([
+  const [queued, awaiting, override] = await Promise.all([
     queuedCount().catch(() => 0),
+    awaitingVerifyCount().catch(() => 0),
     readExpressOverride(db).catch(() => false),
   ])
-  return shouldExpress(queued, {
-    threshold: config.EXPRESS_THRESHOLD,
-    operatorWants: override,
-  })
+  return shouldExpress(queued + awaiting, { operatorWants: override })
 }
 
 /**
@@ -50,10 +81,12 @@ export async function expressPass(
   }
 
   const bookId = await nextQueuedBook(db)
-  if (bookId === null) return 0
-  let rows = await claim(db, config.BATCH_SIZE, bookId)
+  let rows = bookId === null ? [] : await claim(db, config.BATCH_SIZE, bookId)
   if (!rows.length) rows = await claim(db, config.BATCH_SIZE)
-  if (!rows.length) return 0
+  // Nothing left to structure. Anything still unverified was written by a
+  // batch, and with express on it is this pass's job too — otherwise the
+  // switch would govern half a run and the provider's queue the other half.
+  if (!rows.length) return expressVerifyPass(autoApprove)
 
   const started = Date.now()
   log(
@@ -90,4 +123,82 @@ export async function expressPass(
   )
   reportFigureKinds()
   return outcome.done.length
+}
+
+/**
+ * Verify already-structured rows synchronously.
+ *
+ * The same rows `verifyPass` would have submitted, and claimed the same way, so
+ * the two can never both be paying for one comparison. What differs is only
+ * where the answer comes from: here, straight away at full price.
+ */
+async function expressVerifyPass(
+  autoApprove: AutoApproveSettings,
+): Promise<number> {
+  const { data: candidates } = await db
+    .from('questions')
+    .select('*')
+    .eq('status', 'structured')
+    .is('verified_at', null)
+    .is('queued_at', null)
+    .or(unheld())
+    .order('structured_at')
+    .limit(config.BATCH_SIZE)
+  const rows = candidates ?? []
+  if (!rows.length) return 0
+
+  // Claimed before a single call is made: the lease is what stops a second
+  // worker buying the same verdict.
+  let held: number[]
+  try {
+    held = await claimForVerify(db, rows.map((r) => r.id))
+  } catch (error) {
+    log(String(error))
+    return 0
+  }
+  const live = rows.filter((r) => held.includes(r.id))
+  if (!live.length) return 0
+
+  const started = Date.now()
+  log(
+    `express verify: ${live.length} question(s), ${config.EXPRESS_CONCURRENCY} ` +
+      'at a time — synchronous, full price',
+  )
+  await setActivity(`express: ${live.length} sual yoxlanılır (sinxron)`)
+
+  let finished = 0
+  const parts = await mapLimit(live, config.EXPRESS_CONCURRENCY, async (row) => {
+    const part: Partial<ExpressOutcome> = await verifyRowSync(
+      db,
+      row,
+      autoApprove,
+      log,
+    ).catch((error) => {
+      log(`q${row.id} express verify failed: ${String(error)}`)
+      return { done: [row.id] }
+    })
+    await pulse(`express: ${++finished}/${live.length} sual yoxlanılıb`).catch(
+      () => {},
+    )
+    return part
+  })
+
+  const done = parts.flatMap((p) => p.done ?? [])
+  const repairIds = parts.flatMap((p) => p.repairIds ?? [])
+  // Same ordering as the structuring pass, and load bearing for the same
+  // reason: `finish` clears `queued_at`, so a repair re-queued before it would
+  // be silently dropped and come back unchanged.
+  await finish(db, done)
+  await requeue(db, repairIds)
+  const missing = live.filter((r) => !done.includes(r.id)).map((r) => r.id)
+  if (missing.length) await release(db, missing)
+
+  const verified = parts.reduce((a, p) => a + (p.verified ?? 0), 0)
+  const mismatched = parts.reduce((a, p) => a + (p.mismatched ?? 0), 0)
+  log(
+    `express verify: ${verified} verified, ${mismatched} mismatched` +
+      (repairIds.length ? `, ${repairIds.length} sent back for a repair` : '') +
+      ` — ${Math.round((Date.now() - started) / 1000)}s for ${live.length} question(s)`,
+  )
+  return done.length
 }

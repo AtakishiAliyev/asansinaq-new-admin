@@ -22,16 +22,6 @@ import { cn } from '@/lib/utils'
 // pass. When no daemon is installed there is nothing to pick it up, and saying
 // so plainly is more useful than a button that appears to work.
 
-/**
- * Mirrors the worker's EXPRESS_THRESHOLD default, for the label only.
- *
- * A hint, not the decision: the real threshold is worker configuration and the
- * browser cannot read it. It is used to say what the next set will PROBABLY do,
- * and the tooltip says which part is the worker's own choice — a panel that
- * claimed certainty here would be wrong the moment the operator tuned the env.
- */
-const EXPRESS_THRESHOLD_HINT = 20
-
 function relative(ms: number): string {
   const s = Math.round(ms / 1000)
   if (s < 60) return `${s} san əvvəl`
@@ -120,11 +110,6 @@ function WorkerControlView({
   onExpress?: (express: boolean) => void
 }) {
   const { desiredState, workers, anyOnline, express } = status
-  // What the NEXT set will do, which is not the same as the toggle: the worker
-  // enters express on its own for a small queue, so a panel that showed only
-  // the flag would say "batch" about a run that is about to be synchronous.
-  const nextIsExpress =
-    express || (queued > 0 && queued <= EXPRESS_THRESHOLD_HINT)
   const newest = workers[0]
   const paused = desiredState === 'paused'
   // The daemon is not installed, or is not running. The switch can still be
@@ -184,12 +169,9 @@ function WorkerControlView({
               </TooltipTrigger>
               <TooltipContent>
                 <p className="max-w-72 text-xs">
-                  {nextIsExpress
-                    ? 'Növbəti dəst SİNXRON işlənəcək — dəqiqələr, tam qiymət.'
-                    : 'Növbəti dəst batch ilə — yarı qiymət, provayder növbəsi.'}
-                  {!express && nextIsExpress
-                    ? ' (Dəst kiçik olduğu üçün worker özü express seçir.)'
-                    : ''}
+                  {express
+                    ? 'Hər şey SİNXRON işlənir — çıxarma da, yoxlama da. Dəqiqələr, tam qiymət, həcmdən asılı olmayaraq.'
+                    : 'Hər şey batch ilə — yarı qiymət, provayder növbəsi (dəqiqələrdən saatlara).'}
                 </p>
               </TooltipContent>
             </Tooltip>

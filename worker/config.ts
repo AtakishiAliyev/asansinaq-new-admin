@@ -44,17 +44,6 @@ const envSchema = z.object({
   BATCH_SIZE: z.coerce.number().int().positive().max(50),
 
   /**
-   * At or below this many queued questions, the worker runs SYNCHRONOUSLY.
-   *
-   * Batch is half price and stays the default for bulk, but its latency does
-   * not scale down: a batch of one waits in the provider's queue as long as a
-   * batch of fifty, and a measured eight-question run spent 85% of its wall
-   * clock waiting across two waves. A set this small is one an operator is
-   * watching, and minutes matter more than the discount.
-   */
-  EXPRESS_THRESHOLD: z.coerce.number().int().nonnegative().default(20),
-
-  /**
    * How many questions express works on at once.
    *
    * Each one holds an Anthropic call and possibly a Gemini call, so this is
