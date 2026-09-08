@@ -78,12 +78,21 @@ const envSchema = z.object({
   /**
    * The resolution the figure lane asks for: "512", "1K", "2K" or "4K".
    *
-   * Defaulted to 2K rather than left to the API. Unset, the API draws at 1K,
-   * and both image model cards list that size in their OWN known limitations:
-   * small text is "often blurry in the 1k model". Exam figures are small
-   * labels on thin lines. On the pro image tier 1K and 2K bill the same
-   * output tokens, so the resolution costs nothing there; on the flash tier
-   * it is about half as much again per drawing.
+   * Asked for explicitly rather than left to the API, because the field is a
+   * price/quality trade and the default should be the one that is safe to
+   * inherit. Both image model cards list 1K in their OWN known limitations —
+   * small text is "often blurry in the 1k model" — and exam figures are small
+   * labels on thin lines, which is why the higher tier is worth having at all.
+   *
+   * The DEFAULT is 1K, not 2K. On the pro image tier the two bill the same
+   * output tokens and 2K would be free; on the flash tier, which is what the
+   * lane actually runs, 2K costs about half as much again per drawing. The
+   * operator's own environment has said 1K since the lane was measured, so a
+   * 2K default was not buying quality — it was a number that would silently
+   * double the largest line in the bill the first time an env file was lost
+   * or a second worker was brought up from the checked-in defaults. A default
+   * is what runs when nobody chose; it should be the cheap one, and the
+   * operator who wants 2K sets it and sees the price.
    *
    * Settable because it is a price/quality trade the operator owns, and
    * emptiable because a model that does not support the field errors on it —
@@ -92,7 +101,7 @@ const envSchema = z.object({
    * it EMPTY is the documented way to turn it off; no `min(1)`, or an empty
    * value would refuse to start the worker instead of disabling a knob.
    */
-  GEMINI_IMAGE_SIZE: z.string().optional().default('2K'),
+  GEMINI_IMAGE_SIZE: z.string().optional().default('1K'),
 
   /**
    * A second image provider, for the corrective-edit rounds. Optional for
