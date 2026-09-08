@@ -141,7 +141,7 @@ export function rerouteIneligible(
  * verifier said so, and two repair rounds re-read the crop correctly only to
  * have the pipeline discard the scheme again.
  */
-export const TYPESET_KINDS: ReadonlySet<string> = new Set([
+const TYPESET_KINDS: ReadonlySet<string> = new Set([
   'division_scheme',
   'vertical_arithmetic',
   'table',

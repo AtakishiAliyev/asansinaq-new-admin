@@ -16,7 +16,7 @@ import { VERIFY_QUESTION_PROMPT } from '@/core/extract/prompts'
 export const EMIT_VERDICT_TOOL_NAME = 'emit_verdict'
 
 /** Where a difference was found. Kept coarse: the reviewer opens the row anyway. */
-export const VERDICT_FIELDS = [
+const VERDICT_FIELDS = [
   'stem',
   'option_a',
   'option_b',

@@ -31,7 +31,7 @@ export type MakeCanvas = (w: number, h: number) => CanvasLike
 //
 // Scans have grey paper and JPEG noise, so a fixed cutoff misreads them.
 // Estimate the paper tone from the brightest histogram peak, cut ~30% below.
-export function adaptiveInkThreshold(img: ImageData): number {
+function adaptiveInkThreshold(img: ImageData): number {
   const hist = new Uint32Array(256)
   const { data } = img
   for (let i = 0; i < data.length; i += 4 * 8) {

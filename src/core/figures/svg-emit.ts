@@ -63,7 +63,7 @@ export type TexRenderer = (
 /** Rough serif advance width. Over-estimating is the safe direction. */
 const AVERAGE_ADVANCE = 0.58
 /** Where the baseline sits inside the box, as a fraction of the font size. */
-export const ASCENT = 0.78
+const ASCENT = 0.78
 
 /**
  * The fallback typesetter: one SVG text node, with TeX mapped to Unicode.

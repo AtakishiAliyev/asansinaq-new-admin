@@ -4,14 +4,14 @@ import { z } from 'zod'
 // loose on figures (core wireToQuestion normalizes them); everything the
 // flow logic relies on is validated here.
 
-export const wireOptionSchema = z.object({
+const wireOptionSchema = z.object({
   label: z.enum(['A', 'B', 'C', 'D', 'E']),
   tex: z.string().optional(),
   is_image: z.boolean().optional(),
   box: z.array(z.number()).length(4).optional(),
 })
 
-export const extractWireSchema = z
+const extractWireSchema = z
   .object({
     number_seen: z.number(),
     stem: z.string(),

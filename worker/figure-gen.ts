@@ -56,7 +56,7 @@ export interface GenerationResult {
  * regenerated must fall back to its cut, not fail the question. The whole lane
  * is an enhancement over something that already works.
  */
-export async function reproduceFigure(cutPng: Buffer): Promise<GenerationResult> {
+async function reproduceFigure(cutPng: Buffer): Promise<GenerationResult> {
   return geminiCall(drawContents([asGenImage(cutPng)], FIGURE_REPRODUCE_PROMPT))
 }
 

@@ -19,9 +19,9 @@ import { questionKeys } from '@/features/questions/api/keys'
  * healthy worker flickers offline while it waits on a provider; much longer and
  * a dead one looks alive for as long as an operator is willing to stare at it.
  */
-export const HEARTBEAT_STALE_MS = 150_000
+const HEARTBEAT_STALE_MS = 150_000
 
-export const workerHeartbeatSchema = z.object({
+const workerHeartbeatSchema = z.object({
   worker_id: z.string(),
   last_seen: z.string(),
   activity: z.string(),

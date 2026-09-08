@@ -76,7 +76,7 @@ function dataUrlToBlob(dataUrl: string): { blob: Blob; mime: string } {
   return { blob: new Blob([bytes], { type: mime }), mime }
 }
 
-export function cropStoragePath(bookId: number, crop: Crop, mime: string) {
+function cropStoragePath(bookId: number, crop: Crop, mime: string) {
   const ext = mime === 'image/jpeg' ? 'jpg' : 'png'
   return `${bookId}/p${crop.pageNumber}_c${crop.col}_q${crop.number}.${ext}`
 }

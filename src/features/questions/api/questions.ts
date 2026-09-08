@@ -382,7 +382,7 @@ export function useDeleteQuestions() {
 }
 
 /** Signed URLs for crop/figure/option images, batched per render. */
-export async function signImageUrls(paths: string[]): Promise<Map<string, string>> {
+async function signImageUrls(paths: string[]): Promise<Map<string, string>> {
   const unique = [...new Set(paths.filter(Boolean))]
   if (!unique.length) return new Map()
   const { data, error } = await supabase.storage

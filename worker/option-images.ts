@@ -50,7 +50,7 @@ function writingOnly(result: {
  * `.gen.png` holding it is a name that misleads every later reader — including
  * the one that mattered, the rasteriser the verification wave draws with.
  */
-export function figureGenPath(row: QuestionRow, index: number, mime: ImageMime): string {
+function figureGenPath(row: QuestionRow, index: number, mime: ImageMime): string {
   return figureImagePath(row, index).replace(/\.png$/, `.gen.${extensionForMime(mime)}`)
 }
 

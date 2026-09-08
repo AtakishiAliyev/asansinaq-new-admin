@@ -100,7 +100,7 @@ export function WorkerControlPanel(counts: {
  * first version crashed on the ONLINE branch, which only appears when a worker
  * is up.
  */
-export function WorkerControlView({
+function WorkerControlView({
   queued,
   inBatch,
   awaitingVerify,

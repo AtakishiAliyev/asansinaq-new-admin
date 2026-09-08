@@ -29,7 +29,7 @@ export const sub = (a: Vec, b: Vec): Vec => ({ x: a.x - b.x, y: a.y - b.y })
 export const add = (a: Vec, b: Vec): Vec => ({ x: a.x + b.x, y: a.y + b.y })
 export const scale = (a: Vec, k: number): Vec => ({ x: a.x * k, y: a.y * k })
 export const dist = (a: Vec, b: Vec): number => Math.hypot(a.x - b.x, a.y - b.y)
-export const norm = (a: Vec): number => Math.hypot(a.x, a.y)
+const norm = (a: Vec): number => Math.hypot(a.x, a.y)
 export const unit = (a: Vec): Vec => {
   const n = norm(a)
   return n < 1e-9 ? { x: 1, y: 0 } : { x: a.x / n, y: a.y / n }
@@ -158,7 +158,7 @@ const segmentsCross = (p: Seg, q: Seg): boolean => {
   return o1 !== o2 && o3 !== o4
 }
 
-export const boxEdges = (b: Box): Seg[] => {
+const boxEdges = (b: Box): Seg[] => {
   const tl = { x: b.x, y: b.y }
   const tr = { x: b.x + b.w, y: b.y }
   const br = { x: b.x + b.w, y: b.y + b.h }
@@ -309,7 +309,7 @@ export function boxAlong(
 }
 
 /** The eight compass directions, for "put it wherever there is room". */
-export const COMPASS: Vec[] = [
+const COMPASS: Vec[] = [
   { x: 0, y: -1 },
   { x: 1, y: -1 },
   { x: 1, y: 0 },

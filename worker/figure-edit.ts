@@ -31,7 +31,7 @@ import { loadSignature, storeSignature } from './signature-store.ts'
 import { budgetExhausted, logOp } from './ops.ts'
 
 /** Where edit round `round` (1-based) of a figure's reproduction lives. */
-export function figureEditPath(row: QuestionRow, index: number, round: number, ext: string): string {
+function figureEditPath(row: QuestionRow, index: number, round: number, ext: string): string {
   return figureImagePath(row, index).replace(/\.png$/, `.gen${round}.${ext}`)
 }
 
@@ -122,7 +122,7 @@ export async function editUntilBetter(
   }
 }
 
-export async function editReproduction(
+async function editReproduction(
   db: Db,
   row: QuestionRow,
   index: number,

@@ -73,7 +73,7 @@ export function removePoint(fig: GeometryFig, id: string): GeometryFig {
 }
 
 /** Both directions count as the same edge: AB and BA are one line. */
-export const sameEdge = (line: GeoLine, from: string, to: string): boolean =>
+const sameEdge = (line: GeoLine, from: string, to: string): boolean =>
   (line.from === from && line.to === to) || (line.from === to && line.to === from)
 
 export function addLine(fig: GeometryFig, from: string, to: string): GeometryFig {

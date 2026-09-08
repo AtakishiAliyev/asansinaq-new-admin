@@ -12,10 +12,10 @@
 // which a path derived from the drawing's own does for free.
 import type { Db } from './db.ts'
 
-export const signaturePath = (imagePath: string): string => `${imagePath}.sig`
+const signaturePath = (imagePath: string): string => `${imagePath}.sig`
 
 /** Kept in step with the bucket's allowed_mime_types. */
-export const SIGNATURE_MIME = 'application/json'
+const SIGNATURE_MIME = 'application/json'
 
 /**
  * Keep a drawing's signature.

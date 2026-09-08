@@ -36,7 +36,7 @@ export const VERIFY_OP = 'verify_anthropic'
 
 /** `v<id>` — distinct from the extract wave's `q<id>` so a stray result from
  *  one wave can never be applied as the other's. */
-export const verifyCustomId = (id: number): string => `v${id}`
+const verifyCustomId = (id: number): string => `v${id}`
 export const idFromVerifyCustomId = (customId: string): number | null => {
   const m = /^v(\d+)$/.exec(customId)
   return m?.[1] ? Number(m[1]) : null
@@ -290,10 +290,10 @@ export async function applyVerdict(
 
 /** At most two. A third read of a crop that has already been read twice the
  *  same way is spending money to reach the same answer. */
-export const MAX_REPAIRS = 2
+const MAX_REPAIRS = 2
 
 /** Below this a "match" is not trusted enough to leave the review lane. */
-export const LOW_CONFIDENCE = 0.7
+const LOW_CONFIDENCE = 0.7
 
 
 

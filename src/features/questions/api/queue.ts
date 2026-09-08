@@ -10,7 +10,7 @@ import { questionKeys } from '@/features/questions/api/keys'
 // worker id — and a second implementation reachable from a tab would be a
 // second thing that can take a lease. What the browser still owns is putting
 // work IN: enqueue and clear.
-export const throughputSchema = z.object({
+const throughputSchema = z.object({
   queued: z.number(),
   running: z.number(),
   /** Submitted to the provider and waiting. A subset of `running`. */
@@ -36,7 +36,7 @@ const clearQueueSchema = z.object({ cleared: z.number(), held: z.number() })
  * claim a question the first is still spending money on. Returns how many rows
  * actually entered the queue.
  */
-export async function enqueueQuestions(ids: number[]): Promise<number> {
+async function enqueueQuestions(ids: number[]): Promise<number> {
   if (!ids.length) return 0
   const { data, error } = await supabase.rpc('enqueue_questions', { p_ids: ids })
   if (error) throw error
@@ -49,7 +49,7 @@ export async function enqueueQuestions(ids: number[]): Promise<number> {
  * worker while the first is still paying for them. Held rows leave the queue
  * by themselves when their worker finishes.
  */
-export async function clearQueue(): Promise<{ cleared: number; held: number }> {
+async function clearQueue(): Promise<{ cleared: number; held: number }> {
   const { data, error } = await supabase.rpc('clear_queue')
   if (error) throw error
   return clearQueueSchema.parse(data)

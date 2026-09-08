@@ -14,7 +14,7 @@ import { renderFigItem } from '@/core/figures/render'
 // kind that carries model-authored markup, `raw_svg`, is sanitized into a
 // typed tree at the extraction boundary and re-serialised from that tree —
 // there is no path from a raw model string to this element.
-export function FigItemView({
+function FigItemView({
   item,
   resolveImageUrl,
   index = 0,
