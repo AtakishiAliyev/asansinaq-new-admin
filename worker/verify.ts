@@ -120,6 +120,9 @@ export async function applyVerdict(
     const why = critical.map((d) => d.note.trim()).filter(Boolean).join('; ').slice(0, 400)
     const notes: string[] = []
     const items: FigureDoc['items'] = []
+    /** Drawings this verdict replaces or discards. Deleted only after the row
+     *  no longer names them — see the note at the removal. */
+    const superseded: string[] = []
     for (const [index, item] of doc.items.entries()) {
       if (!blamed.includes(index) || item.kind !== 'image') {
         items.push(item)
@@ -139,6 +142,7 @@ export async function applyVerdict(
             )
           : null
       if (edit?.path) {
+        if (figure.genSrc && figure.genSrc !== edit.path) superseded.push(figure.genSrc)
         const { genRejected: _cleared, ...rest } = figure
         items.push({
           ...rest,
@@ -155,6 +159,7 @@ export async function applyVerdict(
         continue
       }
       // No edit possible, or the last one is spent: the cut is the figure.
+      if (figure.genSrc) superseded.push(figure.genSrc)
       const { genSrc: _dropped, genProvider: _who, ...rest } = figure
       items.push({
         ...rest,
@@ -194,6 +199,17 @@ export async function applyVerdict(
         prev_version: null,
       })
       .eq('id', row.id)
+    // Only now, with the row written and prev_version cleared: nothing can
+    // roll back to these any more. Before this was done, every edit round
+    // left its predecessor in the bucket — on the first measured run those
+    // superseded drawings were the largest class of orphan by size, 66 MB of
+    // the 124 the bucket was carrying for nothing. Best effort: a picture that
+    // outlives its row costs storage, a failed delete that undid the verdict
+    // would cost the work.
+    if (superseded.length) {
+      const { error } = await db.storage.from('question-crops').remove(superseded)
+      if (error) console.warn(`[q${row.id}] superseded drawing(s) not removed: ${error.message}`)
+    }
     return { verdict, repairing: false }
   }
 
