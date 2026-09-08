@@ -628,6 +628,11 @@ because every drawn figure is cut from the original, so blocking on it would
 mean the rule never fired on a figure at all. It also needs the operator's
 category, and an answer unless the operator says otherwise.
 
+The rule is applied where the verdict is written, and swept over rows verified
+BEFORE the switch was turned on — the rule does not depend on when a row was
+read, and without the sweep turning the switch on would have done nothing to a
+bank already full of verified questions.
+
 The switch lives in `worker_control`, beside the pause switch, and the worker
 reads it once per pass. It used to live in a browser store, and it lost its
 only reader when structuring moved off the browser: for that whole period the

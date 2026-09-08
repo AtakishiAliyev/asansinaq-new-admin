@@ -31,7 +31,7 @@ import { spendToday } from './ops.ts'
 import { expressPass, expressWanted } from './pass-express.ts'
 import { pollPass } from './pass-poll.ts'
 import { submitPass } from './pass-submit.ts'
-import { verifyPass } from './pass-verify.ts'
+import { autoApprovePass, verifyPass } from './pass-verify.ts'
 import { inFlight, nextQueuedBook } from './queue.ts'
 
 const POLL_MS = 60_000
@@ -139,6 +139,9 @@ while (!stopping) {
     // setting the operator changes mid-run takes effect on the next pass, not
     // on the next row.
     const autoApprove = await readAutoApprove(db)
+    // Rows verified before the switch was turned on: the verdict path can no
+    // longer reach them, and the rule does not depend on when they were read.
+    await autoApprovePass(autoApprove)
     // Always first, and in both modes: a batch submitted before the queue got
     // small enough for express is still out there, still paid for, and still
     // has to be collected.

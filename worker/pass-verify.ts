@@ -1,3 +1,7 @@
+import {
+  autoApprovable,
+  type AutoApproveSettings,
+} from '@/core/questions/auto-approve'
 import { setActivity, pulse } from './activity.ts'
 import { submitBatch, type BatchItem } from './batch.ts'
 import { config } from './config.ts'
@@ -6,6 +10,65 @@ import { log } from './log.ts'
 import { budgetExhausted } from './ops.ts'
 import { attachBatch, claimForVerify, release, unheld } from './queue.ts'
 import { verifyItemFor } from './verify.ts'
+
+/**
+ * Approve, by rule, rows the wave has already ruled on.
+ *
+ * `applyVerdict` applies the rule at the moment it writes a verdict, which is
+ * the right place and covers nothing that was verified earlier — including
+ * every row already in the bank when the operator turns the switch on. The
+ * rule is the rule whenever the row was read, so this sweeps the ones the
+ * verdict path could no longer reach.
+ *
+ * Bounded per pass, and guarded on `status = 'structured'` in the update so a
+ * row a reviewer ruled on between the read and the write is never overwritten.
+ */
+export async function autoApprovePass(
+  autoApprove: AutoApproveSettings,
+): Promise<number> {
+  if (!autoApprove.enabled) return 0
+
+  const { data: candidates, error } = await db
+    .from('questions')
+    .select('id, status, verified, answer, category_id, flags')
+    .eq('status', 'structured')
+    .eq('verified', true)
+    // A row waiting to be re-read has not finished; the verdict it carries
+    // belongs to content that is about to be replaced.
+    .is('queued_at', null)
+    .not('verified_at', 'is', null)
+    .order('verified_at')
+    .limit(AUTO_APPROVE_SWEEP)
+  if (error) {
+    log(`auto-approve sweep could not read: ${error.message}`)
+    return 0
+  }
+
+  const ids = (candidates ?? [])
+    .filter((row) => autoApprovable(row, autoApprove))
+    .map((r) => r.id)
+  if (!ids.length) return 0
+
+  const { error: writeError } = await db
+    .from('questions')
+    .update({
+      status: 'approved',
+      auto_approved: true,
+      reviewed_at: new Date().toISOString(),
+    })
+    .in('id', ids)
+    .eq('status', 'structured')
+  if (writeError) {
+    log(`auto-approve sweep failed: ${writeError.message}`)
+    return 0
+  }
+  log(`auto-approve: ${ids.length} row(s) approved by rule`)
+  return ids.length
+}
+
+/** How many already-verified rows one pass may approve. Bounded so turning the
+ *  switch on does not become one enormous write. */
+const AUTO_APPROVE_SWEEP = 200
 
 /**
  * The second wave: rows the extract wave has finished, compared against their
