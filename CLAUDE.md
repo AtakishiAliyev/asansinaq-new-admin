@@ -206,10 +206,11 @@ what each stage needs.
   not editable, so it always lands in review — honest, and strictly better than a
   drawing of an apology.
 
-  **This is the policy, not a direction.** `raw_svg` is gone from the automated
-  lane — it is not in the extraction schema and not offered in the prompt, so a
-  figure no kind expresses becomes a cleaned cut and nothing else. The type and
-  the renderer stay so rows written before the change still open.
+  **This is the policy, not a direction.** `raw_svg` is gone entirely — not in
+  the extraction schema, not offered in the prompt, and no longer a kind: the
+  type, the renderer branch and the sanitiser that stood between a model string
+  and the page were removed once no row held one, so a figure no kind expresses
+  becomes a cleaned cut and nothing else. No kind carries model-authored markup.
 
   **The reproduction lane: on a `gen` book a Gemini 1:1 redraw of the cut is
   what the question SHOWS.** An explicit operator decision, taken after a
@@ -691,7 +692,13 @@ samples/                    # committed visual output for review — see its REA
 eval/                       # core regression suites — `npm run eval`, no deps
 worker/                     # the batch worker — `npm run worker`. Node + the
 │                           # eval's alias loader, no bundler, no build step.
-├── main.ts                 # claim → submit → poll → write back
+├── main.ts                 # the loop: signals, the pause switch, the sleep
+├── pass-submit.ts          # claim → build one request each → submit a batch
+├── pass-poll.ts            # collect finished batches → write rows back
+├── pass-verify.ts          # render-and-compare, as a second batch
+├── pass-express.ts         # the same three, synchronously, for a small set
+├── dry-run.ts              # `--dry-run`: price what would be sent, send nothing
+├── activity.ts             # the heartbeat the control panel judges liveness by
 ├── config.ts               # Zod-validated env; every model id lives here
 ├── db.ts                   # the service-role client, created once
 ├── queue.ts                # the *_worker queue RPCs
