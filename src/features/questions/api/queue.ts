@@ -23,7 +23,9 @@ const throughputSchema = z.object({
   structured_today: z.number(),
   failed_today: z.number(),
   auto_approved_today: z.number(),
-  spend_today: z.coerce.number(),
+  // The RPC also returns `spend_today`. It is deliberately not read here: cost
+  // belongs on the Xərclər page, and a number an operator cannot act on from
+  // this screen is noise beside the counts they came for.
 })
 
 export type Throughput = z.infer<typeof throughputSchema>

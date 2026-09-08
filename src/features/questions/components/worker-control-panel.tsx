@@ -119,7 +119,7 @@ function WorkerControlView({
   expressPending?: boolean
   onExpress?: (express: boolean) => void
 }) {
-  const { desiredState, workers, anyOnline, express, spend } = status
+  const { desiredState, workers, anyOnline, express } = status
   // What the NEXT set will do, which is not the same as the toggle: the worker
   // enters express on its own for a small queue, so a panel that showed only
   // the flag would say "batch" about a run that is about to be synchronous.
@@ -155,32 +155,6 @@ function WorkerControlView({
                 {newest.started_at
                   ? ` · ${relative(Date.now() - new Date(newest.started_at).getTime())} işə düşüb`
                   : ''}
-              </p>
-            </TooltipContent>
-          </Tooltip>
-        ) : null}
-
-        {newest?.spend_today != null ? (
-          <span className="text-muted-foreground text-xs tabular-nums">
-            ${newest.spend_today.toFixed(2)}
-            {newest.budget_usd != null
-              ? ` / $${newest.budget_usd.toFixed(0)}`
-              : ''}
-          </span>
-        ) : null}
-
-        {spend.express > 0 || spend.batch > 0 ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="text-muted-foreground text-xs tabular-nums">
-                batch ${spend.batch.toFixed(2)} · express $
-                {spend.express.toFixed(2)}
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p className="max-w-64 text-xs">
-                Bu günün xərci hansı yolla ödənilib. Express sinxrondur — tam
-                qiymət, amma növbə gözləmir.
               </p>
             </TooltipContent>
           </Tooltip>

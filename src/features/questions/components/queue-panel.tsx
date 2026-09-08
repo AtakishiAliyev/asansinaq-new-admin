@@ -100,11 +100,6 @@ export function QueuePanel() {
           value={stats.data?.failed_today ?? '—'}
           tone={stats.data?.failed_today ? 'bad' : 'muted'}
         />
-        <Stat
-          label="xərc (bu gün)"
-          value={`$${(stats.data?.spend_today ?? 0).toFixed(2)}`}
-        />
-
         <div className="ml-auto flex items-center gap-2">
           {queued && !running ? (
             <Button

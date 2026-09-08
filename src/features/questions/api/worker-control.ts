@@ -49,7 +49,6 @@ export interface WorkerStatus {
   autoApproveNeedsAnswer: boolean
   /** Today's spend split by which lane paid for it. Rows written before the
    *  column existed are counted as neither — see `via_batch`. */
-  spend: { batch: number; express: number }
   /** Every worker that has ever reported, most recently seen first. */
   workers: (WorkerHeartbeat & { online: boolean; ageMs: number })[]
   /** True when at least one worker has beaten recently. */
@@ -76,21 +75,6 @@ export function useWorkerStatus() {
       if (control.error) throw control.error
       if (heartbeats.error) throw heartbeats.error
 
-      // Which lane paid for today, so the panel can show what express cost.
-      const since = new Date()
-      since.setHours(0, 0, 0, 0)
-      const ledger = await supabase
-        .from('ops_log')
-        .select('est_cost_usd, via_batch')
-        .gte('created_at', since.toISOString())
-      const spend = { batch: 0, express: 0 }
-      for (const entry of ledger.data ?? []) {
-        if (entry.via_batch === null) continue
-        spend[entry.via_batch ? 'batch' : 'express'] += Number(
-          entry.est_cost_usd ?? 0,
-        )
-      }
-
       const now = Date.now()
       const workers = (heartbeats.data ?? []).map((row) => {
         const parsed = workerHeartbeatSchema.parse(row)
@@ -109,7 +93,6 @@ export function useWorkerStatus() {
         autoApprove: control.data?.auto_approve === true,
         autoApproveNeedsAnswer:
           control.data?.auto_approve_needs_answer !== false,
-        spend,
         workers,
         anyOnline: workers.some((w) => w.online),
       }
