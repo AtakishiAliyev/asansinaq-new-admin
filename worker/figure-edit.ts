@@ -78,16 +78,20 @@ export function editProviderFor(attempt: number): GenProvider | null {
 }
 
 /**
- * Keep trying providers until one draws something better, or the attempts run
- * out.
+ * Try a provider, and move the schedule on whatever it returns.
  *
  * The point of a second provider is that it is a DIFFERENT model, and it was
- * unreachable in practice: the schedule was walked by accepted rounds, so a
- * first edit that came back no better left the counter at zero and the next
- * try went to the model that had just failed. On the reviewed run the second
- * provider never drew a single figure. Now every attempt advances the
- * schedule, and a discarded edit hands the work straight to the next model in
- * the same pass rather than at some later round that never arrives.
+ * once unreachable: the schedule was walked by ACCEPTED rounds, so a first
+ * edit that came back no better left the counter at zero and the next try went
+ * to the model that had just failed. On that run the second provider never
+ * drew a single figure. Every attempt advances the counter now, which is what
+ * fixed it.
+ *
+ * What it does NOT do is spend the whole schedule in one pass. A provider that
+ * ERRORED said nothing about the figure, so the next one is tried immediately.
+ * A provider whose drawing was DISCARDED did answer, and its answer was not an
+ * improvement; the loop stops there and lets a later verification round decide
+ * whether the figure is still worth a second model. See the note at the break.
  */
 export async function editUntilBetter(
   db: Db,
@@ -112,6 +116,19 @@ export async function editUntilBetter(
     attempt++
     tried.push(provider)
     if (last.path) return { ...last, attempts: attempt }
+    // A DISCARDED edit ends this pass. The drawing came back and measured no
+    // better than the one it was asked to fix, which is a different event from
+    // a provider that errored: the model answered, and the answer was not an
+    // improvement. Handing that straight to the next provider spent the most
+    // expensive call in the lane on the same figure seconds later, and on the
+    // operator's first two banks it never once produced a kept drawing.
+    //
+    // The counter still advances, so the next provider is not lost — a later
+    // verification round reaches it if the figure is still faulted then. That
+    // is the difference from the bug this loop was written to fix: the
+    // schedule stalled at zero and the second model was unreachable for ever.
+    // Here it is merely not bought twice in one breath.
+    if (last.discarded) break
   }
   return {
     ...last,
