@@ -381,19 +381,6 @@ export function useDeleteQuestions() {
   })
 }
 
-export function useDeleteQuestion() {
-  return useQuestionMutation<{ id: number; cropPath: string }>(
-    async ({ id, cropPath }) => {
-      const { error } = await supabase.from('questions').delete().eq('id', id)
-      if (error) throw error
-      // Best effort: an orphaned object costs pennies, a failed delete that
-      // rolls back the row would cost the operator their action.
-      await supabase.storage.from('question-crops').remove([cropPath])
-    },
-    () => 'Sual silindi',
-  )
-}
-
 /** Signed URLs for crop/figure/option images, batched per render. */
 export async function signImageUrls(paths: string[]): Promise<Map<string, string>> {
   const unique = [...new Set(paths.filter(Boolean))]

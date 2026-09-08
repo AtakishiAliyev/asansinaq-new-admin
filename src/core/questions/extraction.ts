@@ -447,29 +447,6 @@ function normalizeVennShapeIds(items: FigItem[]): void {
   }
 }
 
-// Decide, from the ALREADY-EXTRACTED figure, whether a B&W scheme is too complex
-// for reliable DSL and should be redrawn as raster instead. Reliable because it
-// inspects real content, not pixels: masked-digit cryptarithms (bullets) and
-// multi-scheme layouts are exactly where DSL drops rows / jumbles columns.
-export function isComplexSchemeFigure(doc: FigureDoc | null): boolean {
-  if (!doc) return false
-  const schemes = doc.items.filter((i) => i.kind === 'vertical_arithmetic' || i.kind === 'division_scheme')
-  if (!schemes.length) return false
-  // Two or more figures side by side (e.g. multiplication + division).
-  if (doc.items.length >= 2) return true
-  const hasBullet = (s: string) => /[•●∙·]/.test(s)
-  for (const it of doc.items) {
-    if (it.kind === 'vertical_arithmetic') {
-      if (it.rows.some((r) => r.masked || hasBullet(r.tex)) || hasBullet(it.resultTex ?? '')) return true
-    }
-    if (it.kind === 'division_scheme') {
-      if (hasBullet(it.dividendTex + it.divisorTex + it.quotientTex + (it.remainderTex ?? ''))) return true
-      if ((it.steps ?? []).some((s) => hasBullet(s.tex))) return true
-    }
-  }
-  return false
-}
-
 /**
  * A usable `[ymin, xmin, ymax, xmax]`. The schema cannot say "tuple of four" —
  * it is an array of numbers — so the shape is checked here, and a degenerate

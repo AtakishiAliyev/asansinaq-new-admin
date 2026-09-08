@@ -14,7 +14,15 @@
 //
 // Pure: the rule is the whole feature, and it is asserted offline.
 import type { AnswerKeyEntry } from '@/core/answer-key/parse'
-import type { MatchableQuestion } from '@/core/answer-key/match'
+
+/** What the matcher needs to know about a saved question. */
+export interface MatchableQuestion {
+  id: number
+  pageNumber: number
+  col: number
+  qNo: number
+  testNo: number | null
+}
 
 export interface BatchPairing {
   /** The crop pages the operator said this key answers. */

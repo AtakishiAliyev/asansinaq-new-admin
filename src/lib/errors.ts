@@ -1,5 +1,4 @@
 import { isAuthError } from '@supabase/supabase-js'
-import { isAxiosError } from 'axios'
 import { ZodError } from 'zod'
 
 export interface AppError {
@@ -39,13 +38,6 @@ export function normalizeError(error: unknown): AppError {
     return {
       code: error.code ?? 'auth_error',
       message: 'Giriş uğursuz oldu. Yenidən daxil olun.',
-      cause: error,
-    }
-  }
-  if (isAxiosError(error)) {
-    return {
-      code: error.code ?? 'network_error',
-      message: 'Şəbəkə sorğusu alınmadı. Yenidən cəhd edin.',
       cause: error,
     }
   }

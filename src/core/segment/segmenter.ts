@@ -1,4 +1,4 @@
-import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist'
+import type { PDFPageProxy } from 'pdfjs-dist'
 import {
   DEFAULT_PROFILE,
   type Band,
@@ -630,17 +630,4 @@ export async function segmentPage(
     viewport.height,
     profile,
   )
-}
-
-export async function segmentPages(
-  doc: PDFDocumentProxy,
-  pages: number[],
-  profile: SourceProfile = DEFAULT_PROFILE,
-): Promise<PageSeg[]> {
-  const out: PageSeg[] = []
-  for (const p of pages) {
-    const page = await doc.getPage(p)
-    out.push(await segmentPage(page, profile))
-  }
-  return out
 }

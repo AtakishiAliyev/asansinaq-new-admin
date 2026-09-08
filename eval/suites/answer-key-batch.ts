@@ -17,7 +17,7 @@ import {
   type KeySection,
 } from '@/core/answer-key/batch'
 import { readVisionKey } from '@/core/answer-key/vision'
-import type { MatchableQuestion } from '@/core/answer-key/match'
+import type { MatchableQuestion } from '@/core/answer-key/batch'
 import type { AnswerKeyEntry } from '@/core/answer-key/parse'
 import { deepEq, eq, notOk, ok, suite } from '../harness.ts'
 

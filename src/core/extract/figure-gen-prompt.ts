@@ -10,8 +10,6 @@
 // follow-up brief serves the documented multi-turn path, where the drawing is
 // the model's OWN previous output and talking about "IMAGE 2" would point at
 // nothing.
-export const FIGURE_GEN_PROMPT_VERSION = 2
-
 export const FIGURE_REPRODUCE_PROMPT = `Reproduce this figure EXACTLY as it appears.
 
 This is a reproduction task, NOT a design task. The image you are given is a

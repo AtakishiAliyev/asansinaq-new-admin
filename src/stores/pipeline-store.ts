@@ -43,8 +43,3 @@ export const usePipelineStore = create<PipelineStore>()(
     { name: 'asansinaq-pipeline' },
   ),
 )
-
-export function pipelineSettings(): PipelineSettings {
-  const { autoApprove, autoApproveNeedsAnswer } = usePipelineStore.getState()
-  return { autoApprove, autoApproveNeedsAnswer }
-}

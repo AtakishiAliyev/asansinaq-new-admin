@@ -8,7 +8,7 @@
 // change to the figure.
 import type { Cube, CubeFace, CubesFig } from '@/core/figures/figspec'
 import { COLOR_HEX, type ColorToken } from '@/core/figures/figspec'
-import { esc, num, tag, type TexRenderer } from '@/core/figures/svg-emit'
+import { num, tag, type TexRenderer } from '@/core/figures/svg-emit'
 
 const DEFAULT_SIZE = 70
 const DEFAULT_GAP = 0.85
@@ -170,7 +170,3 @@ export function renderCubes(fig: CubesFig, tex: TexRenderer): string {
     body.join(''),
   )
 }
-
-/** Only used by the fallback path, kept beside the renderer it belongs to. */
-export const cubesSummary = (fig: CubesFig): string =>
-  esc(`${fig.cubes.length} kub`)

@@ -3,7 +3,7 @@ import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
 import { normalizeError } from '@/lib/errors'
 import type { AnswerKeyEntry } from '@/core/answer-key/parse'
-import type { MatchableQuestion } from '@/core/answer-key/match'
+import type { MatchableQuestion } from '@/core/answer-key/batch'
 import { questionKeys } from '@/features/questions/api/keys'
 
 /** Everything the matcher needs about a book's saved questions. */
