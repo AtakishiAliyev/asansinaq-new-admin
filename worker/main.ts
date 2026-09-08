@@ -47,7 +47,7 @@ import {
   logOp,
   spendToday,
 } from './ops.ts'
-import { modelFor } from './models.ts'
+import { modelFor, warnIfUnpriced } from './models.ts'
 import {
   applyVerdict,
   idFromVerifyCustomId,
@@ -678,6 +678,19 @@ log(
   `models: text=${config.MODEL_TEXT} figure=${config.MODEL_FIGURE} ` +
     `verify=${config.MODEL_VERIFY}`,
 )
+// Every model this process will bill, checked ONCE, here, before any of them
+// is called. The guard existed and nothing called it, so a mistyped model id
+// was priced at the fallback rate in silence — which reads as a cheap model
+// rather than an unknown one, on the number the daily budget is enforced from.
+for (const model of [
+  config.MODEL_TEXT,
+  config.MODEL_FIGURE,
+  config.MODEL_VERIFY,
+  config.GEMINI_IMAGE_MODEL,
+  config.OPENAI_IMAGE_MODEL,
+]) {
+  if (model) warnIfUnpriced(model)
+}
 
 if (process.argv.includes('--dry-run')) {
   await dryRun()
