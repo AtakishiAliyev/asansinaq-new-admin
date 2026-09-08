@@ -22,7 +22,7 @@ import {
   type GenContents,
   type GenImage,
 } from '@/core/figures/gen-request'
-import type { GenProvider } from '@/core/figures/gen-policy'
+import { shouldRedraw, type GenProvider } from '@/core/figures/gen-policy'
 import { compareLabels, type LabelDiff } from '@/core/figures/labels'
 import { compareStructure, type StructuralDiff } from '@/core/figures/structural-diff'
 import { readLabels } from './figure-ocr.ts'
@@ -414,6 +414,13 @@ export async function guardedReproduction(
     ].join('; ')
     lastRefused = result.png
     lastSignature = result.signature
+
+    // Whether a second drawing is worth buying is a schedule decision, and it
+    // lives with the rest of the schedule in `gen-policy` where the suite can
+    // hold it. The short of it: a structural failure earns another roll, a
+    // writing failure does not.
+    if (!shouldRedraw({ structurePassed: diff.passed, writingPassed: labels?.passed ?? null }))
+      break
   }
 
   return {

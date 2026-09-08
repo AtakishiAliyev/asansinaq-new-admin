@@ -11,9 +11,14 @@ import {
   rerouteIneligible,
   routeFiguresForLane,
 } from '@/core/figures/kind-eligibility'
-import { MAX_GEN_EDITS, parseProviderOrder, pickEditProvider } from '@/core/figures/gen-policy'
+import {
+  MAX_GEN_EDITS,
+  parseProviderOrder,
+  pickEditProvider,
+  shouldRedraw,
+} from '@/core/figures/gen-policy'
 import type { FigItem } from '@/core/figures/figspec'
-import { deepEq, eq, ok, suite } from '../harness.ts'
+import { deepEq, eq, notOk, ok, suite } from '../harness.ts'
 
 const circle = (id: string, cx: number): FigItem =>
   ({
@@ -366,5 +371,34 @@ export const kindEligibilitySuite = suite('kind-eligibility', {
     deepEq(parseProviderOrder('openai, Gemini'), ['openai', 'gemini'], 'case and spaces')
     deepEq(parseProviderOrder('dalle,gemini'), ['gemini'], 'unknown names dropped')
     deepEq(parseProviderOrder(undefined), ['gemini', 'openai'], 'the default order')
+  },
+
+  // The lane's largest single expense was second drawings, and half of them
+  // were bought to answer an OCR reading rather than a drawing fault. A redraw
+  // cannot answer a reading.
+  'a writing objection does not buy a second drawing'() {
+    notOk(
+      shouldRedraw({ structurePassed: true, writingPassed: false }),
+      'structure and colour held; only the reader complained',
+    )
+  },
+
+  'a structural objection does buy one'() {
+    ok(
+      shouldRedraw({ structurePassed: false, writingPassed: null }),
+      'the drawing is what was wrong, so another drawing may not be',
+    )
+    ok(
+      shouldRedraw({ structurePassed: false, writingPassed: false }),
+      'and the reading objection does not cancel the structural one',
+    )
+  },
+
+  // The accepted case never asks, but the answer must not be "stop" for a
+  // reason unrelated to writing: a caller that asked about a passing drawing
+  // should not be told to give up on it.
+  'a drawing with nothing against it is not refused a redraw on writing grounds'() {
+    ok(shouldRedraw({ structurePassed: true, writingPassed: null }), 'reading not run')
+    ok(shouldRedraw({ structurePassed: true, writingPassed: true }), 'reading held')
   },
 })
