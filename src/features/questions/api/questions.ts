@@ -7,7 +7,7 @@ import {
   questionRowSchema,
   type QuestionRow,
 } from '@/features/questions/schemas'
-import { imagePathsOf } from '@/features/questions/lib/row'
+import { storedPathsOf } from '@/core/questions/image-paths'
 
 const SELECT = '*, books(title)'
 
@@ -367,9 +367,14 @@ export function useDeleteQuestions() {
       const ids = rows.map((r) => r.id)
       const { error } = await supabase.from('questions').delete().in('id', ids)
       if (error) throw error
-      // Not just the crop: a structured question also owns the figure and
-      // option images the run generated, and those have no other referrer.
-      const paths = rows.flatMap(imagePathsOf).filter(Boolean)
+      // `storedPathsOf`, not `imagePathsOf`: the two answer different questions
+      // and only one of them is right here. `imagePathsOf` lists what a row
+      // needs SIGNED to render, which is the current version; deleting has to
+      // account for every object the row still owns, including the figures
+      // parked in `prev_version` by a repair that was rolled back. Those have
+      // no other referrer once the row is gone, and a delete that skipped them
+      // is precisely how the bucket ended up 90% orphaned objects before.
+      const paths = rows.flatMap(storedPathsOf).filter(Boolean)
       for (let i = 0; i < paths.length; i += 100) {
         await supabase.storage.from('question-crops').remove(paths.slice(i, i + 100))
       }

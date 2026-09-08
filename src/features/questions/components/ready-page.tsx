@@ -23,6 +23,7 @@ import {
   useQuestions,
   type QuestionFilters,
 } from '@/features/questions/api/questions'
+import { QuestionsSelectionBar } from '@/features/questions/components/questions-selection-bar'
 import { QuestionsTable } from '@/features/questions/components/questions-table'
 import { ReadyViewer } from '@/features/questions/components/ready-viewer'
 
@@ -43,6 +44,7 @@ export function ReadyPage() {
   const [searchText, setSearchText] = useState('')
   const [page, setPage] = useState(0)
   const [openId, setOpenId] = useState<number | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
 
   const books = useBooks()
   const questions = useQuestions(filters, page)
@@ -52,6 +54,7 @@ export function ReadyPage() {
   const total = questions.data?.total ?? 0
   const offset = questions.data?.offset ?? 0
   const openIndex = items.findIndex((q) => q.id === openId)
+  const selected = items.filter((q) => selectedIds.has(q.id))
 
   // The topic tree belongs to a subject, and a subject is only known once a
   // book is chosen — so the topic filter appears with the book rather than
@@ -72,6 +75,25 @@ export function ReadyPage() {
   function updateFilters(patch: Partial<QuestionFilters>) {
     setFilters((f) => ({ ...f, ...patch }))
     setPage(0) // a filter change invalidates the offset
+    // Selection is per-view: rows the operator can no longer see must not stay
+    // in the count on a bar whose one action is a permanent delete.
+    setSelectedIds(new Set())
+  }
+
+  function toggleOne(id: number) {
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      if (!next.delete(id)) next.add(id)
+      return next
+    })
+  }
+
+  function toggleAll() {
+    setSelectedIds((current) =>
+      items.every((i) => current.has(i.id))
+        ? new Set()
+        : new Set(items.map((i) => i.id)),
+    )
   }
 
   useEffect(() => {
@@ -82,8 +104,19 @@ export function ReadyPage() {
     return () => clearTimeout(timer)
   }, [searchText])
 
+  // Deleted or un-approved rows must not stay selected: the bar would keep
+  // counting questions the list no longer holds.
+  useEffect(() => {
+    setSelectedIds((current) => {
+      if (!current.size) return current
+      const visible = new Set(items.map((i) => i.id))
+      const next = new Set([...current].filter((id) => visible.has(id)))
+      return next.size === current.size ? current : next
+    })
+  }, [items])
+
   // A page past the end returns nothing at all, and filters shrink the list
-  // under us — an un-approval empties the last page of a narrow filter.
+  // under us — a delete empties the last page of a narrow filter.
   useEffect(() => {
     if (page > 0 && !questions.isFetching && !questions.isError && loaded === 0) {
       setPage((p) => Math.max(0, p - 1))
@@ -235,6 +268,11 @@ export function ReadyPage() {
         <QuestionsTable
           items={items}
           variant="ready"
+          selection={{
+            selected: selectedIds,
+            onToggle: toggleOne,
+            onToggleAll: toggleAll,
+          }}
           categoryName={categoryName}
           onOpen={(item) => setOpenId(item.id)}
         />
@@ -263,6 +301,12 @@ export function ReadyPage() {
           </Button>
         </div>
       ) : null}
+
+      <QuestionsSelectionBar
+        selected={selected}
+        variant="ready"
+        onClear={() => setSelectedIds(new Set())}
+      />
 
       {openId !== null ? (
         <ReadyViewer

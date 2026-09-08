@@ -22,11 +22,17 @@ import { useEnqueue } from '@/features/questions/api/queue'
 // Floats over the list instead of sitting above it: the operator selects rows
 // while scrolled anywhere in a 50-row page, and an action bar pinned to the
 // top would be off-screen exactly when it is needed.
+//
+// One bar, two screens, and the ready one gets a single action. Approving what
+// is already approved and queueing a finished question are not offers worth
+// making; removing a question from the bank is.
 export function QuestionsSelectionBar({
   selected,
+  variant = 'work',
   onClear,
 }: {
   selected: QuestionListItem[]
+  variant?: 'work' | 'ready'
   onClear: () => void
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -52,6 +58,7 @@ export function QuestionsSelectionBar({
   // happened once: eight questions were in flight when the bank was cleared.
   const inFlight = selected.filter((q) => q.batch_id)
   const busy = bulkApprove.isPending || remove.isPending || enqueue.isPending
+  const ready = variant === 'ready'
 
   return (
     <>
@@ -62,40 +69,44 @@ export function QuestionsSelectionBar({
           </span>
           <span className="bg-border h-5 w-px" />
 
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={busy || !approvable.length}
-            onClick={() => setConfirmApprove(true)}
-            title={
-              approvable.length
-                ? `${approvable.length} sual AI kateqoriyası ilə təsdiqlənəcək`
-                : 'Seçilənlərdə AI kateqoriyası olan strukturlaşmış sual yoxdur'
-            }
-          >
-            <CheckCheck data-icon="inline-start" />
-            Təsdiqlə{approvable.length ? ` (${approvable.length})` : ''}
-          </Button>
+          {ready ? null : (
+            <>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={busy || !approvable.length}
+                onClick={() => setConfirmApprove(true)}
+                title={
+                  approvable.length
+                    ? `${approvable.length} sual AI kateqoriyası ilə təsdiqlənəcək`
+                    : 'Seçilənlərdə AI kateqoriyası olan strukturlaşmış sual yoxdur'
+                }
+              >
+                <CheckCheck data-icon="inline-start" />
+                Təsdiqlə{approvable.length ? ` (${approvable.length})` : ''}
+              </Button>
 
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={busy}
-            title="Növbəyə əlavə edir — emal növbə panelindən işə salınır"
-            onClick={() =>
-              enqueue.mutate(
-                selected.map((q) => q.id),
-                { onSuccess: onClear },
-              )
-            }
-          >
-            {enqueue.isPending ? (
-              <Spinner data-icon="inline-start" />
-            ) : (
-              <ListPlus data-icon="inline-start" />
-            )}
-            Növbəyə at
-          </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={busy}
+                title="Növbəyə əlavə edir — emal növbə panelindən işə salınır"
+                onClick={() =>
+                  enqueue.mutate(
+                    selected.map((q) => q.id),
+                    { onSuccess: onClear },
+                  )
+                }
+              >
+                {enqueue.isPending ? (
+                  <Spinner data-icon="inline-start" />
+                ) : (
+                  <ListPlus data-icon="inline-start" />
+                )}
+                Növbəyə at
+              </Button>
+            </>
+          )}
 
           <Button
             size="sm"
@@ -164,9 +175,15 @@ export function QuestionsSelectionBar({
               Sual sətirləri və crop şəkilləri həmişəlik silinir — geri
               qaytarmaq olmur. Eyni səhifələri yenidən emal etsəniz, suallar
               xam statusda qayıdır, amma yenidən çıxarılmalı olacaq.
-              {reviewed.length
-                ? ` Seçilənlərin ${reviewed.length}-i artıq review-dən keçib.`
-                : ''}
+              {/* On the ready screen every row is live content, so the warning
+                  names that rather than repeating "these went through review",
+                  and points at the reversible action the operator may have
+                  actually wanted. */}
+              {ready
+                ? ' Bunlar şagird qarşısına çıxa bilən, təsdiqlənmiş suallardır. Sualı bankdan çıxarmaq, amma saxlamaq istəyirsinizsə, sualı açıb «Təsdiqi geri al» seçin.'
+                : reviewed.length
+                  ? ` Seçilənlərin ${reviewed.length}-i artıq review-dən keçib.`
+                  : ''}
             </AlertDialogDescription>
             {inFlight.length ? (
               <div className="border-destructive/40 bg-destructive/5 mt-3 rounded-md border p-3">
