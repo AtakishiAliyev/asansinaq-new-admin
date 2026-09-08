@@ -1,11 +1,22 @@
 import { Send } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { CategoryPicker } from '@/features/questions'
+import type { Category } from '@/features/taxonomy'
 
-/** The sticky bar under the crop grid: select, clear, send. */
+/**
+ * The sticky bar under the crop grid: select, clear, file under a topic, send.
+ *
+ * The topic is required and sits beside the send button because it is part of
+ * the send: one send is one topic, and the crops it carries are filed before
+ * anything reads them.
+ */
 export function CropActions({
   eligible,
   selected,
   sendable,
+  categories,
+  categoryId,
+  onCategory,
   onSelectAll,
   onClear,
   onSend,
@@ -13,6 +24,9 @@ export function CropActions({
   eligible: number
   selected: number
   sendable: number
+  categories: Category[]
+  categoryId: number | null
+  onCategory: (id: number) => void
   onSelectAll: () => void
   onClear: () => void
   onSend: () => void
@@ -30,8 +44,21 @@ export function CropActions({
       >
         Təmizlə
       </Button>
-      <div className="ml-auto flex items-center gap-2">
-        <Button size="sm" disabled={sendable === 0} onClick={onSend}>
+      <div className="ml-auto flex flex-wrap items-center gap-2">
+        <CategoryPicker
+          categories={categories}
+          value={categoryId}
+          onChange={onCategory}
+          placeholder={
+            categories.length ? 'Mövzu seç' : 'Fənnin mövzusu yoxdur'
+          }
+        />
+        <Button
+          size="sm"
+          disabled={sendable === 0 || categoryId === null}
+          title={categoryId === null ? 'Əvvəlcə mövzu seçin' : undefined}
+          onClick={onSend}
+        >
           <Send data-icon="inline-start" />
           Çıxarılmaya göndər ({sendable})
         </Button>

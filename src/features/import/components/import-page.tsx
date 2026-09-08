@@ -31,7 +31,12 @@ import { useImportAnswerKeys } from '@/features/import/hooks/use-import-answer-k
 import { useOpenDocument } from '@/features/import/hooks/use-open-document'
 import { usePageRanges } from '@/features/import/hooks/use-page-ranges'
 import { useSegmentation } from '@/features/import/hooks/use-segmentation'
-import { AnswerKeyDialog, BookKeyDialog } from '@/features/questions'
+import {
+  AnswerKeyDialog,
+  BookKeyDialog,
+  categoryLabel,
+} from '@/features/questions'
+import { useCategories } from '@/features/taxonomy'
 import { usePageTitle } from '@/hooks/use-page-title'
 
 // Composition only. Each concern the page used to carry — getting a document
@@ -75,6 +80,9 @@ export function ImportPage() {
     running,
   })
   const markPagesWorked = useMarkPagesWorked()
+  // The topics the crops can be filed under: the book's own subject, the same
+  // tree the model used to be handed. Empty while no book is open.
+  const categories = useCategories(currentBook?.subject_id ?? null)
 
   function guardReplace(action: () => void) {
     if (running) setPendingReplace(() => action)
@@ -246,6 +254,9 @@ export function ImportPage() {
           eligible={queue.eligibleKeys.size}
           selected={queue.selectedKeys.size}
           sendable={queue.selectedCrops.length}
+          categories={categories.data ?? []}
+          categoryId={queue.categoryId}
+          onCategory={queue.setCategoryId}
           onSelectAll={() => queue.setSelectedKeys(new Set(queue.eligibleKeys))}
           onClear={() => queue.setSelectedKeys(new Set())}
           onSend={() => queue.setSendConfirmOpen(true)}
@@ -301,6 +312,7 @@ export function ImportPage() {
       <SendConfirmDialog
         open={queue.sendConfirmOpen}
         count={queue.selectedCrops.length}
+        topic={categoryLabel(categories.data ?? [], queue.categoryId)}
         laneCounts={queue.laneCounts}
         costLow={queue.costLow}
         costHigh={queue.costHigh}

@@ -398,6 +398,18 @@ what each stage needs.
   table held 0 rows against 264 batches and 4,051 entries in its replacement,
   and every read of it had been reading an empty table for as long as the
   replacement existed. `answerFor` resolves by page and printed number only.
+- **The category is the operator's, named when the crops are sent**
+  (`core/questions/category-tree.ts`). It used to be the model's: the book's
+  tree went into every extraction, the model picked an id, and a reviewer
+  confirmed or replaced it at approval. Now the operator picks the topic of
+  the book's subject on the import page before anything is read, it lands in
+  `questions.category_id` with the crop, and a topic a person has chosen is not
+  a question to put to a model — the tree is withheld from that row's request,
+  so the model cannot answer it and `ai_category_id` stays empty because
+  nothing was suggested. One send is one topic; different topics go in
+  separate sends. `treeFor` is the one place the rule lives, because the
+  request builder, the cache key and the review screen's re-run must agree or
+  the key disagrees with the request.
 - **The browser orchestrates exactly one thing: a single-question interactive
   re-run** from the review screen. That is what the `question-ops` Edge Function
   is still for — that, answer-key parsing and page detection, which stay

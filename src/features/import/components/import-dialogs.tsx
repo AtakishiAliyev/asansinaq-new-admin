@@ -121,6 +121,7 @@ export function LeaveImportDialog({
 export function SendConfirmDialog({
   open,
   count,
+  topic,
   laneCounts,
   costLow,
   costHigh,
@@ -129,6 +130,8 @@ export function SendConfirmDialog({
 }: {
   open: boolean
   count: number
+  /** What the crops will be filed under, as the operator chose it. */
+  topic: string | null
   laneCounts: { none: number; rule: number; colored: number }
   costLow: number
   costHigh: number
@@ -146,6 +149,7 @@ export function SendConfirmDialog({
             {count} sual çıxarılmaya göndərilsin?
           </AlertDialogTitle>
           <AlertDialogDescription>
+            {topic ? `Mövzu: ${topic}. ` : ''}
             Seçilən crop-lar bazaya yazılacaq və AI hər sualı təmiz formada
             yenidən yaradacaq (mətn, variantlar, fiqurlar). Təxmini xərc: ≈ $
             {costLow.toFixed(2)}–${costHigh.toFixed(2)}

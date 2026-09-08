@@ -11,6 +11,7 @@ import {
   optionImagePath,
   storedPathsOf,
 } from '@/core/questions/image-paths'
+import { treeFor } from '@/core/questions/category-tree'
 import type { ExtractedQuestion } from '@/core/questions/extraction'
 import { deepEq, eq, ok, suite } from '../harness.ts'
 
@@ -130,6 +131,22 @@ export const rowPayloadSuite = suite('row-payload', {
       figures: { items: [{ kind: 'image', src: 'data:image/png;base64,AAAA' }] },
     })
     deepEq(paths, ['9/p1_c0_q1.png'], 'nothing to delete for a data: URI')
+  },
+
+  // The category is the operator's. A topic a person has already chosen is not
+  // a question to put to a model: the tree is withheld so the model cannot
+  // answer it, and three callers — the request, the cache key, the re-run —
+  // have to agree or the key disagrees with the request.
+  'a row the operator filed sends the model no tree'() {
+    const tree = [{ id: 7, name: 'Çoxluqlar', parentId: null }]
+    deepEq(treeFor({ category_id: 7 }, tree), [], 'filed: nothing to ask')
+    deepEq(treeFor({ category_id: null }, tree), tree, 'unfiled: the book\'s tree')
+  },
+
+  'an operator category survives a read that sent no tree'() {
+    const payload = buildRowPayload(question(), { category_id: 7, category_confidence: 0.9 }, context({ categoryIds: [] }))
+    ok(!('category_id' in payload), 'the read never writes the final category')
+    ok(!('ai_category_id' in payload), 'and suggests nothing when nothing was asked')
   },
 
   'cut pictures are stored under one convention'() {

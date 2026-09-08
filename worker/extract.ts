@@ -17,6 +17,7 @@ import type { StoredVersion } from '@/core/questions/repair-guard'
 import type { Flag } from '@/core/questions/lint'
 import { buildRowPayload } from '@/core/questions/row-payload'
 import type { Db, QuestionRow } from './db.ts'
+import { treeFor } from '@/core/questions/category-tree'
 import { answerFor, type BookContext } from './book-context.ts'
 import { modelFor } from './models.ts'
 import { attachFigureImages, attachOptionImages } from './option-images.ts'
@@ -74,7 +75,8 @@ export function requestFor(
     textLayerHint: row.text_layer ?? undefined,
     testNo: row.test_no ?? undefined,
     expectedNumber: row.q_no,
-    categories: context.categories,
+    // Withheld when the operator has already filed the row — see treeFor.
+    categories: treeFor(row, context.categories),
     // On a repair round the verifier's findings go back to the reader. The
     // row still carries them here: `applyVerdict` wrote them when it sent the
     // row back, and they are cleared only when the new read is written.
@@ -92,7 +94,7 @@ export function cacheInputFor(
   return extractCacheInput(
     row,
     crop,
-    context.categories.map((c) => c.id),
+    treeFor(row, context.categories).map((c) => c.id),
   )
 }
 

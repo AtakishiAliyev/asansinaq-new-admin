@@ -1,4 +1,5 @@
 import { batchAnswerKey } from '@/core/answer-key/batch'
+import { treeFor } from '@/core/questions/category-tree'
 import { useCallback, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import type { Crop } from '@/core/segment/types'
@@ -126,7 +127,7 @@ export function useRestructure() {
           textLayerHint: crop.textLayer || undefined,
           testNo: row.test_no ?? undefined,
           expectedNumber: crop.number,
-          categories: book.categories,
+          categories: treeFor(row, book.categories),
         })
 
         const question = wireToQuestion(wire)
@@ -147,7 +148,7 @@ export function useRestructure() {
           answerSource: row.answer_source ?? null,
           keyAnswer: book.answerKeys.get(batchAnswerKey(row.page_number, row.q_no)) ?? null,
           answerKeysRead: book.answerKeysRead,
-          categoryIds: book.categories.map((c) => c.id),
+          categoryIds: treeFor(row, book.categories).map((c) => c.id),
           croppedOptionImages: cut.produced,
           cutFlags: [...cut.flags, ...figureCut.flags, ...routed.flags],
           model,

@@ -4,7 +4,10 @@ import { supabase } from '@/lib/supabase'
 import { normalizeError } from '@/lib/errors'
 import type { Crop } from '@/core/segment/types'
 import type { FigureDoc } from '@/core/figures/figspec'
-import type { ExtractedOption, ExtractedQuestion } from '@/core/questions/extraction'
+import type {
+  ExtractedOption,
+  ExtractedQuestion,
+} from '@/core/questions/extraction'
 import type { Flag } from '@/core/questions/lint'
 import type { PageResult } from '@/features/import/hooks/use-segmentation'
 import type { Book } from '@/features/books'
@@ -50,7 +53,9 @@ async function fetchExistingRows(
   for (let offset = 0; ; offset += SELECT_PAGE) {
     const { data, error } = await supabase
       .from('questions')
-      .select('id, page_number, col, q_no, status, crop_path, options, figures, flags')
+      .select(
+        'id, page_number, col, q_no, status, crop_path, options, figures, flags',
+      )
       .eq('book_id', bookId)
       .in('page_number', pages)
       .order('page_number')
@@ -84,6 +89,12 @@ function cropStoragePath(bookId: number, crop: Crop, mime: string) {
 export interface SaveCropsInput {
   book: Book
   results: PageResult[]
+  /**
+   * The topic every crop in this send is filed under. Written with the row,
+   * before anything reads it: the category is the operator's decision, and a
+   * row that carries one is never handed the tree to choose from.
+   */
+  categoryId: number
 }
 
 export interface SaveCropsResult {
@@ -129,13 +140,17 @@ async function refreshCuts(
   if (error) throw error
 
   const figures = existing.figures as FigureDoc | null
-  const options = (Array.isArray(existing.options) ? existing.options : []) as ExtractedOption[]
+  const options = (
+    Array.isArray(existing.options) ? existing.options : []
+  ) as ExtractedOption[]
   const question: ExtractedQuestion = {
     numberSeen: existing.q_no,
     stem: '',
     // Cleared so the cutters treat them as not yet cut. The paths they write
     // are the same deterministic ones the row already carries.
-    options: options.map((o) => (o.isImage && o.box && o.image ? { ...o, image: undefined } : o)),
+    options: options.map((o) =>
+      o.isImage && o.box && o.image ? { ...o, image: undefined } : o,
+    ),
     figures: figures
       ? {
           ...figures,
@@ -155,12 +170,19 @@ async function refreshCuts(
     (question.figures?.items ?? []).some((i) => i.kind === 'image' && !i.src)
   if (!hasWork) return
 
-  const rowLike = { book_id: book.id, page_number: crop.pageNumber, col: crop.col, q_no: crop.number }
+  const rowLike = {
+    book_id: book.id,
+    page_number: crop.pageNumber,
+    col: crop.col,
+    q_no: crop.number,
+  }
   const loaded = await loadCrop(crop.dataUrl)
   const cut = await attachOptionImages(rowLike, loaded, question)
   const figureCut = await attachFigureImages(rowLike, loaded, question, 'cut')
 
-  const kept = ((existing.flags ?? []) as Flag[]).filter((f) => !CUT_FLAG_CODES.has(f.code))
+  const kept = ((existing.flags ?? []) as Flag[]).filter(
+    (f) => !CUT_FLAG_CODES.has(f.code),
+  )
   const { error: updateError } = await supabase
     .from('questions')
     .update({
@@ -181,6 +203,7 @@ async function refreshCuts(
 async function saveCrops({
   book,
   results,
+  categoryId,
 }: SaveCropsInput): Promise<SaveCropsResult> {
   const entries = results.flatMap((page) =>
     page.crops.map((crop) => ({
@@ -190,7 +213,8 @@ async function saveCrops({
       key: cropKey(crop),
     })),
   )
-  if (!entries.length) return { saved: [], skippedKeys: [], refreshed: 0, failed: 0 }
+  if (!entries.length)
+    return { saved: [], skippedKeys: [], refreshed: 0, failed: 0 }
 
   const pages = [...new Set(entries.map((e) => e.crop.pageNumber))]
   const existingRows = await fetchExistingRows(book.id, pages)
@@ -267,6 +291,7 @@ async function saveCrops({
         is_scan: e.isScan,
         text_layer: e.crop.textLayer || null,
         status: 'cropped' as const,
+        category_id: categoryId,
         stem: null,
         options: null,
         figures: null,

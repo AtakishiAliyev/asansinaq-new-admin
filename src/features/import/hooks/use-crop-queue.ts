@@ -21,6 +21,10 @@ export function useCropQueue(input: {
   const enqueue = useEnqueue()
   const navigate = useNavigate()
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set())
+  /** The topic the next send files its crops under. Required: the category
+   *  is the operator's decision, and a send without one would hand it back to
+   *  the model. */
+  const [categoryId, setCategoryId] = useState<number | null>(null)
   const [sendConfirmOpen, setSendConfirmOpen] = useState(false)
   /** Crops already written and queued. They stop arming the unsaved-work guard. */
   const [sentKeys, setSentKeys] = useState<Set<string>>(new Set())
@@ -68,7 +72,7 @@ export function useCropQueue(input: {
 
   function sendToQueue() {
     setSendConfirmOpen(false)
-    if (!book) return
+    if (!book || categoryId === null) return
     const selectedResults = results
       .map((page) => ({
         ...page,
@@ -83,7 +87,7 @@ export function useCropQueue(input: {
     // Function's wall clock, and does not stop when the tab closes. What this
     // page owes the operator is the crops and a place in the queue.
     saveCrops.mutate(
-      { book, results: selectedResults },
+      { book, results: selectedResults, categoryId },
       {
         onSuccess: (res) => {
           if (!res.saved.length) return
@@ -124,7 +128,13 @@ export function useCropQueue(input: {
     toggleSelected,
     sendToQueue,
     blocker,
-    /** A new document has no selection. Sent keys are kept: they are rows. */
-    reset: () => setSelectedKeys(new Set()),
+    categoryId,
+    setCategoryId,
+    /** A new document has no selection and no topic. Sent keys are kept: they
+     *  are rows. */
+    reset: () => {
+      setSelectedKeys(new Set())
+      setCategoryId(null)
+    },
   }
 }
