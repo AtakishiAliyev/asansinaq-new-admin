@@ -24,7 +24,8 @@ import { verificationBlocked } from '@/core/questions/verification-block'
 //   * a category, which is the operator's own and is now chosen before the
 //     crops are even sent;
 //   * an answer, when the operator asks for one — a question with no answer is
-//     not usable in an exam.
+//     not usable in an exam;
+//   * and nobody having ruled on the row already — see `reviewed_at`.
 
 export interface AutoApproveSettings {
   enabled: boolean
@@ -38,6 +39,16 @@ export interface AutoApprovableRow {
   answer: string | null
   category_id: number | null
   flags: unknown
+  /**
+   * When a person last ruled on this row, if they ever did.
+   *
+   * On a `structured` row this is not noise: approving sets it and moves the
+   * row to `approved`, rejecting sets it and moves the row to `rejected`, so
+   * the only way back to `structured` WITH a timestamp is a person taking an
+   * approval back. That is the one signal that distinguishes "not looked at
+   * yet" from "looked at, and pulled out of the approved lane on purpose".
+   */
+  reviewed_at: string | null
 }
 
 /** Any lint finding at error level. A warning is a signal, not a refusal. */
@@ -54,6 +65,12 @@ export function autoApprovable(
   // Only a row the pipeline has finished with and nobody has ruled on. An
   // approved row is done and a rejected one is a decision to leave alone.
   if (row.status !== 'structured') return false
+  // A person took this back out of the approved lane. Without this the sweep
+  // matches it again on its very next pass — every other condition still holds
+  // — and re-approves it within the minute, so the panel would silently undo
+  // the operator's decision. That is the trap the ready screen's "undo
+  // approval" walks into, and the reason this clause exists.
+  if (row.reviewed_at !== null) return false
   if (!row.verified) return false
   if (row.category_id === null) return false
   if (settings.needsAnswer && !row.answer) return false

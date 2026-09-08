@@ -30,13 +30,18 @@ export async function autoApprovePass(
 
   const { data: candidates, error } = await db
     .from('questions')
-    .select('id, status, verified, answer, category_id, flags')
+    .select('id, status, verified, answer, category_id, flags, reviewed_at')
     .eq('status', 'structured')
     .eq('verified', true)
     // A row waiting to be re-read has not finished; the verdict it carries
     // belongs to content that is about to be replaced.
     .is('queued_at', null)
     .not('verified_at', 'is', null)
+    // A structured row a person has ruled on is one they pulled back out of
+    // the approved lane. `autoApprovable` refuses it anyway; asking the server
+    // keeps those rows from filling the sweep's window every single pass and
+    // crowding out rows it could actually approve.
+    .is('reviewed_at', null)
     .order('verified_at')
     .limit(AUTO_APPROVE_SWEEP)
   if (error) {

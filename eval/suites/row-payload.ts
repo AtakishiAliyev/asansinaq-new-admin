@@ -153,7 +153,14 @@ export const rowPayloadSuite = suite('row-payload', {
   // The one lever that removes work rather than moving it, and the one that can
   // put a wrong question in front of a student with nobody having seen it.
   'auto-approve passes a row that cleared every automatic check'() {
-    const row = { status: 'structured', verified: true, answer: 'A', category_id: 7, flags: [] }
+    const row = {
+      status: 'structured',
+      verified: true,
+      answer: 'A',
+      category_id: 7,
+      flags: [],
+      reviewed_at: null,
+    }
     ok(autoApprovable(row, { enabled: true, needsAnswer: true }), 'clean row passes')
     ok(!autoApprovable(row, { enabled: false, needsAnswer: true }), 'off means off')
   },
@@ -163,7 +170,13 @@ export const rowPayloadSuite = suite('row-payload', {
   // original — so blocking on it would mean auto-approve never fired on a
   // figure at all.
   'a warning does not hold a row back, an error does'() {
-    const base = { status: 'structured', verified: true, answer: 'A', category_id: 7 }
+    const base = {
+      status: 'structured',
+      verified: true,
+      answer: 'A',
+      category_id: 7,
+      reviewed_at: null,
+    }
     const on = { enabled: true, needsAnswer: true }
     ok(
       autoApprovable({ ...base, flags: [{ level: 'warning', code: 'raster_figure' }] }, on),
@@ -185,6 +198,7 @@ export const rowPayloadSuite = suite('row-payload', {
           answer: 'A',
           category_id: 7,
           flags: [{ level: 'warning', code: 'gen_colour_unresolved' }],
+          reviewed_at: null,
         },
         { enabled: true, needsAnswer: true },
       ),
@@ -194,7 +208,14 @@ export const rowPayloadSuite = suite('row-payload', {
 
   'auto-approve needs what a usable question needs'() {
     const on = { enabled: true, needsAnswer: true }
-    const base = { status: 'structured', verified: true, answer: 'A', category_id: 7, flags: [] }
+    const base = {
+      status: 'structured',
+      verified: true,
+      answer: 'A',
+      category_id: 7,
+      flags: [],
+      reviewed_at: null,
+    }
     ok(!autoApprovable({ ...base, verified: false }, on), 'unverified')
     ok(!autoApprovable({ ...base, category_id: null }, on), 'unfiled')
     ok(!autoApprovable({ ...base, answer: null }, on), 'no answer, while one is required')
@@ -204,6 +225,13 @@ export const rowPayloadSuite = suite('row-payload', {
     )
     ok(!autoApprovable({ ...base, status: 'approved' }, on), 'already ruled on')
     ok(!autoApprovable({ ...base, status: 'rejected' }, on), 'a rejection is a decision')
+    // The ready screen can send an approved question back. Every other
+    // condition still holds on the returned row, so without this the sweep
+    // re-approves it on its next pass and the panel undoes the operator.
+    ok(
+      !autoApprovable({ ...base, reviewed_at: '2026-09-08T10:00:00Z' }, on),
+      'a person pulled this back out of the approved lane',
+    )
   },
 
   'cut pictures are stored under one convention'() {

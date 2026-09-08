@@ -11,17 +11,54 @@ import { imagePathsOf } from '@/features/questions/lib/row'
 
 const SELECT = '*, books(title)'
 
+/**
+ * Which half of the product a list is showing.
+ *
+ * `work` is everything still being made: cropped, structured, rejected,
+ * failed. `ready` is `approved` alone — the questions a student could be
+ * shown. They are two screens because they are two jobs, and a list that
+ * mixed them made "how much is left to review" unanswerable.
+ *
+ * The scope is not a status filter the operator can widen. An approved row
+ * must never appear on the work screen and an unapproved one must never
+ * appear on the ready screen, so the constraint is applied server-side under
+ * every other filter, including `status: 'all'`.
+ */
+export type QuestionScope = 'work' | 'ready'
+
 export interface QuestionFilters {
+  scope: QuestionScope
   bookId: number | 'all'
+  /** Narrows WITHIN the scope. Ignored on `ready`, which is one status. */
   status: QuestionRow['status'] | 'all'
   /** attention = flagged, unverified or failed; clean = verified and flagless */
   queue: 'all' | 'attention' | 'clean'
+  /** Ready-screen filters. The work screen leaves them at their defaults. */
+  categoryId: number | 'all'
+  difficulty: number | 'all'
+  answer: 'all' | 'has' | 'missing'
+  /** Free text over the stem; empty means no search. */
+  search: string
 }
 
-export const DEFAULT_FILTERS: QuestionFilters = {
+const SHARED_DEFAULTS = {
   bookId: 'all',
   status: 'all',
   queue: 'all',
+  categoryId: 'all',
+  difficulty: 'all',
+  answer: 'all',
+  search: '',
+} as const
+
+export const DEFAULT_FILTERS: QuestionFilters = {
+  scope: 'work',
+  ...SHARED_DEFAULTS,
+}
+
+export const READY_FILTERS: QuestionFilters = {
+  scope: 'ready',
+  ...SHARED_DEFAULTS,
 }
 
 export interface QuestionListItem extends QuestionRow {
@@ -60,6 +97,11 @@ function applyLane<T>(query: T, queue: QuestionFilters['queue']): T {
   ) as T
 }
 
+/** `%`, `_` and `\` are LIKE syntax; a searcher typing them means the character. */
+function escapeLike(text: string): string {
+  return text.replace(/[\\%_]/g, (c) => `\\${c}`)
+}
+
 export const QUESTIONS_PAGE_SIZE = 50
 
 export interface QuestionListPage {
@@ -87,7 +129,25 @@ async function fetchQuestions(
     .order('q_no')
     .range(offset, offset + QUESTIONS_PAGE_SIZE - 1)
   if (filters.bookId !== 'all') query = query.eq('book_id', filters.bookId)
-  if (filters.status !== 'all') query = query.eq('status', filters.status)
+  // The scope first, and it always wins: `status: 'all'` means "every status
+  // in this scope", never "every status".
+  if (filters.scope === 'ready') query = query.eq('status', 'approved')
+  else if (filters.status !== 'all') query = query.eq('status', filters.status)
+  else query = query.neq('status', 'approved')
+  if (filters.categoryId !== 'all')
+    query = query.eq('category_id', filters.categoryId)
+  // `reviewer_difficulty` rather than a coalesce over the AI's guess: approval
+  // writes whatever the reviewer had in front of them, so on an approved row
+  // this column IS the confirmed value. On the work screen the control that
+  // sets this filter is not shown at all.
+  if (filters.difficulty !== 'all')
+    query = query.eq('reviewer_difficulty', filters.difficulty)
+  if (filters.answer === 'has') query = query.not('answer', 'is', null)
+  else if (filters.answer === 'missing') query = query.is('answer', null)
+  // Escaped: a `%` or `_` typed into the box is a literal the operator meant,
+  // not a wildcard, and a bare `,` would end the PostgREST filter value.
+  if (filters.search.trim())
+    query = query.ilike('stem', `%${escapeLike(filters.search.trim())}%`)
   query = applyLane(query, filters.queue)
   const { data, error, count } = await query
   if (error) throw error
@@ -229,6 +289,38 @@ export function useRejectQuestion() {
       if (error) throw error
     },
     () => 'Sual rədd edildi',
+  )
+}
+
+/**
+ * Send an approved question back to review.
+ *
+ * The only write the ready screen has, and it is deliberately the reverse of
+ * approval rather than a delete: the row returns to `structured`, lands back
+ * on the work screen, and keeps its category, answer and difficulty so the
+ * reviewer who reopens it sees what was approved rather than a blank.
+ *
+ * `auto_approved` is cleared too. A row the rule approved and a person then
+ * pulled back is no longer something the rule may claim, and leaving the flag
+ * set would let the sweep count it as its own work.
+ */
+export function useUnapproveQuestion() {
+  return useQuestionMutation<{ id: number }>(
+    async ({ id }) => {
+      const { data: userData } = await supabase.auth.getUser()
+      const { error } = await supabase
+        .from('questions')
+        .update({
+          status: 'structured',
+          auto_approved: false,
+          reviewed_by: userData.user?.id ?? null,
+          reviewed_at: new Date().toISOString(),
+        })
+        .eq('id', id)
+        .eq('status', 'approved')
+      if (error) throw error
+    },
+    () => 'Sual yenidən yoxlamaya qaytarıldı',
   )
 }
 

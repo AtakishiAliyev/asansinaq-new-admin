@@ -357,6 +357,7 @@ export async function applyVerdict(
         answer: row.answer,
         category_id: row.category_id,
         flags,
+        reviewed_at: row.reviewed_at,
       },
       autoApprove,
     )
