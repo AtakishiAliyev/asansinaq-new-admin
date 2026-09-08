@@ -65,7 +65,7 @@ const MAX_OPTION_TEX = 120
  */
 function lintFigureRefs(q: ExtractedQuestion): Flag[] {
   const geo = q.figures?.items.find((i) => i.kind === 'geometry')
-  // Only the structured kind can be checked. raw_svg has no structure to ask.
+  // Only the structured kind can be checked. only it has structure to ask.
   if (!geo || geo.kind !== 'geometry') return []
 
   const flags: Flag[] = []
@@ -175,7 +175,6 @@ export const LINT_CODES = new Set([
   'option_latex',
   'point_off_curve',
   'raster_figure',
-  'raw_svg',
   'stem_echoes_option',
   'stem_latex',
   'venn_empty',
@@ -442,18 +441,6 @@ function lintFigures(doc: FigureDoc): Flag[] {
       }
     }
 
-    if (item.kind === 'raw_svg') {
-      // The one figure kind nothing can check for us: no schema, no geometry
-      // to re-derive, only markup a model wrote. It is worth having, and it is
-      // never worth trusting unseen.
-      flags.push({
-        level: 'warning',
-        code: 'raw_svg',
-        message: item.dropped?.length
-          ? `sərbəst SVG fiquru — insan yoxlaması şərtdir (təmizlənən: ${item.dropped.join(', ')})`
-          : 'sərbəst SVG fiquru — insan yoxlaması şərtdir',
-      })
-    }
     if (item.kind === 'venn') {
       const ids = new Set(item.shapes.map((s) => s.id))
       const exprs = [

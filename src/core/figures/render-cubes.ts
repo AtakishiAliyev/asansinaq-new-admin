@@ -1,7 +1,7 @@
 // A row of isometric cubes → SVG.
 //
 // The proportions are taken from what the model already draws when it is left
-// to raw_svg, rather than chosen: a front face slightly taller than it is wide,
+// to free-form SVG, rather than chosen: a front face slightly taller than it is wide,
 // and a depth offset of about a third of the edge, up and to the right. Copying
 // the shape it converged on means the structured kind renders as the same
 // picture the unstructured one did, so adopting it does not itself look like a

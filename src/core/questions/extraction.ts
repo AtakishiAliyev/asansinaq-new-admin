@@ -6,7 +6,6 @@
 //
 // responseSchema moved to core/extract/schemas.ts
 
-import { sanitizeSvg, svgNodeCount } from '@/core/figures/svg-safe'
 import { COLOR_HEX } from '@/core/figures/figspec'
 import type {
   ColorToken,
@@ -248,19 +247,6 @@ function wireBox(value: unknown): [number, number, number, number] | null {
 function wireFigure(w: Record<string, unknown>): FigItem | null {
   const kind = w.kind as string
   switch (kind) {
-    case 'raw_svg': {
-      // Sanitized at the boundary, not at render time: after this point the
-      // figure is a checked tree, and no later caller can accidentally
-      // reintroduce the markup it came from.
-      const { node, dropped } = sanitizeSvg(String(w.raw_svg ?? ''))
-      if (!node || svgNodeCount(node) < 2) return null
-      return {
-        kind: 'raw_svg',
-        node,
-        ...(dropped.length ? { dropped } : {}),
-        ...(w.note ? { note: String(w.note) } : {}),
-      }
-    }
     case 'cubes': {
       const cubes = ((w.cubes as Record<string, unknown>[]) ?? [])
         .map((c) => ({

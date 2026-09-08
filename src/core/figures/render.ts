@@ -21,7 +21,6 @@
 // `<svg>` per item, and the review screen stacks them while the worker
 // composes them onto a page.
 import type { FigItem, FigureDoc } from '@/core/figures/figspec'
-import { toMarkup } from '@/core/figures/svg-safe'
 import { layoutGeometry } from '@/core/figures/render-geometry'
 import { renderCubes } from '@/core/figures/render-cubes'
 import { renderVenn } from '@/core/figures/render-venn'
@@ -108,10 +107,6 @@ export function renderFigItem(item: FigItem, options: RenderOptions = {}): strin
         tag('image', { href: shown, x: 0, y: 0, width: w, height: h }),
       )
     }
-    case 'raw_svg':
-      // Already sanitized at the extraction boundary; this only re-serialises
-      // the tree we chose to keep.
-      return toMarkup(item.node)
     default:
       // Every kind in the union is handled above, so this is unreachable —
       // until someone adds a kind and forgets. Returning an empty string would

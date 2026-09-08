@@ -26,7 +26,7 @@
 // Four moved shadings in forty-five rows still passed at 15: the figure was a
 // third of the page in the render, and which side of a line a colour sits on
 // is not a comparison to make on a thumbnail.
-export const PROMPT_VERSION = 17
+export const PROMPT_VERSION = 18
 
 // Prompt texts for the question-recreation pipeline. Shared by the
 // question-ops Edge Function and the Node eval harness — ONE source of truth,
@@ -126,7 +126,6 @@ const SYSTEM_FIGURE_RULES = `12. Fiqurlar: deklarativ spec ver, şəkil çəkmə
    Nümunə: ••••×36, altda xətt, •••••, +9762 (1 sola), xətt, •••••• →
    {"rows":[{"tex":"••••"},{"tex":"36","op":"×"},{"tex":"•••••"},{"tex":"9762","op":"+","indent":1}],"hline_after":[1,3],"result_tex":"••••••"}.
 15. MÜSTƏVİ HƏNDƏSƏ (bucaqlar, şüalar, üçbucaqlar, paralel xətlər) — kind="geometry".
-   Bu növ raw_svg-dən ÜSTÜNDÜR: həndəsi şəkil çəkirsənsə və nöqtə/xətt/bucaqla ifadə oluna bilirsə, raw_svg YOX, geometry ver.
    points: hər adlandırılmış nöqtə {id, x, y, label, dot}. Koordinatlar sadə müstəvi, y AŞAĞI (SVG kimi), width/height ver (məs. 320x240).
    lines: {from, to, kind} — kind="segment" (parça), "ray" (şüa, from-dan to istiqamətinə sonsuz), "line" (düz xətt, hər iki tərəfə sonsuz).
    İŞARƏLƏR — bunlar bəzək deyil, sualın ŞƏRTİDİR; şəkildə varsa MÜTLƏQ ver:
@@ -138,7 +137,6 @@ const SYSTEM_FIGURE_RULES = `12. Fiqurlar: deklarativ spec ver, şəkil çəkmə
    angles: at=[qol, TƏPƏ, qol] — təpə ORTADA. label = çap olunmuş ölçü ("30°", "x", "2\\alpha").
    Ölçüləri şəkildən oxu. İşarəsiz verilən tənbölən və ya paralellik sualı həll oluna bilməyən başqa suala çevrilir.
 16. İZOMETRİK KUBLAR (rəngli üzlü kublar sırası) — kind="cubes".
-   Bu növ raw_svg-dən ÜSTÜNDÜR: kublar çəkirsənsə raw_svg YOX, cubes ver.
    cubes: soldan sağa hər kub {front, top, right} — YALNIZ göründüyü üzlər. Görünməyən üzü UYDURMA.
    Hər üz: {color:"#rrggbb"} üzün rəngi, {dot:"#rrggbb"} üzdəki rəngli nöqtə, {label:"A"} üzdə yazılmış hərf.
    Üz görünür amma boşdursa, boş obyekt ver — üzü tamamilə buraxmaq "görünmür" deməkdir, bu isə başqa fiqurdur.
@@ -150,7 +148,6 @@ const SYSTEM_FIGURE_RULES = `12. Fiqurlar: deklarativ spec ver, şəkil çəkmə
    Biz həmin sahəni orijinaldan KƏSİR və su nişanından TƏMİZLƏYİRİK, ona görə oxucu əsl fiquru görür.
    ÖZÜN SVG ÇƏKMƏ. Çəkə bilmədiyin fiquru təsvir etməyə çalışmaq, izahat və ya "təsvir etmək mümkün deyil"
    kimi qeyd yazmaq QADAĞANDIR — belə qeyd fiqurun yerində cümlə kimi görünür. Şübhə varsa kind="image".
-   raw_svg içinə "təsvir etmək mümkün deyil" kimi QEYD YAZMA — qeyd fiqur deyil, və şəkilin yerində o cümlə görünür.
 `
 
 

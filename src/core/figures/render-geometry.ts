@@ -322,7 +322,7 @@ function drawAngle(angle: GeoAngle, at: Map<string, Vec>): string[] {
   // as a bare labelled angle — so deleting the congruence claim changed nothing
   // on screen, and the render-and-compare layer could not possibly catch it.
   // A mark that is data has to be visible, or it is no better than a stroke
-  // buried in raw_svg. So a congruence mark carries the standard hatch tick
+  // buried in free-form SVG. So a congruence mark carries the standard hatch tick
   // across its arcs; the label's anchor arc does not.
   const marked = typeof angle.arcs === 'number' && angle.arcs > 0
   const arcs = angle.arcs ?? (angle.right ? 0 : angle.label ? 1 : 0)

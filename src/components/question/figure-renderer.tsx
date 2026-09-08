@@ -10,10 +10,11 @@ import { renderFigItem } from '@/core/figures/render'
 // before anyone noticed — by which point the disagreement is in the bank.
 //
 // `dangerouslySetInnerHTML` is safe because the markup is built by us from a
-// typed spec and every value goes through the escaper in `svg-emit.ts`. The one
-// kind that carries model-authored markup, `raw_svg`, is sanitized into a
-// typed tree at the extraction boundary and re-serialised from that tree —
-// there is no path from a raw model string to this element.
+// typed spec and every value goes through the escaper in `svg-emit.ts`. No
+// kind carries model-authored markup: the one that did, `raw_svg`, was removed
+// once no row held one, and with it went the sanitiser that was the only thing
+// standing between a model string and this element. There is now no such
+// string to stand between.
 function FigItemView({
   item,
   resolveImageUrl,

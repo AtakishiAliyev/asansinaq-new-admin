@@ -1,4 +1,3 @@
-import type { SvgNode } from '@/core/figures/svg-safe'
 
 // FigSpec DSL — the declarative "drawing tool" the vision model fills in.
 // The AI never draws pixels; it emits one of these typed objects and the
@@ -157,7 +156,7 @@ export interface NumberLineFig {
 // The FEM-style angle and ray figures: a handful of named points, segments and
 // rays between them, and — the part that matters — the MARKS.
 //
-// raw_svg already draws these, and draws the topology correctly. What it drops
+// Free-form SVG (the kind this replaced) drew these, and drew the topology correctly. What it dropped
 // every time is the notation: the double tick that says an angle was bisected,
 // the arrowheads that say two lines are parallel, the little square that says
 // an angle is right. Those are not decoration, they are the given conditions —
@@ -243,7 +242,7 @@ export interface GeometryFig {
  *
  * Its own kind because it is a whole genre of IQ question — cubes coloured by
  * a rule, with the last one partly hidden or lettered — and because the model
- * draws it the same way every time when left to raw_svg: three polygons per
+ * drew it the same way every time when left to free-form SVG: three polygons per
  * cube and a circle on each visible face. Written out as strokes, none of that
  * can be linted, compared or corrected; a face colour that came back wrong is
  * indistinguishable from one the model chose to draw slightly differently.
@@ -282,7 +281,7 @@ export interface CubesFig {
 /**
  * A region of the ORIGINAL crop, carried through as pixels.
  *
- * This is what an inexpressible figure should become. Left with only raw_svg,
+ * This is what an inexpressible figure should become. Left with only free-form SVG,
  * a model faced with a figure it cannot draw does not fail loudly — it writes
  * an apology INTO the drawing. One live row came back as a single `<text>`
  * reading "text description not possible, look at the original image", which
@@ -364,20 +363,8 @@ export interface ImageFig {
   note?: string
 }
 
-// The escape hatch: a diagram that fits none of the kinds above — an angle
-// figure, a labelled construction, an arbitrary schematic. The model writes
-// the SVG itself. Stored as the sanitized TREE, never as markup, so nothing
-// downstream can be tempted to inject it; see core/figures/svg-safe.ts.
-export interface RawSvgFig {
-  kind: 'raw_svg'
-  node: SvgNode
-  /** allowlist rejections, surfaced to the reviewer */
-  dropped?: string[]
-  note?: string
-}
 
 export type FigItem =
-  | RawSvgFig
   | GeometryFig
   | CubesFig
   | FunctionGraphFig

@@ -4,8 +4,6 @@ import { cn } from '@/lib/utils'
 import type { Flag } from '@/core/questions/lint'
 
 const FLAG_HINTS: Record<string, string> = {
-  raw_svg_mismatch: 'çəkilən fiqur orijinaldan fərqli görünür — gözlə yoxlayın',
-  raw_svg: 'sərbəst SVG fiquru — gözlə yoxlayın',
   geo_degenerate_angle: 'bucaq eyni nöqtələrdən ibarətdir',
   geo_right_angle_with_arcs: 'bucaq həm düz, həm qövslə işarələnib',
   geo_coincident_points: 'iki nöqtə eyni yerdədir',

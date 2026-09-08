@@ -98,7 +98,7 @@ export interface AnthropicRequest {
 // and buys a prefix that is byte-identical for every question in the run.
 const SYSTEM_PROMPT = `${EXTRACT_SYSTEM}\n\n${FEWSHOT_FIGURES}`
 
-// Enough for a dense question with a raw_svg figure (capped at 3000 chars by
+// Enough for a dense question with a large figure spec (capped at 3000 chars by
 // the prompt rules) and five options, with room to spare. Hitting the ceiling
 // truncates the tool input mid-JSON, which reads downstream as a malformed
 // answer rather than as a limit we set.

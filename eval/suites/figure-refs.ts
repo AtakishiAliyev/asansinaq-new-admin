@@ -149,21 +149,6 @@ export const figureRefsSuite = suite('figure-refs', {
     notOk(found.some((c) => c.startsWith('figure_missing')), found.join(','))
   },
 
-  // Only the structured kind can be asked. A raw_svg figure has no topology to
-  // check, and flagging every one of them would make the rule useless.
-  'a raw_svg figure is not checked, because it cannot be'() {
-    const q = wireToQuestion({
-      stem: '$m(\\widehat{CDE}) = \\alpha$ kaç derecedir?',
-      figures: [
-        {
-          kind: 'raw_svg',
-          raw_svg: '<svg viewBox="0 0 10 10"><line x1="0" y1="0" x2="9" y2="9"/></svg>',
-        },
-      ],
-    })
-    const found = lintQuestion(q).map((f) => f.code)
-    notOk(found.some((c) => c.startsWith('figure_missing') || c === 'figure_angle_not_marked'))
-  },
 
   'a question with no figure at all is left to the missing-figure rule'() {
     const q = wireToQuestion({ stem: '$m(\\widehat{CDE})$ kaç derecedir?' })

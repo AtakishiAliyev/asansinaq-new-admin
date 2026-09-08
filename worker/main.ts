@@ -77,8 +77,7 @@ const log = (msg: string) => console.log(`[${new Date().toISOString()}] ${msg}`)
  * drawing, and the kind every figure is rerouted to on a `gen` book. A cut
  * book where everything lands there is one where the vector lane is not
  * working, and there is no other signal for that — the questions all look
- * structured. `raw_svg` is no longer offered to the model; it is counted if it
- * ever appears, because its appearance would be the defect.
+ * structured.
  */
 const figureKindTally = new Map<number, Map<string, number>>()
 
@@ -95,7 +94,6 @@ function noteFigureKinds(row: QuestionRow, wire: Record<string, unknown>): void 
 function reportFigureKinds(): void {
   for (const [bookId, kinds] of figureKindTally) {
     const total = [...kinds.values()].reduce((a, b) => a + b, 0)
-    const rawSvg = kinds.get('raw_svg') ?? 0
     const cut = kinds.get('image') ?? 0
     const drawn = total - (kinds.get('(none)') ?? 0)
     const parts = [...kinds.entries()]
@@ -104,8 +102,7 @@ function reportFigureKinds(): void {
     log(
       `book ${bookId} figures: ${parts.join(' ')}` +
         (drawn
-          ? ` — structured ${drawn - cut - rawSvg}/${drawn}, cut ${cut}/${drawn}` +
-            (rawSvg ? `, raw_svg ${rawSvg}/${drawn} (should be zero)` : '')
+          ? ` — structured ${drawn - cut}/${drawn}, cut ${cut}/${drawn}`
           : ''),
     )
   }
