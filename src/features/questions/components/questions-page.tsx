@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Eye, Sparkles } from 'lucide-react'
-import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyDescription, EmptyTitle } from '@/components/ui/empty'
-import { Progress } from '@/components/ui/progress'
 import {
   Select,
   SelectContent,
@@ -24,14 +22,11 @@ import {
   useQuestionCounts,
   useQuestions,
   type QuestionFilters,
-  type QuestionListItem,
 } from '@/features/questions/api/questions'
 import { QueuePanel } from '@/features/questions/components/queue-panel'
 import { QuestionsSelectionBar } from '@/features/questions/components/questions-selection-bar'
 import { QuestionsTable } from '@/features/questions/components/questions-table'
 import { ReviewScreen } from '@/features/questions/components/review-screen'
-import { useRestructure } from '@/features/questions/hooks/use-restructure'
-import { resetRateGate } from '@/features/questions/lib/rate-gate'
 import { STATUS_LABEL } from '@/features/questions/lib/status'
 
 const STATUS_ORDER = [
@@ -65,7 +60,6 @@ export function QuestionsPage() {
   const books = useBooks()
   const questions = useQuestions(filters, page)
   const counts = useQuestionCounts(filters.bookId)
-  const restructure = useRestructure()
 
   const items = useMemo(() => questions.data?.items ?? [], [questions.data])
   const loaded = questions.data?.loaded ?? 0
@@ -154,20 +148,6 @@ export function QuestionsPage() {
         ? new Set()
         : new Set(items.map((i) => i.id)),
     )
-  }
-
-  function runRestructure(targets: QuestionListItem[]) {
-    // A new job starts with a clean gate; the calls inside it keep what it
-    // learns about the provider's pace.
-    resetRateGate()
-    void restructure
-      .run(targets)
-      .then(() => questions.refetch())
-      .catch((error) =>
-        toast.error(
-          error instanceof Error ? error.message : 'yenidən çıxarma alınmadı',
-        ),
-      )
   }
 
   const totalCount = counts.data
@@ -275,18 +255,6 @@ export function QuestionsPage() {
         ) : null}
       </div>
 
-      {restructure.status === 'running' ? (
-        <div className="flex items-center gap-3">
-          <Progress
-            value={(restructure.current / Math.max(1, restructure.total)) * 100}
-            className="h-2 flex-1"
-          />
-          <span className="text-muted-foreground shrink-0 text-sm tabular-nums">
-            {restructure.current}/{restructure.total} yenidən çıxarılır
-          </span>
-        </div>
-      ) : null}
-
       {questions.isPending ? (
         <div className="flex flex-col gap-2">
           {[0, 1, 2].map((i) => (
@@ -360,7 +328,6 @@ export function QuestionsPage() {
             setAdvancing(false)
             setReviewId(null)
           }}
-          onRestructure={(item) => runRestructure([item])}
         />
       ) : null}
     </div>

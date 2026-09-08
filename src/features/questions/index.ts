@@ -1,9 +1,4 @@
 export { useSaveCrops, type SaveCropsResult } from '@/features/questions/api/save-crops'
-export {
-  useRestructure,
-  type StructuringItem,
-} from '@/features/questions/hooks/use-restructure'
-export { RecreationCheckDialog } from '@/features/questions/components/recreation-check-dialog'
 export { QuestionsPage } from '@/features/questions/components/questions-page'
 export { AnswerKeyDialog } from '@/features/questions/components/answer-key-dialog'
 export { useAnswerKeyRun } from '@/features/questions/hooks/use-answer-key-run'
@@ -19,8 +14,5 @@ export {
 export { useSaveAnswerKeys } from '@/features/questions/api/answer-keys'
 export { useEnqueue } from '@/features/questions/api/queue'
 export { opDetectQuestions } from '@/features/questions/api/question-ops'
-export {
-  isBudgetExhausted,
-  resetRateGate,
-} from '@/features/questions/lib/rate-gate'
+export { isBudgetExhausted } from '@/features/questions/lib/rate-gate'
 export { cropKey, type QuestionRow } from '@/features/questions/schemas'

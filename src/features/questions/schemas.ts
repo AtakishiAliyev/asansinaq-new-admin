@@ -1,39 +1,8 @@
 import { z } from 'zod'
 
-// Wire shapes crossing the question-ops boundary. The extract wire stays
-// loose on figures (core wireToQuestion normalizes them); everything the
-// flow logic relies on is validated here.
-
-const wireOptionSchema = z.object({
-  label: z.enum(['A', 'B', 'C', 'D', 'E']),
-  tex: z.string().optional(),
-  is_image: z.boolean().optional(),
-  box: z.array(z.number()).length(4).optional(),
-})
-
-const extractWireSchema = z
-  .object({
-    number_seen: z.number(),
-    stem: z.string(),
-    options: z.array(wireOptionSchema),
-    figures: z.array(z.record(z.string(), z.unknown())).nullish(),
-    illegible: z.boolean(),
-    clipped: z.boolean().nullish(),
-    foreign: z.boolean().nullish(),
-    confidence: z.number(),
-    difficulty: z.number().int().min(1).max(5).nullish(),
-    figure_box: z.array(z.number()).length(4).nullish(),
-    warnings: z.array(z.string()).nullish(),
-  })
-  .loose()
-
-export type ExtractWire = z.infer<typeof extractWireSchema>
-
-export const extractResponseSchema = z.object({
-  wire: extractWireSchema,
-  model: z.string(),
-  ms: z.number(),
-})
+// Wire shapes crossing the question-ops boundary, plus the row shape the list
+// screens read back. The extract wire lived here too, for the browser
+// re-extraction lane; that lane is gone and structuring is the worker's alone.
 
 export const parseAnswerKeyResponseSchema = z.object({
   entries: z.array(

@@ -12,34 +12,31 @@ import { Spinner } from '@/components/ui/spinner'
 import { useCategories } from '@/features/taxonomy'
 import {
   useApproveQuestion,
-  useEditFigures,
-  useEditQuestion,
   useRejectQuestion,
   useSignedUrls,
   type QuestionListItem,
 } from '@/features/questions/api/questions'
-import { FigureEditorDialog } from '@/features/questions/components/figure-editor/figure-editor-dialog'
-import { QuestionEditForm } from '@/features/questions/components/question-edit-form'
 import {
   FlagBadges,
   VerifiedBadge,
 } from '@/features/questions/components/question-diagnostics'
 import { ReviewActions } from '@/features/questions/components/review-actions'
 import { ReviewPanes } from '@/features/questions/components/review-panes'
-import {
-  imagePathsOf,
-  parseFigures,
-  parseFlags,
-  parseOptions,
-} from '@/features/questions/lib/row'
+import { imagePathsOf, parseFlags } from '@/features/questions/lib/row'
 
 /** Neighbours pre-signed with the current item so arrows do not blank a pane. */
 const WINDOW_BEHIND = 1
 const WINDOW_AHEAD = 3
 
 // Keyboard-first review: original crop on the left, the recreation rendered
-// with the SAME components production will use on the right. Approval writes
-// to the DB before advancing — no silent local-only approvals.
+// with the SAME components production will use on the right.
+//
+// The reviewer's job here is a VERDICT, not a repair. There were three repair
+// paths on this screen — re-extract, edit the fields, edit the figure geometry
+// — and each was a second way to produce a question that the extraction lane
+// knew nothing about; the browser one was a whole parallel copy of the worker.
+// They are gone. A row that is wrong is rejected and goes back through the
+// pipeline, which is the path that gets measured.
 export function ReviewScreen({
   items,
   index,
@@ -49,7 +46,6 @@ export function ReviewScreen({
   onNextPage,
   onNavigate,
   onClose,
-  onRestructure,
 }: {
   items: QuestionListItem[]
   index: number
@@ -61,23 +57,12 @@ export function ReviewScreen({
   onNextPage: () => void
   onNavigate: (id: number) => void
   onClose: () => void
-  onRestructure: (item: QuestionListItem) => void
 }) {
   const item = index >= 0 ? items[index] : undefined
-  const figureDoc = parseFigures(item?.figures)
-  // Only a geometry item is editable as data: it is the kind whose points,
-  // edges and marks the editor understands. The first one, because a question
-  // carrying two geometry figures has not been seen and guessing at a picker
-  // for it would be UI nobody asked for.
-  const figureIndex = figureDoc?.items.findIndex((f) => f.kind === 'geometry') ?? -1
   const contentRef = useRef<HTMLDivElement>(null)
   const categories = useCategories(subjectId)
   const approve = useApproveQuestion()
   const reject = useRejectQuestion()
-  const edit = useEditQuestion()
-  const editFigures = useEditFigures()
-  const [editing, setEditing] = useState(false)
-  const [editingFigure, setEditingFigure] = useState(false)
   const [categoryId, setCategoryId] = useState<number | null>(null)
   const [difficulty, setDifficulty] = useState<number | null>(null)
   const [answer, setAnswer] = useState<string | null>(null)
@@ -99,7 +84,7 @@ export function ReviewScreen({
 
   // Per-question review state: the AI suggestion pre-fills, the reviewer's
   // choice is what gets written. Keyed on the id, not the row object — a
-  // refetch after an edit hands back a new object and would wipe the picks.
+  // refetch hands back a new object and would wipe the picks.
   const itemId = item?.id
   useEffect(() => {
     const current = items.find((q) => q.id === itemId)
@@ -108,7 +93,6 @@ export function ReviewScreen({
     setDifficulty(current.reviewer_difficulty ?? current.ai_difficulty ?? null)
     setAnswer(current.answer ?? null)
     setAnswerChanged(false)
-    setEditing(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new question re-prefills
   }, [itemId])
 
@@ -120,7 +104,7 @@ export function ReviewScreen({
     if (!item && !isAdvancing) onClose()
   }, [item, isAdvancing, onClose])
 
-  const busy = approve.isPending || reject.isPending || edit.isPending
+  const busy = approve.isPending || reject.isPending
   const canApprove = Boolean(item && categoryId && item.status === 'structured')
 
   /** The id to land on after this row leaves the list — captured before the
@@ -165,7 +149,7 @@ export function ReviewScreen({
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (!item || editing || busy) return
+      if (!item || busy) return
       const target = e.target as HTMLElement | null
       if (target && ['INPUT', 'TEXTAREA'].includes(target.tagName)) return
       // A focused control owns its own Enter/Space; approving from under it
@@ -182,8 +166,6 @@ export function ReviewScreen({
         onNavigate(items[index + 1]!.id)
       else if (key === 'a' || key === 'Enter') handleApprove()
       else if (key === 'd') handleReject()
-      else if (key === 'e') setEditing(true)
-      else if (key === 'f' && figureIndex >= 0) setEditingFigure(true)
       else return
       e.preventDefault()
     }
@@ -229,9 +211,9 @@ export function ReviewScreen({
             {item.q_no}
           </DialogTitle>
           <DialogDescription className="sr-only">
-            Klaviatura ilə yoxlama: A təsdiq, D rədd, E redaktə, Shift və A–E
-            ilə cavab seçimi, 1–5 çətinlik, sol/sağ ox düymələri ilə keçid.
-            Escape pəncərəni bağlayır.
+            Klaviatura ilə yoxlama: A təsdiq, D rədd, Shift və A–E ilə cavab
+            seçimi, 1–5 çətinlik, sol/sağ ox düymələri ilə keçid. Escape
+            pəncərəni bağlayır.
           </DialogDescription>
           <VerifiedBadge verified={item.verified} />
           {item.status === 'failed' ? (
@@ -272,16 +254,7 @@ export function ReviewScreen({
           onAnswerChange={chooseAnswer}
           busy={busy}
           canApprove={canApprove}
-          // Anything past the crop stage is editable. Gating on `stem` locked
-          // the editor on exactly the rows that needed it: a figure question
-          // with no printed stem, and a failed read the operator wanted to type
-          // in by hand.
-          canEdit={item.status !== 'cropped'}
-          canEditFigure={figureIndex >= 0}
           isApproving={approve.isPending}
-          onRestructure={() => onRestructure(item)}
-          onEdit={() => setEditing(true)}
-          onEditFigure={() => setEditingFigure(true)}
           onReject={handleReject}
           onApprove={handleApprove}
         />
@@ -317,8 +290,8 @@ export function ReviewScreen({
             <ChevronLeft />
           </Button>
           <span className="text-muted-foreground text-xs">
-            A = təsdiq · D = rədd · E = redaktə · F = fiqur · Shift+A…E = cavab ·
-            1–5 = çətinlik · ← → keçid
+            A = təsdiq · D = rədd · Shift+A…E = cavab · 1–5 = çətinlik · ← →
+            keçid
           </span>
           <Button
             variant="outline"
@@ -336,44 +309,6 @@ export function ReviewScreen({
             <ChevronRight />
           </Button>
         </div>
-
-        {editingFigure ? (
-          <FigureEditorDialog
-            open
-            onOpenChange={setEditingFigure}
-            doc={figureDoc}
-            itemIndex={figureIndex}
-            question={{ stem: item.stem, options: parseOptions(item.options) }}
-            qNo={item.q_no}
-            isPending={editFigures.isPending}
-            onSave={(figures) =>
-              editFigures.mutate(
-                {
-                  id: item.id,
-                  figures,
-                  question: { stem: item.stem, options: parseOptions(item.options) },
-                  qNo: item.q_no,
-                  flags: parseFlags(item.flags),
-                },
-                { onSuccess: () => setEditingFigure(false) },
-              )
-            }
-          />
-        ) : null}
-
-        {editing ? (
-          <QuestionEditForm
-            question={item}
-            isPending={edit.isPending}
-            onCancel={() => setEditing(false)}
-            onSubmit={(values) =>
-              edit.mutate(
-                { id: item.id, ...values },
-                { onSuccess: () => setEditing(false) },
-              )
-            }
-          />
-        ) : null}
       </DialogContent>
     </Dialog>
   )

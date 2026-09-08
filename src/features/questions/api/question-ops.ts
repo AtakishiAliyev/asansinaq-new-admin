@@ -9,10 +9,7 @@ import {
   releaseSlot,
   type Lane,
 } from '@/features/questions/lib/rate-gate'
-import {
-  extractResponseSchema,
-  parseAnswerKeyResponseSchema,
-} from '@/features/questions/schemas'
+import { parseAnswerKeyResponseSchema } from '@/features/questions/schemas'
 
 // Thin wrappers over the question-ops Edge Function. Model keys live in
 // function secrets; each call is admin-gated server-side. `error.context` is a
@@ -73,31 +70,6 @@ async function invokeOp<T>(
 export interface OpImage {
   image: string
   mime: 'image/png' | 'image/jpeg'
-}
-
-/**
- * ONE structured call: the crop goes once and the forced tool returns stem,
- * options, figure spec and category together.
- *
- * The same request the worker submits in bulk, so a row re-run from the review
- * screen is read exactly as the batch would have read it. The repair round and
- * the hint-free second read are gone with the browser pipeline they belonged
- * to — verification is the worker's second wave now.
- */
-export function opExtract(input: {
-  image: string
-  mime: string
-  /** The segmenter's verdict. Chooses the model tier and nothing else. */
-  hasFigure: boolean
-  textLayerHint?: string
-  testNo?: number
-  expectedNumber?: number
-  /** The book's tree, so the model files the question as it reads it. */
-  categories?: { id: number; name: string; parentId: number | null }[]
-}) {
-  return invokeOp({ op: 'extract', ...input }, (d) =>
-    extractResponseSchema.parse(d),
-  )
 }
 
 export function opParseAnswerKey(page: OpImage) {

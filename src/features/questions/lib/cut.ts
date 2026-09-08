@@ -25,7 +25,6 @@ import type { Flag } from '@/core/questions/lint'
 import { cleanCrop, type Pixels } from '@/core/segment/image-clean'
 import type { Box } from '@/core/segment/option-bands'
 import { boxToRect, placeFigureBox, placeOptionBoxes } from '@/core/segment/place-boxes'
-import { modelCropSize } from '@/core/segment/model-crop'
 
 export interface LoadedCrop {
   image: HTMLImageElement
@@ -45,30 +44,6 @@ export async function loadCrop(dataUrl: string): Promise<LoadedCrop> {
   ctx.drawImage(image, 0, 0)
   const raw = ctx.getImageData(0, 0, canvas.width, canvas.height)
   return { image, pix: { data: raw.data, width: canvas.width, height: canvas.height } }
-}
-
-/**
- * The crop as the model should see it — the same shrink the worker applies,
- * so a re-run reads the picture the batch read. Returned unchanged when the
- * crop is already at the model width.
- */
-export async function shrinkForModel(dataUrl: string): Promise<string> {
-  const image = new Image()
-  image.src = dataUrl
-  await image.decode()
-  const target = modelCropSize(image.naturalWidth, image.naturalHeight)
-  if (!target) return dataUrl
-  const canvas = document.createElement('canvas')
-  canvas.width = target.width
-  canvas.height = target.height
-  const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('canvas 2d context alınmadı')
-  ctx.imageSmoothingEnabled = true
-  ctx.imageSmoothingQuality = 'high'
-  ctx.fillStyle = '#ffffff'
-  ctx.fillRect(0, 0, target.width, target.height)
-  ctx.drawImage(image, 0, 0, target.width, target.height)
-  return canvas.toDataURL('image/png')
 }
 
 function toBlob(canvas: HTMLCanvasElement): Promise<Blob> {
