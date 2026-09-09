@@ -364,6 +364,50 @@ function lintFigures(doc: FigureDoc): Flag[] {
     }
   }
 
+  // A stacked operation whose layout does not add up.
+  //
+  // Three live rows from one page: the one whose shape matched the prompt's
+  // own example came back right, and the two that did not both put the second
+  // rule under the FIRST partial product and gave the second no indent. Every
+  // one of them was auto-approved, because the numbers were read correctly and
+  // nothing looked at the layout — which is the entire question in a
+  // masked-digit puzzle.
+  //
+  // Both checks below are structural, not arithmetic. They say what these
+  // books always print, and they hold whatever the digits are.
+  for (const item of doc.items) {
+    if (item.kind !== 'vertical_arithmetic') continue
+    const rows = item.rows ?? []
+    const lines = item.hlineAfter ?? []
+
+    // A result always sits under a rule. There is no form in these books where
+    // the total is written straight beneath the last addend.
+    if (item.resultTex && rows.length > 0 && !lines.includes(rows.length - 1)) {
+      flags.push({
+        level: 'error',
+        code: 'stack_result_unruled',
+        message: `Nəticənin üstündə xətt yoxdur — hline_after ${rows.length - 1} olmalıdır (indi: ${lines.join(', ') || 'boş'})`,
+      })
+    }
+
+    // Partial products step LEFT, one place per digit of the multiplier. Two
+    // of them at the same indent is the second one written in the first one's
+    // columns, which is a different multiplication.
+    const times = rows.findIndex((r) => r.op === '×')
+    if (times >= 0) {
+      const partials = rows.slice(times + 1)
+      const indents = partials.map((r) => r.indent ?? 0)
+      const climbs = indents.every((v, i) => i === 0 || v > indents[i - 1]!)
+      if (indents.length > 1 && !climbs) {
+        flags.push({
+          level: 'error',
+          code: 'stack_indent_flat',
+          message: `Hissə-hasillər sola sürüşmür (indent: ${indents.join(', ')}) — hər biri əvvəlkindən böyük olmalıdır`,
+        })
+      }
+    }
+  }
+
   for (const bad of documentIneligible(doc.items)) {
     flags.push({
       level: 'error',

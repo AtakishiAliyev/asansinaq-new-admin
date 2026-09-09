@@ -263,4 +263,112 @@ export const lintSuite = suite('lint', {
   'two short lines alone are not a column sum'() {
     notOk(codes(q({ stem: 'K\n+ 12' })).includes('column_sum_as_text'), 'iki sətir bayraq qaldırır')
   },
+
+  // Three live rows from one page: the one whose shape matched the prompt's own
+  // example came back right, and the two that did not both put the second rule
+  // under the FIRST partial product and gave the second no indent. All three
+  // were auto-approved — the numbers were read correctly and nothing looked at
+  // the layout, which in a masked-digit puzzle is the entire question.
+  'a result with no rule above it is an error'() {
+    const flags = codes(
+      q({
+        figures: {
+          v: 1,
+          items: [
+            {
+              kind: 'vertical_arithmetic',
+              rows: [{ tex: '5•' }, { tex: '•6', op: '×' }, { tex: '32•' }, { tex: '•••', op: '+', indent: 1 }],
+              hlineAfter: [1, 2],
+              resultTex: '4•04',
+            },
+          ],
+        },
+      } as never),
+    )
+    ok(flags.includes('stack_result_unruled'), `stack_result_unruled: ${flags.join(', ')}`)
+  },
+
+  'two partial products at the same indent are an error'() {
+    const flags = codes(
+      q({
+        figures: {
+          v: 1,
+          items: [
+            {
+              kind: 'vertical_arithmetic',
+              rows: [{ tex: '•12' }, { tex: '7•', op: '×' }, { tex: '•••2' }, { tex: '•8•4', op: '+' }],
+              hlineAfter: [1, 3],
+              resultTex: 'a13b2',
+            },
+          ],
+        },
+      } as never),
+    )
+    ok(flags.includes('stack_indent_flat'), `stack_indent_flat: ${flags.join(', ')}`)
+  },
+
+  // The shape the prompt shows, and the one row of the three that came back
+  // right. Nothing here may fire, or every correct multiplication is blocked.
+  'a well-formed multiplication stack raises nothing'() {
+    const flags = codes(
+      q({
+        figures: {
+          v: 1,
+          items: [
+            {
+              kind: 'vertical_arithmetic',
+              rows: [{ tex: '••••' }, { tex: '36', op: '×' }, { tex: '•••••' }, { tex: '9762', op: '+', indent: 1 }],
+              hlineAfter: [1, 3],
+              resultTex: '••••••',
+            },
+          ],
+        },
+      } as never),
+    )
+    notOk(flags.includes('stack_result_unruled'), `xətt bayrağı yanlış qalxır: ${flags.join(', ')}`)
+    notOk(flags.includes('stack_indent_flat'), `indent bayrağı yanlış qalxır: ${flags.join(', ')}`)
+  },
+
+  // A two-row addition has one rule and no partial products at all; neither
+  // check may reach for it.
+  'a two-row addition raises nothing'() {
+    const flags = codes(
+      q({
+        figures: {
+          v: 1,
+          items: [
+            {
+              kind: 'vertical_arithmetic',
+              rows: [{ tex: '3a5' }, { tex: '638', op: '+' }],
+              hlineAfter: [1],
+              resultTex: '10b3',
+            },
+          ],
+        },
+      } as never),
+    )
+    notOk(flags.includes('stack_result_unruled'), `xətt bayrağı: ${flags.join(', ')}`)
+    notOk(flags.includes('stack_indent_flat'), `indent bayrağı: ${flags.join(', ')}`)
+  },
+
+  // A multiplier with a zero digit lets the book skip a partial product, so the
+  // step is two places rather than one. Strictly increasing, not exactly +1.
+  'a skipped partial product steps two places and is allowed'() {
+    const flags = codes(
+      q({
+        figures: {
+          v: 1,
+          items: [
+            {
+              kind: 'vertical_arithmetic',
+              rows: [{ tex: '123' }, { tex: '306', op: '×' }, { tex: '738' }, { tex: '369', op: '+', indent: 2 }],
+              hlineAfter: [1, 3],
+              resultTex: '37638',
+            },
+          ],
+        },
+      } as never),
+    )
+    notOk(flags.includes('stack_indent_flat'), `iki mövqelik addım bayraq qaldırır: ${flags.join(', ')}`)
+  },
 })
