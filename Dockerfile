@@ -8,6 +8,24 @@
 # the text lane keeps working, which is the hardest kind of failure to notice.
 FROM node:24-slim
 
+# FONTS. Not optional, and their absence does not fail — it renders.
+#
+# The verification wave draws the question and compares that picture against
+# the crop, and `resvg` is given `loadSystemFonts: true`. This base image ships
+# ZERO fonts: no /usr/share/fonts, no fontconfig, not one .ttf. So every
+# `<text>` element came out blank while MathJax, which emits `<path>`, rendered
+# perfectly — and the verifier was handed a picture holding the formulas and
+# nothing else. It reported, correctly, that the stem was missing. Seventeen
+# questions were failed and re-read at up to two paid repair rounds each for a
+# defect that was in this file.
+#
+# It worked on the operator's Mac because macOS has system fonts. That is what
+# made it a container regression rather than a bug anyone could see coming.
+#
+# DejaVu is what the renderer already names first in its font-family, and
+# `fonts-dejavu-core` is a couple of megabytes.
+RUN apt-get update   && apt-get install -y --no-install-recommends fonts-dejavu-core fontconfig   && rm -rf /var/lib/apt/lists/*
+
 ENV NODE_ENV=production
 
 WORKDIR /app

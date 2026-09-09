@@ -33,6 +33,7 @@ import { pollPass } from './pass-poll.ts'
 import { submitPass } from './pass-submit.ts'
 import { autoApprovePass, verifyPass } from './pass-verify.ts'
 import { inFlight, nextQueuedBook } from './queue.ts'
+import { fontsRender } from './render-question.ts'
 
 const POLL_MS = 60_000
 
@@ -100,6 +101,21 @@ for (const model of [
   config.OPENAI_IMAGE_MODEL,
 ]) {
   if (model) warnIfUnpriced(model)
+}
+
+// Checked here, before anything is claimed, because a host that cannot draw
+// text does not fail — it produces a picture with every formula and not one
+// word, which the verification wave then reads as a missing stem and pays to
+// repair. Refusing to start is the proportionate answer: a worker that
+// structures questions while systematically failing every one of them, at up
+// to two paid repair rounds each, is worse than one that stops and says why.
+if (!fontsRender()) {
+  log(
+    'FONTS MISSING — this host renders no text, so every verification would ' +
+      'compare a wordless picture against the crop and report the stem as ' +
+      'gone. Install a font (the image uses fonts-dejavu-core) and redeploy.',
+  )
+  process.exit(1)
 }
 
 if (process.argv.includes('--dry-run')) {

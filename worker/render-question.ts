@@ -419,12 +419,54 @@ export function renderQuestion(
   const png = new Resvg(svg, {
     background: 'white',
     fitTo: { mode: 'width', value: WIDTH * 2 },
-    font: { loadSystemFonts: true },
+    font: FONT,
   })
     .render()
     .asPng()
 
   return { svg, png: Buffer.from(png), width: WIDTH, height }
+}
+
+/**
+ * Named, not merely discovered.
+ *
+ * `loadSystemFonts` alone leaves which face is used to whatever the host
+ * happens to have, and on a host with none it silently uses nothing at all.
+ * Naming the family the markup already asks for makes the render the same
+ * picture everywhere, and `fontsRender` below makes its absence loud.
+ */
+const FONT = { loadSystemFonts: true, defaultFontFamily: 'DejaVu Sans' }
+
+/**
+ * Whether this host can draw text at all.
+ *
+ * The one failure this lane cannot survive quietly. `resvg` does not error on a
+ * missing font — it draws nothing where the glyphs would be — and MathJax emits
+ * paths rather than text, so a fontless host produces a picture holding every
+ * formula and not one word. The verification wave then reports, accurately,
+ * that the stem is missing, and the repair rounds pay to re-read a question
+ * that was already correct.
+ *
+ * That is not hypothetical: it is what the first containerised worker did to
+ * seventeen questions, because `node:24-slim` ships no fonts and the operator's
+ * Mac does. A blank 400x60 PNG is a few hundred bytes; the same box with a line
+ * of text in it is several thousand, so the two are not close and the threshold
+ * does not have to be precise.
+ */
+export function fontsRender(): boolean {
+  try {
+    const probe =
+      `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="60">` +
+      `<rect width="400" height="60" fill="white"/>` +
+      `<text x="10" y="40" font-size="28" font-family="DejaVu Sans, Arial, sans-serif"` +
+      ` fill="#000">a, b, c pozitif tam</text></svg>`
+    const png = new Resvg(probe, { background: 'white', font: FONT })
+      .render()
+      .asPng()
+    return png.length > 1500
+  } catch {
+    return false
+  }
 }
 
 /**
