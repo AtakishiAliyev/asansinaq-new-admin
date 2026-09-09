@@ -285,7 +285,7 @@ export function QuestionsPage() {
       ) : (
         <QuestionsTable
           items={items}
-          offset={page * QUESTIONS_PAGE_SIZE}
+          offset={offset}
           selection={{
             selected: selectedIds,
             onToggle: toggleOne,
