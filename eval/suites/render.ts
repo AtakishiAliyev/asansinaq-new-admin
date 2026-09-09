@@ -649,8 +649,40 @@ export const renderSuite = suite('render', {
     // and a three-character number read as a word.
     ok(/font-family="[^"]*sans-serif"/.test(svg), 'sxem sans şriftlə çəkilmir')
     notOk(/Georgia/.test(svg), 'sxemdə serif şrift qalıb')
-    const spacing = Number(svg.match(/letter-spacing="([\d.]+)"/)![1])
-    ok(spacing > ARITHMETIC_SIZE * 0.1, `simvol aralığı dar: ${spacing}`)
+    // One cell per character, every cell the same width, each glyph centred in
+    // its own. A masked digit is printed `•`, and in every sans face a bullet
+    // is narrower than a digit — set as a plain string, a row of four dots came
+    // out shorter than a row of four digits and drifted off the column it
+    // belongs to. The whole question is which digit sits over which.
+    const cellXs = [...svg.matchAll(/<text x="([\d.]+)"/g)].map((m) => Number(m[1]))
+    ok(svg.includes('text-anchor="middle"'), 'simvollar xanaya oturdulmur')
+    const row = cellXs.slice(1, 4)
+    const steps = row.slice(1).map((x, i) => x - row[i]!)
+    ok(
+      steps.every((d) => Math.abs(d - steps[0]!) < 0.01),
+      `xanalar bərabər deyil: ${steps.join(', ')}`,
+    )
+    ok(steps[0]! > ARITHMETIC_SIZE * 0.7, `xana dar: ${steps[0]}`)
+  },
+
+  // Dots and digits share ONE grid: the masked row and the written row of the
+  // same length put their glyphs at the same x, so a `•` is directly over the
+  // digit it hides. Measured widths were always equal — it was the ink that
+  // drifted, because the bullet's own advance is narrower than a digit's.
+  'a masked row puts its dots on the same columns as a written row'() {
+    const columns = (t: string) => {
+      const svg = renderFigItem({
+        kind: 'vertical_arithmetic',
+        rows: [{ tex: t }],
+        resultTex: '9762',
+      })
+      // Glyph centres, relative to the row's own left edge.
+      const groups = [...svg.matchAll(/translate\(([\d.]+) ([\d.]+)\)"><text/g)]
+      return [...svg.matchAll(/<text x="([\d.]+)"/g)]
+        .map((m) => Number(m[1]))
+        .map((x) => Math.round((x + Number(groups[0]?.[1] ?? 0)) * 100) / 100)
+    }
+    eq(columns('••••').join(','), columns('9762').join(','), 'nöqtələr rəqəm sütunlarında deyil')
   },
 
   // Both typesetters must draw a plain arithmetic row the SAME way. Before
@@ -694,13 +726,13 @@ export const renderSuite = suite('render', {
     }
     const svg = renderFigItem(fig)
     const texts = [...svg.matchAll(/<text[^>]*>([^<]*)<\/text>/g)].map((m) => m[1]!)
-    ok(texts.includes('9BC'), `mətn itib: ${texts.join(', ')}`)
+    eq(texts.slice(0, 3).join(''), '9BC', `mətn itib: ${texts.join(', ')}`)
     notOk(svg.includes('overline'), 'əmr mətn kimi çap olunub')
     // Two rows carry a bar, plus the operation's own rule.
     eq((svg.match(/<line /g) ?? []).length, 3, 'üst xətt çəkilmir')
     // The bar sits ABOVE the digits it covers, not through them.
-    const barY = Number(svg.match(/<line x1="0" y1="([\d.]+)"/)![1])
-    const baseline = Number(svg.match(/<text x="0" y="([\d.]+)"/)![1])
+    const barY = Number(svg.match(/<line x1="[\d.]+" y1="([\d.]+)"/)![1])
+    const baseline = Number(svg.match(/<text x="[\d.]+" y="([\d.]+)"/)![1])
     ok(barY < baseline - ARITHMETIC_SIZE * 0.7, `üst xətt rəqəmlərin üstündə deyil: ${barY} / ${baseline}`)
     // And it does not depend on the typesetter: the panel and the worker draw
     // the same bytes, which is what makes the two comparable glyph for glyph.

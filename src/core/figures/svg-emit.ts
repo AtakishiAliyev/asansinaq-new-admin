@@ -122,11 +122,11 @@ export const plainTextRenderer: TexRenderer = (tex, fontSize) => {
 const OVERLINE_DROP = 0.12
 
 /** The bar itself, drawn across the measured width at the top of the box. */
-export const overlineRule = (width: number, fontSize: number): string =>
+export const overlineRule = (width: number, fontSize: number, x = 0): string =>
   tag('line', {
-    x1: 0,
+    x1: num(x),
     y1: num(fontSize * 0.06),
-    x2: num(width),
+    x2: num(x + width),
     y2: num(fontSize * 0.06),
     stroke: 'currentColor',
     'stroke-width': num(Math.max(1, fontSize * 0.055)),

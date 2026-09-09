@@ -54,10 +54,23 @@ const PAD = 8
  * for a multi-digit number, and dropping it changes the question.
  */
 const ARITHMETIC_FONT = 'Arial, Helvetica, "DejaVu Sans", sans-serif'
-/** Digits and capitals average about this much of the size in either face. */
-const SANS_ADVANCE = 0.64
-/** The air the book leaves between characters, as a fraction of the size. */
-const TRACKING = 0.15
+/**
+ * One cell per character, and every cell the same width.
+ *
+ * This is the fix for the dots. A masked digit is printed `•`, and in every
+ * sans face a bullet is narrower than a digit — so a row of four dots came out
+ * shorter than a row of four digits, and right-aligning the two by their
+ * measured widths left the dots floating off the column they are supposed to
+ * be in. The whole question is which digit sits over which.
+ *
+ * So the characters are not set as a string at all. Each one is centred in a
+ * fixed cell, the way the book sets them, which makes the columns exact rather
+ * than approximate and makes the measured width the TRUE width — no font
+ * metric is being guessed at any more.
+ */
+const CELL = 0.79
+/** How much of the cell the glyph itself is expected to want. */
+const INK = 0.64
 /** Only ordinary characters: no command, no script, no fraction. */
 const PLAIN_TEXT = /^[0-9A-Za-z•·.,\s+\-−×÷=()]+$/
 
@@ -72,28 +85,33 @@ function arithmeticText(
   const { inner, overline } = splitOverline(tex)
   const text = inner.replace(/\$+/g, '').trim()
   if (!PLAIN_TEXT.test(text)) return fallback(tex, size)
-  const chars = [...text].length
-  // The trailing gap is counted in on purpose. Every row carries the same one,
-  // so a right-aligned stack still lines up exactly; leaving it out would make
-  // the box narrower than the ink and push the last character over the edge it
-  // is aligned to.
-  const width = Math.ceil(chars * size * (SANS_ADVANCE + TRACKING))
-  const body = tag(
-    'text',
-    {
-      x: 0,
-      y: num(size * (overline ? 0.9 : 0.78)),
-      'font-size': size,
-      'font-family': ARITHMETIC_FONT,
-      'letter-spacing': num(size * TRACKING),
-      fill: 'currentColor',
-    },
-    esc(text),
-  )
+  const chars = [...text]
+  const cell = size * CELL
+  const width = chars.length * cell
+  const baseline = size * (overline ? 0.9 : 0.78)
+  const body = chars
+    .map((ch, i) =>
+      ch === ' '
+        ? ''
+        : tag(
+            'text',
+            {
+              x: num(i * cell + cell / 2),
+              y: num(baseline),
+              'font-size': size,
+              'font-family': ARITHMETIC_FONT,
+              'text-anchor': 'middle',
+              fill: 'currentColor',
+            },
+            esc(ch),
+          ),
+    )
+    .join('')
   return {
-    // The bar stops short of the trailing letter-space, so it covers the
-    // digits and not the gap the measurement leaves after them.
-    svg: overline ? body + overlineRule(width - size * TRACKING, size) : body,
+    // The bar covers the ink, not the air the cells leave either side of it.
+    svg: overline
+      ? body + overlineRule(width - (cell - size * INK), size, (cell - size * INK) / 2)
+      : body,
     width,
     height: Math.ceil(size * (overline ? 1.27 : 1.15)),
   }
@@ -385,7 +403,7 @@ export function renderVerticalArithmetic(
 
   // Everything below is in glyph units, so the figure keeps the book's
   // proportions whatever the size is set to.
-  const digit = S * (SANS_ADVANCE + TRACKING) // one column of the right-aligned stack
+  const digit = S * CELL // one column of the right-aligned stack
   const rowH = S * 1.35
   const weight = S * 0.08 // the book's rules are thin at this scale
   const pad = S * 0.3
