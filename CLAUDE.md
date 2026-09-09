@@ -562,6 +562,15 @@ same request from Node.
   read — a worker that can claim but not renew looks healthy until its lease
   expires and every row it held is paid for twice. It restores every row it
   touches and makes no model call.
+- `npm run ops:report` — what a run cost and what the money bought, read from
+  `ops_log` against the LIVE project. `-- --hours 6`, `-- --since <iso>` or
+  `-- --all`; the default window is the last hour. Reads only: it writes
+  nothing, claims nothing and costs nothing. Groups by op x model x lane, so
+  the reading, the comparison and the figure lane are separately priced and a
+  batch row can be told from an express one. Per-question figures are the
+  window's spend over the questions STRUCTURED in that window — the ledger has
+  no question id, because a batch is one call for many rows and the figure lane
+  is many calls for one, so they are averages and are labelled as such.
 - `npm run prune:storage` — lists every object in `question-crops` and `pdfs`
   that no row names any more, by kind and size; `-- --apply` deletes them.
   Operator-run against the LIVE project. An object is kept if a question's crop,
