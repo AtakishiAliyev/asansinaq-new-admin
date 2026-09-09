@@ -240,6 +240,23 @@ export function ReadyPage() {
           </SelectContent>
         </Select>
 
+        <Select
+          value={filters.sort}
+          onValueChange={(v) =>
+            updateFilters({ sort: v as QuestionFilters['sort'] })
+          }
+        >
+          <SelectTrigger className="w-44" aria-label="Sıralama">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              <SelectItem value="book">Kitab sırası</SelectItem>
+              <SelectItem value="recent">Son təsdiqlənən öndə</SelectItem>
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+
         <div className="relative ml-auto">
           <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2" />
           <Input

@@ -21,7 +21,14 @@ answer exists, a search over the wording) and exactly one write — sending a
 question back to review.
 
 The scope is enforced server-side under every other filter, `status: 'all'`
-included, so neither list can leak into the other. Money never appears on
+included, so neither list can leak into the other. Book order is the
+catalogue's default because that is what a catalogue is for, and **son
+təsdiqlənən öndə** exists for the other way the screen is used: a question
+rejected on the work screen, re-read and approved lands wherever its page
+number puts it, which on a list of hundreds is nowhere the operator can find.
+It orders by `reviewed_at`, which an approval writes whether a person or the
+rule made it, with rows that carry none sorted last — a null is unknown, not
+recent. Money never appears on
 either: cost belongs to `/ops` (Xərclər), and a number an operator cannot act
 on from a question screen is noise beside the counts they came for.
 

@@ -40,6 +40,18 @@ export interface QuestionFilters {
   answer: 'all' | 'has' | 'missing'
   /** Free text over the stem; empty means no search. */
   search: string
+  /**
+   * Reading order.
+   *
+   * `book` is the catalogue's own — the order a person would meet these
+   * questions turning the pages — and stays the default, because that is what
+   * a catalogue is FOR. `recent` exists for the other way this screen is used:
+   * a question rejected on the work screen, re-read and approved lands
+   * wherever its page number puts it, which on a 142-row list is nowhere the
+   * operator can find. Newest first answers "did the one I just fixed come
+   * through", which book order cannot.
+   */
+  sort: 'book' | 'recent'
 }
 
 const SHARED_DEFAULTS = {
@@ -50,6 +62,7 @@ const SHARED_DEFAULTS = {
   difficulty: 'all',
   answer: 'all',
   search: '',
+  sort: 'book',
 } as const
 
 export const DEFAULT_FILTERS: QuestionFilters = {
@@ -121,14 +134,22 @@ async function fetchQuestions(
   page: number,
 ): Promise<QuestionListPage> {
   const offset = page * QUESTIONS_PAGE_SIZE
-  let query = supabase
-    .from('questions')
-    .select(SELECT, { count: 'exact' })
-    .order('book_id')
-    .order('page_number')
-    .order('col')
-    .order('q_no')
-    .range(offset, offset + QUESTIONS_PAGE_SIZE - 1)
+  let query = supabase.from('questions').select(SELECT, { count: 'exact' })
+  // Newest first is ordered by `reviewed_at`, which on an approved row is when
+  // it was approved — by a person or by the rule, both write it. `created_at`
+  // would order by when the CROP was made, which is the same book order under
+  // a different name and would answer nothing.
+  //
+  // A row with no timestamp sorts last rather than first: nulls are unknown,
+  // and putting them at the top of a "newest" list would claim they were the
+  // most recent thing to happen.
+  query =
+    filters.sort === 'recent'
+      ? query
+          .order('reviewed_at', { ascending: false, nullsFirst: false })
+          .order('id', { ascending: false })
+      : query.order('book_id').order('page_number').order('col').order('q_no')
+  query = query.range(offset, offset + QUESTIONS_PAGE_SIZE - 1)
   if (filters.bookId !== 'all') query = query.eq('book_id', filters.bookId)
   // The scope first, and it always wins: `status: 'all'` means "every status
   // in this scope", never "every status".
