@@ -26,7 +26,11 @@
 // Four moved shadings in forty-five rows still passed at 15: the figure was a
 // third of the page in the render, and which side of a line a colour sits on
 // is not a comparison to make on a thumbnail.
-export const PROMPT_VERSION = 18
+//
+// 19 puts difficulty on three levels, as an enum the schema enforces. Asked
+// for one of five in prose, the model gave 2 or 3 to every question on a live
+// bank — a scale with two working values. Three it must choose between spread.
+export const PROMPT_VERSION = 19
 
 // Prompt texts for the question-recreation pipeline. Shared by the
 // question-ops Edge Function and the Node eval harness — ONE source of truth,
@@ -76,7 +80,7 @@ Qaydalar:
    e) Yazmadan ÖNCƏ yoxla: elementin ən yuxarı, ən aşağı, ən sol və ən sağ
       nöqtəsi qutunun içindədirmi? Yoxsa sərhədi genişləndir.
    └────────────────────────────────────────────────────────────────────────┘
-8. difficulty: sualın YÖS imtahanı kontekstində çətinliyini 1–5 arası qiymətləndir (1=çox asan, 3=orta, 5=çox çətin).
+8. difficulty: sualın YÖS imtahanı kontekstində çətinliyi — MÜTLƏQ üçündən birini seç: 1=asan, 2=orta, 3=çətin. Boş buraxma, aralıq dəyər vermə.
 9. confidence: ÇƏTİNLİK DEYİL — bu, sənin OXUNUŞUNUN dəqiqliyidir: 1.0 = hər simvolu aydın oxudum, şübhəm yoxdur; 0.85 = oxudum, amma bir-iki simvolda (indeks, üst işarə, kiçik rəqəm) tərəddüd var; 0.5 = xeyli hissəni təxmin etdim. 0.85-dən aşağı hər şey insan yoxlamasına göndərilir, ona görə dürüst qiymətləndir — yüksək rəqəm sənə fayda vermir.
 10. Səhifədə çəkilmiş şəkil (diaqram, qrafik, cədvəl, sxem) varsa figure_box=[ymin,xmin,ymax,xmax] (0–1000) ver — YALNIZ rəsmin ətrafı. Sual mətni, "⇒ ... = ?" sətri və cavab variantları qutuya DAXİL OLMAMALIDIR. Şəkil yoxdursa figure_box vermə.
 11. Stem-də çap olunmuş hər şərt AYRICA sətirdə olsun — sətirlər arasında \\n istifadə et, şərtləri bir cümləyə yığma.

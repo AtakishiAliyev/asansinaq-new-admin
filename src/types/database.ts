@@ -381,6 +381,7 @@ export type Database = {
           created_by: string | null
           crop_mime: string
           crop_path: string
+          difficulty: number | null
           empirical_difficulty: number | null
           extraction_error: string | null
           figure_kind: string
@@ -434,6 +435,7 @@ export type Database = {
           created_by?: string | null
           crop_mime: string
           crop_path: string
+          difficulty?: number | null
           empirical_difficulty?: number | null
           extraction_error?: string | null
           figure_kind: string
@@ -487,6 +489,7 @@ export type Database = {
           created_by?: string | null
           crop_mime?: string
           crop_path?: string
+          difficulty?: number | null
           empirical_difficulty?: number | null
           extraction_error?: string | null
           figure_kind?: string
@@ -701,6 +704,7 @@ export type Database = {
           created_by: string | null
           crop_mime: string
           crop_path: string
+          difficulty: number | null
           empirical_difficulty: number | null
           extraction_error: string | null
           figure_kind: string
@@ -768,6 +772,7 @@ export type Database = {
           created_by: string | null
           crop_mime: string
           crop_path: string
+          difficulty: number | null
           empirical_difficulty: number | null
           extraction_error: string | null
           figure_kind: string

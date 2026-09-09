@@ -8,6 +8,7 @@ import {
   type QuestionRow,
 } from '@/features/questions/schemas'
 import { storedPathsOf } from '@/core/questions/image-paths'
+import type { Difficulty } from '@/core/questions/difficulty'
 
 const SELECT = '*, books(title)'
 
@@ -136,12 +137,14 @@ async function fetchQuestions(
   else query = query.neq('status', 'approved')
   if (filters.categoryId !== 'all')
     query = query.eq('category_id', filters.categoryId)
-  // `reviewer_difficulty` rather than a coalesce over the AI's guess: approval
-  // writes whatever the reviewer had in front of them, so on an approved row
-  // this column IS the confirmed value. On the work screen the control that
-  // sets this filter is not shown at all.
+  // `difficulty` is generated: the reviewer's level where one was chosen,
+  // else the model's. This used to filter on `reviewer_difficulty` alone, on
+  // the claim that approval always writes it — true of a person approving,
+  // false of the rule, which sets the status and nothing else. Every
+  // auto-approved question therefore had no difficulty to filter on while
+  // `ai_difficulty` sat filled in beside it.
   if (filters.difficulty !== 'all')
-    query = query.eq('reviewer_difficulty', filters.difficulty)
+    query = query.eq('difficulty', filters.difficulty)
   if (filters.answer === 'has') query = query.not('answer', 'is', null)
   else if (filters.answer === 'missing') query = query.is('answer', null)
   // Escaped: a `%` or `_` typed into the box is a literal the operator meant,
@@ -231,7 +234,7 @@ export function useQuestionCounts(bookId: number | 'all') {
 export interface ApproveInput {
   id: number
   categoryId: number
-  reviewerDifficulty: number | null
+  reviewerDifficulty: Difficulty | null
   answer: string | null
   answerChanged: boolean
 }
@@ -304,7 +307,7 @@ export function useRejectQuestion() {
 export interface EditApprovedInput {
   id: number
   categoryId?: number
-  reviewerDifficulty?: number
+  reviewerDifficulty?: Difficulty
   /** Always a reviewer's own pick here — the printed key never writes through
    *  this path — so it carries `answer_source` with it. */
   answer?: string

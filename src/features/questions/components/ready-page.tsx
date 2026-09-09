@@ -17,6 +17,7 @@ import { usePageTitle } from '@/hooks/use-page-title'
 import { useBooks } from '@/features/books'
 import { useCategories } from '@/features/taxonomy'
 import { categoryLabel } from '@/features/questions/components/category-picker'
+import { DIFFICULTY_LABEL, DIFFICULTY_LEVELS } from '@/core/questions/difficulty'
 import {
   QUESTIONS_PAGE_SIZE,
   READY_FILTERS,
@@ -212,9 +213,9 @@ export function ReadyPage() {
           <SelectContent>
             <SelectGroup>
               <SelectItem value="all">Hər çətinlik</SelectItem>
-              {[1, 2, 3, 4, 5].map((d) => (
+              {DIFFICULTY_LEVELS.map((d) => (
                 <SelectItem key={d} value={String(d)}>
-                  Çətinlik {d}
+                  {DIFFICULTY_LABEL[d]}
                 </SelectItem>
               ))}
             </SelectGroup>

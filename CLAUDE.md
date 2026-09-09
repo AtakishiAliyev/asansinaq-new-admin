@@ -651,6 +651,18 @@ layers, none of which the system may self-certify:
 
 Anything that fails a layer lands in the Diqqət queue with a flag.
 
+**Difficulty is three levels — 1 asan, 2 orta, 3 çətin — and the model must
+pick one.** The scale is an enum the extraction schema enforces
+(`core/questions/difficulty.ts` names it once for the schema, the worker and
+both screens). Five levels described in prose got 2 or 3 for every question on
+a live bank: a scale with two working values. What a screen shows and a filter
+matches is `questions.difficulty`, a generated column —
+`coalesce(reviewer_difficulty, ai_difficulty)` — because the ready screen once
+read `reviewer_difficulty` alone on the claim that approval always writes it.
+A person approving does; the auto-approve rule sets the status and nothing
+else, so every question it approved showed no difficulty while the model's
+estimate sat filled in beside it. The reviewer's pick wins where there is one.
+
 **A flag has three levels, and two of them are the Diqqət lane.** The
 `needs_attention` generated column matches exactly `error` and `warning`, so
 the level a check chooses and the SQL are one rule written in two places.

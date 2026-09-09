@@ -23,6 +23,7 @@ import {
 import { ReviewActions } from '@/features/questions/components/review-actions'
 import { ReviewPanes } from '@/features/questions/components/review-panes'
 import { imagePathsOf, parseFlags } from '@/features/questions/lib/row'
+import { isDifficulty, type Difficulty } from '@/core/questions/difficulty'
 
 /** Neighbours pre-signed with the current item so arrows do not blank a pane. */
 const WINDOW_BEHIND = 1
@@ -64,7 +65,7 @@ export function ReviewScreen({
   const approve = useApproveQuestion()
   const reject = useRejectQuestion()
   const [categoryId, setCategoryId] = useState<number | null>(null)
-  const [difficulty, setDifficulty] = useState<number | null>(null)
+  const [difficulty, setDifficulty] = useState<Difficulty | null>(null)
   const [answer, setAnswer] = useState<string | null>(null)
   // Only a reviewer's own pick is written back. A printed-key answer that was
   // merely displayed must not be rewritten as `answer_source = 'reviewer'`.
@@ -90,7 +91,7 @@ export function ReviewScreen({
     const current = items.find((q) => q.id === itemId)
     if (!current) return
     setCategoryId(current.category_id ?? current.ai_category_id ?? null)
-    setDifficulty(current.reviewer_difficulty ?? current.ai_difficulty ?? null)
+    setDifficulty(isDifficulty(current.difficulty) ? current.difficulty : null)
     setAnswer(current.answer ?? null)
     setAnswerChanged(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new question re-prefills
@@ -173,7 +174,7 @@ export function ReviewScreen({
       // Shift+A…E picks the ANSWER; the same letters unshifted stay the
       // actions the reviewer already has in muscle memory.
       if (e.shiftKey && /^[a-e]$/.test(key)) chooseAnswer(key.toUpperCase())
-      else if (/^[1-5]$/.test(key)) setDifficulty(Number(key))
+      else if (isDifficulty(Number(key))) setDifficulty(Number(key) as Difficulty)
       else if (e.key === 'ArrowLeft' && index > 0) onNavigate(items[index - 1]!.id)
       else if (e.key === 'ArrowRight' && index < items.length - 1)
         onNavigate(items[index + 1]!.id)
@@ -225,7 +226,8 @@ export function ReviewScreen({
           </DialogTitle>
           <DialogDescription className="sr-only">
             Klaviatura ilə yoxlama: A təsdiq, D rədd, Shift və A–E ilə cavab
-            seçimi, 1–5 çətinlik, sol/sağ ox düymələri ilə keçid. Escape
+            seçimi, 1–3 çətinlik (asan, orta, çətin), sol/sağ ox düymələri
+            ilə keçid. Escape
             pəncərəni bağlayır.
           </DialogDescription>
           <VerifiedBadge verified={item.verified} />
@@ -298,7 +300,7 @@ export function ReviewScreen({
             <ChevronLeft />
           </Button>
           <span className="text-muted-foreground text-xs">
-            A = təsdiq · D = rədd · Shift+A…E = cavab · 1–5 = çətinlik · ← →
+            A = təsdiq · D = rədd · Shift+A…E = cavab · 1–3 = çətinlik · ← →
             keçid
           </span>
           <Button

@@ -15,6 +15,7 @@ import {
 } from '@/features/questions/api/questions'
 import { parseFlags } from '@/features/questions/lib/row'
 import { STATUS_LABEL } from '@/features/questions/lib/status'
+import { difficultyLabel } from '@/core/questions/difficulty'
 
 const STATUS_CLASS: Record<string, string> = {
   cropped: 'border-muted-foreground/20 bg-muted text-muted-foreground',
@@ -176,9 +177,11 @@ export function QuestionsTable({
                       {categoryName?.(q.category_id) ?? '—'}
                     </span>
                   </TableCell>
-                  <TableCell className="text-center text-sm tabular-nums">
-                    {q.reviewer_difficulty ?? (
+                  <TableCell className="text-center text-sm">
+                    {q.difficulty === null ? (
                       <span className="text-muted-foreground">—</span>
+                    ) : (
+                      difficultyLabel(q.difficulty)
                     )}
                   </TableCell>
                 </>

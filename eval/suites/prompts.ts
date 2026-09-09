@@ -11,6 +11,7 @@ import {
   VERIFY_QUESTION_PROMPT,
 } from '@/core/extract/prompts'
 import { extractResponseSchema } from '@/core/extract/schemas'
+import { DIFFICULTY_LEVELS } from '@/core/questions/difficulty'
 import {
   buildVerifyRequest,
   describeFigure,
@@ -201,6 +202,23 @@ export const promptsSuite = suite('prompts', {
         `${field} təsviri yoxdur`,
       )
     }
+  },
+
+  // Five levels in prose got 2 or 3 for every question on a live bank. Three
+  // values the SCHEMA enforces is a choice the model cannot hedge on, and a
+  // required field is one it cannot skip — both are what the operator asked
+  // for, and both are one careless edit from being lost.
+  'difficulty is exactly three levels, enforced and required'() {
+    const props = extractResponseSchema.properties as Record<
+      string,
+      { enum?: unknown[]; description?: string }
+    >
+    deepEq(props.difficulty!.enum, [...DIFFICULTY_LEVELS], 'the enum is the scale')
+    ok(
+      (extractResponseSchema.required as string[]).includes('difficulty'),
+      'and it may not be omitted',
+    )
+    ok(/asan|orta|çətin/.test(props.difficulty!.description ?? ''), 'named in the words the panel uses')
   },
 
   'confidence is defined as reading accuracy, not difficulty'() {

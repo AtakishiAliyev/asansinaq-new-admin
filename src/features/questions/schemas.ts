@@ -42,6 +42,8 @@ export const questionRowSchema = z.object({
   category_id: z.number().nullable(),
   ai_difficulty: z.number().nullable(),
   reviewer_difficulty: z.number().nullable(),
+  /** Generated: the reviewer's level where set, else the model's. */
+  difficulty: z.number().nullable(),
   model: z.string().nullable(),
   flags: z.unknown(),
   verified: z.boolean(),

@@ -308,7 +308,15 @@ export const extractResponseSchema = {
       description:
         'reading accuracy 0-1, NOT question difficulty: 1.0 every glyph read cleanly, 0.85 a character or two uncertain, 0.5 much of it guessed. Anything under 0.85 is routed to a human, so report honestly',
     },
-    difficulty: { type: 'integer', description: 'estimated difficulty 1-5 in the YÖS exam context' },
+    // An enum, not a range in prose. Five levels described in a sentence got
+    // 2 or 3 for every question on a live bank; three values the schema
+    // itself enforces is a choice the model has to make and cannot hedge on.
+    difficulty: {
+      type: 'integer',
+      enum: [1, 2, 3],
+      description:
+        'difficulty in the YÖS exam context, always one of exactly three: 1 asan (easy), 2 orta (medium), 3 çətin (hard). Never omit it',
+    },
     figure_box: {
       type: 'array',
       items: { type: 'number' },

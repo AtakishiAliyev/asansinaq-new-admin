@@ -4,7 +4,12 @@ import { Spinner } from '@/components/ui/spinner'
 import type { Category } from '@/features/taxonomy'
 import { CategoryPicker } from '@/features/questions/components/category-picker'
 
-const DIFFICULTIES = [1, 2, 3, 4, 5] as const
+import {
+  DIFFICULTY_LABEL,
+  DIFFICULTY_LEVELS,
+  difficultyLabel,
+  type Difficulty,
+} from '@/core/questions/difficulty'
 export const ANSWERS = ['A', 'B', 'C', 'D', 'E'] as const
 
 /**
@@ -99,8 +104,8 @@ export function ReviewActions({
   onCategoryChange: (id: number) => void
   suggestion: number | null
   aiDifficulty: number | null
-  difficulty: number | null
-  onDifficultyChange: (value: number) => void
+  difficulty: Difficulty | null
+  onDifficultyChange: (value: Difficulty) => void
   answer: string | null
   answerSource: string | null
   onAnswerChange: (answer: string) => void
@@ -131,17 +136,18 @@ export function ReviewActions({
         />
         <Field
           label="Çətinlik"
-          hint={aiDifficulty ? `AI: ${aiDifficulty}` : undefined}
+          hint={aiDifficulty ? `AI: ${difficultyLabel(aiDifficulty)}` : undefined}
         >
-          {DIFFICULTIES.map((d) => (
+          {DIFFICULTY_LEVELS.map((d) => (
             <Button
               key={d}
-              size="icon-sm"
+              size="sm"
               variant={difficulty === d ? 'secondary' : 'ghost'}
               aria-pressed={difficulty === d}
+              title={`${DIFFICULTY_LABEL[d]} (${d})`}
               onClick={() => onDifficultyChange(d)}
             >
-              {d}
+              {DIFFICULTY_LABEL[d]}
             </Button>
           ))}
         </Field>

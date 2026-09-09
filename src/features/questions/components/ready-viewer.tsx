@@ -19,6 +19,7 @@ import {
 } from '@/features/questions/api/questions'
 import { ANSWERS } from '@/features/questions/components/review-actions'
 import { CategoryPicker } from '@/features/questions/components/category-picker'
+import { DIFFICULTY_LABEL, DIFFICULTY_LEVELS } from '@/core/questions/difficulty'
 import {
   FlagBadges,
   VerifiedBadge,
@@ -43,7 +44,6 @@ const WINDOW_AHEAD = 3
 // stray keypress that silently retypes a live question's answer is not a
 // trade worth making for a saved click. The arrows navigate; everything else
 // is deliberate.
-const DIFFICULTIES = [1, 2, 3, 4, 5] as const
 
 /** One labelled control, matching the review screen's decision bar. */
 function Field({
@@ -228,19 +228,23 @@ export function ReadyViewer({
               ) : null}
             </Field>
 
-            <Field label="Çətinlik">
-              {DIFFICULTIES.map((d) => (
+            {/* Pressed on the EFFECTIVE level — the reviewer's where chosen,
+                else the model's — because that is the value the bank shows.
+                A click writes the reviewer's, which then becomes effective. */}
+            <Field
+              label="Çətinlik"
+              hint={item.reviewer_difficulty === null ? 'AI-ın seçimi' : undefined}
+            >
+              {DIFFICULTY_LEVELS.map((d) => (
                 <Button
                   key={d}
-                  size="icon-sm"
-                  variant={
-                    item.reviewer_difficulty === d ? 'secondary' : 'ghost'
-                  }
-                  aria-pressed={item.reviewer_difficulty === d}
+                  size="sm"
+                  variant={item.difficulty === d ? 'secondary' : 'ghost'}
+                  aria-pressed={item.difficulty === d}
                   disabled={busy}
                   onClick={() => save({ reviewerDifficulty: d })}
                 >
-                  {d}
+                  {DIFFICULTY_LABEL[d]}
                 </Button>
               ))}
             </Field>
