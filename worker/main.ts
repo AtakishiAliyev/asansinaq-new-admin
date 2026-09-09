@@ -114,6 +114,17 @@ log(
 await announceStart(db)
 
 let wasPaused = false
+/**
+ * Whether the LAST pass raised, so a recovery can clear the panel.
+ *
+ * `beat` only touches `last_error` when it is given one, and the only thing
+ * that ever cleared it was `announceStart` — a restart. So one transient blip
+ * left the control panel red for as long as the process lived: a Supabase
+ * Gateway Timeout on a single read stayed on screen through the ninety-odd
+ * healthy passes that followed it. A red light that does not go out is one the
+ * operator learns to read as decoration.
+ */
+let passFailed = false
 while (!stopping) {
   // Read the switch at the top of every pass. A pause therefore lands BETWEEN
   // passes, never inside one: a batch already submitted has already been paid
@@ -151,7 +162,19 @@ while (!stopping) {
       await submitPass()
       await verifyPass()
     }
+    // Recovered. Written only on the pass that follows a failure, so the
+    // common case stays one heartbeat rather than an extra write a minute.
+    if (passFailed) {
+      passFailed = false
+      log('recovered — the previous pass had failed')
+      await beat(db, {
+        activity: 'növbə yoxlanılır',
+        state: 'running',
+        lastError: null,
+      })
+    }
   } catch (error) {
+    passFailed = true
     log(`pass failed: ${String(error)}`)
     await beat(db, {
       activity: 'xəta — növbəti dövrədə yenidən cəhd',
