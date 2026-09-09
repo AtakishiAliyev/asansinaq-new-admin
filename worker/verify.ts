@@ -20,6 +20,7 @@ import {
 import type { ExtractedQuestion } from '@/core/questions/extraction'
 import { decideRepair, parseStoredVersion } from '@/core/questions/repair-guard'
 import { reproductionBlamed } from '@/core/questions/verdict-blame'
+import { structuralObjections } from '@/core/questions/structural-objections'
 import { verificationBlocked } from '@/core/questions/verification-block'
 import {
   autoApprovable,
@@ -113,7 +114,13 @@ export async function applyVerdict(
   verdict: Verdict,
   autoApprove: AutoApproveSettings = { enabled: false, needsAnswer: true },
 ): Promise<VerifyOutcome> {
-  const critical = verdict.differences.filter((d) => d.severity === 'critical')
+  // The wave's own critical findings, plus the deterministic ones it did not
+  // make. Merged HERE, once, so the repair decision, the stored diff and the
+  // notes the next read is given all see the same list — a second path would
+  // be a second thing to keep in step.
+  const structural = structuralObjections(row.flags)
+  const differences = [...verdict.differences, ...structural]
+  const critical = differences.filter((d) => d.severity === 'critical')
 
   // A complaint about the drawing, while the drawing on show is a
   // reproduction, is a complaint about the reproduction. Re-reading the crop
@@ -126,7 +133,11 @@ export async function applyVerdict(
     : reproductionBlamed(row.figures, verdict.differences)
   if (blamed.length) {
     const doc = row.figures as unknown as FigureDoc
-    const why = critical
+    // The WAVE's findings only. A structural objection is about a typeset spec
+    // — a rule in the wrong place, two partial products in one column — and an
+    // image model handed that as a brief has nothing it can do with it.
+    const why = verdict.differences
+      .filter((d) => d.severity === 'critical')
       .map((d) => d.note.trim())
       .filter(Boolean)
       .join('; ')
@@ -223,7 +234,7 @@ export async function applyVerdict(
         ] as never,
         verified: false,
         verify_confidence: clamp01(verdict.confidence),
-        verify_diff: verdict.differences as never,
+        verify_diff: differences as never,
         // Unruled again on purpose: the wave has judged the previous drawing,
         // and what the row shows now is a different picture.
         verified_at: null,
@@ -252,8 +263,14 @@ export async function applyVerdict(
   // Another read is only worth paying for when there is a concrete, critical
   // difference to feed back. A minor difference, or a low-confidence pass with
   // nothing named, is a reviewer's call rather than a second attempt.
+  // A structural objection is reason enough on its own. The wave called the
+  // three questions that prompted this a match while our own measurements said
+  // the layout was wrong on every one of them, so waiting for it to disagree
+  // is waiting for the party that already got it wrong.
   const repairing =
-    !verdict.matches && critical.length > 0 && row.repair_round < MAX_REPAIRS
+    (!verdict.matches || structural.length > 0) &&
+    critical.length > 0 &&
+    row.repair_round < MAX_REPAIRS
 
   const flags = [
     ...(
@@ -329,7 +346,7 @@ export async function applyVerdict(
       // passes leaves the Diqqət lane without anything else being touched.
       verified,
       verify_confidence: clamp01(verdict.confidence),
-      verify_diff: verdict.differences as never,
+      verify_diff: differences as never,
       verified_at: new Date().toISOString(),
       flags: flags as never,
       // `queued_at` is deliberately NOT set here. The caller still holds the

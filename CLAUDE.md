@@ -675,6 +675,21 @@ largest single reason a correct question did not read as clean. Adding a level
 needed no migration, which is the point — a flag demoted to `info` leaves the
 lane by construction.
 
+**A deterministic finding a re-read can fix now BUYS that read**
+(`core/questions/structural-objections.ts`). The repair round used to be driven
+by the verification wave's critical differences and nothing else, and the wave
+is generous: on one page it called three questions a match while our own
+measurements said the layout was wrong on all three — a stacked multiplication
+with both partial products in the same columns, another with the total under no
+rule, a division scheme with two roles crammed into one cell. All three were
+flagged in red and all three were left exactly as they were. Caught, and not
+fixed. Those findings now join the wave's list, so they raise the repair, ride
+along as repair notes, and keep the row out of the verified lane while they
+stand. The list is narrow by design: deterministic, about content, and
+ACTIONABLE — a finding a reader has nothing to do about does not belong on it.
+An image edit is still briefed from the wave's own words alone, because a rule
+in the wrong place is not something an image model can act on.
+
 **Auto-approve** (off by default, `core/questions/auto-approve.ts`) passes only
 a question that cleared all three: the wave called it a match, no deterministic
 guard objection stands, and the lint raised no ERROR. A warning does not block

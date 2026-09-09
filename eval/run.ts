@@ -34,6 +34,7 @@ import { expressSuite } from './suites/express.ts'
 import { promptsSuite } from './suites/prompts.ts'
 import { rateGateSuite } from './suites/rate-gate.ts'
 import { structuralDiffSuite } from './suites/structural-diff.ts'
+import { structuralObjectionsSuite } from './suites/structural-objections.ts'
 import { workerCacheSuite } from './suites/worker-cache.ts'
 
 const SUITES: Suite[] = [
@@ -53,6 +54,7 @@ const SUITES: Suite[] = [
   imageMimeSuite,
   kindEligibilitySuite,
   structuralDiffSuite,
+  structuralObjectionsSuite,
   divisionRolesSuite,
   drawingChoiceSuite,
   setRefsSuite,

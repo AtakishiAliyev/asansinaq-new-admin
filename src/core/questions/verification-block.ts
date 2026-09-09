@@ -17,8 +17,16 @@
 // faithful redraw over an endpoint that moved — so it stays a signal.
 //
 // Pure, so the list is argued about in one place and asserted offline.
+import { REPAIRABLE_CODES } from '@/core/questions/structural-objections'
 
-const BLOCKING = new Set(['gen_colour_unresolved'])
+// `gen_colour_unresolved` is the guard's colour objection. The rest are the
+// structural findings a re-read is asked to fix: while one of them stands, the
+// row is showing a layout our own measurements say is wrong, and marking it
+// verified on a model's say-so is the exact trade this file exists to refuse.
+const BLOCKING = new Set([
+  'gen_colour_unresolved',
+  ...Object.keys(REPAIRABLE_CODES),
+])
 
 /** Whether anything on the row forbids marking it verified. */
 export function verificationBlocked(flags: unknown): boolean {
