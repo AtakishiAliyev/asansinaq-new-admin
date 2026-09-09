@@ -9,7 +9,7 @@ import {
 import { boxDistance, boxSegDistance, type Vec } from '@/core/figures/layout'
 import { wireToQuestion } from '@/core/questions/extraction'
 import { lintQuestion } from '@/core/questions/lint'
-import { DIVISION_SIZE } from '@/core/figures/render-simple'
+import { ARITHMETIC_SIZE } from '@/core/figures/render-simple'
 import { eq, notOk, ok, suite } from '../harness.ts'
 
 // The first coverage rendering has ever had.
@@ -621,14 +621,27 @@ export const renderSuite = suite('render', {
   'vertical arithmetic right-aligns, and an indent shifts by digits'() {
     const svg = renderFigItem({
       kind: 'vertical_arithmetic',
-      rows: [{ tex: '1234' }, { tex: '99', indent: 0 }, { tex: '99', indent: 2 }],
+      rows: [{ tex: '1234' }, { tex: '99', op: '+', indent: 0 }, { tex: '99', indent: 2 }],
+      hlineAfter: [1],
       resultTex: '1333',
     })
     const xs = [...svg.matchAll(/translate\(([\d.]+) /g)].map((m) => Number(m[1]))
     ok(xs.length >= 4, 'sətirlər yerləşdirilməyib')
     // The indented row starts further LEFT than the un-indented one of the
     // same width, which is what shifting a partial product means.
-    ok(xs[2]! < xs[1]!, `indent sola sürüşdürmür: ${xs[1]} → ${xs[2]}`)
+    ok(xs[3]! < xs[2]!, `indent sola sürüşdürmür: ${xs[2]} → ${xs[3]}`)
+    // Drawn at the book's size, not the table's 13px. These figures ARE the
+    // question — half their digits are masked — and at body size they read as
+    // a footnote next to the stem. Neither display scales a figure up.
+    ok(ARITHMETIC_SIZE >= 24, `sxem ${ARITHMETIC_SIZE}px-də oxunmur`)
+    ok(svg.includes(`font-size="${ARITHMETIC_SIZE}"`), 'sxem öz ölçüsündə çəkilmir')
+    // The rule is the OPERATION's, so it starts at the operator's own left
+    // edge and ends past the digits. Started at the column instead, it reads
+    // as an underline under the last number.
+    const line = svg.match(/<line x1="([\d.]+)"[^>]*x2="([\d.]+)"/)!
+    const opX = xs[1]!
+    eq(Number(line[1]), opX, 'xətt operatordan başlamır')
+    ok(Number(line[2]) > xs[0]! + ARITHMETIC_SIZE, 'xətt rəqəmlərin sağına çatmır')
   },
 
   // The books elide the subtraction: not one of seven live schemes printed the
@@ -655,10 +668,10 @@ export const renderSuite = suite('render', {
     const flat = lines.filter(([, y1, , y2]) => y1 === y2).sort((a, b) => a[1] - b[1])
     const [divisorRule, minus, bottom] = flat as [typeof flat[0], typeof flat[0], typeof flat[0]]
     ok(divisorRule[0] === bar[0] && divisorRule[2] > bar[0], 'bölənin altındakı xətt bardan sağa getmir')
-    ok(minus[2] - minus[0] < DIVISION_SIZE, 'çıxma işarəsi xətt kimi uzundur')
-    ok(minus[2] < bar[0] - DIVISION_SIZE * 2, 'çıxma işarəsi bölünənin yanında deyil, solunda olmalıdır')
+    ok(minus[2] - minus[0] < ARITHMETIC_SIZE, 'çıxma işarəsi xətt kimi uzundur')
+    ok(minus[2] < bar[0] - ARITHMETIC_SIZE * 2, 'çıxma işarəsi bölünənin yanında deyil, solunda olmalıdır')
     // The minus hugs the rule: above it, and starting where the rule starts.
-    ok(minus[1] < bottom[1] && bottom[1] - minus[1] < DIVISION_SIZE, 'çıxma işarəsi xəttin üstündə deyil')
+    ok(minus[1] < bottom[1] && bottom[1] - minus[1] < ARITHMETIC_SIZE, 'çıxma işarəsi xəttin üstündə deyil')
     eq(minus[0], bottom[0], 'alt xətt çıxma işarəsinin başladığı yerdən başlamır')
     // The remainder sits BELOW the rule, on its own row — not beside the
     // minus, and not directly under the dividend.
@@ -670,8 +683,8 @@ export const renderSuite = suite('render', {
     // Legible. Drawn at the shared 13px it was a hundred pixels wide and read
     // as a footnote; the book prints it at twice the body text, and neither
     // display scales a figure up.
-    ok(DIVISION_SIZE >= 24, `sxem ${DIVISION_SIZE}px-də oxunmur`)
-    ok(svg.includes(`font-size="${DIVISION_SIZE}"`), 'sxem öz ölçüsündə çəkilmir')
+    ok(ARITHMETIC_SIZE >= 24, `sxem ${ARITHMETIC_SIZE}px-də oxunmur`)
+    ok(svg.includes(`font-size="${ARITHMETIC_SIZE}"`), 'sxem öz ölçüsündə çəkilmir')
     // The corner: the bar ENDS at the last rule and the rule runs INTO the bar.
     eq(bottom[2], bar[0], 'alt xətt bara çatmır')
     eq(bar[3], bottom[1], 'bar alt xəttdə bitmir — küncü yoxdur')

@@ -20,7 +20,6 @@ import { hex, num, plainTextRenderer, tag, type TexRenderer } from '@/core/figur
 
 const SIZE = 13
 const PAD = 8
-const ROW_GAP = 6
 
 const place = (fragment: { svg: string }, x: number, y: number): string =>
   tag('g', { transform: `translate(${num(x)} ${num(y)})` }, fragment.svg)
@@ -139,22 +138,28 @@ export function renderTable(fig: TableFig, tex: TexRenderer = plainTextRenderer)
  * fraction and answers a different question.
  */
 /**
- * Glyph size for the scheme, and it is not the table's.
+ * Glyph size for the arithmetic schemes, and it is not the table's.
  *
  * The books print these at about twice the body text, because the figure IS
- * the question — every symbol in it is something the reader has to work with.
- * Drawn at the shared 13px it came out a hundred pixels wide and floated in
- * the figure box like a footnote; the browser shows an SVG at its own declared
- * size and the verification page only ever scales a figure DOWN, so nothing
- * downstream could rescue it. Exported so the suite can hold it legible.
+ * the question — every symbol in it is something the reader has to work with,
+ * and half of them are masked. Drawn at the shared 13px the division scheme
+ * came out a hundred pixels wide and floated in the figure box like a
+ * footnote; the browser shows an SVG at its own declared size and the
+ * verification page only ever scales a figure DOWN, so nothing downstream
+ * could rescue it.
+ *
+ * One constant for the long division and the columns, because a book that
+ * prints them on facing pages prints them at one size, and a reader who sees
+ * two sizes reads two kinds of thing. Exported so the suite can hold both
+ * legible.
  */
-export const DIVISION_SIZE = 30
+export const ARITHMETIC_SIZE = 30
 
 export function renderDivisionScheme(
   fig: DivisionScheme,
   tex: TexRenderer = plainTextRenderer,
 ): string {
-  const S = DIVISION_SIZE
+  const S = ARITHMETIC_SIZE
   // Spacing in glyph units, so the figure keeps its proportions at any size.
   const gapX = S * 0.6 // dividend → bar, and bar → divisor
   const rowH = S * 1.45
@@ -289,33 +294,46 @@ export function renderVerticalArithmetic(
   fig: VerticalArithmetic,
   tex: TexRenderer = plainTextRenderer,
 ): string {
+  const S = ARITHMETIC_SIZE
   const rows = (fig.rows ?? []).map((r) => ({
-    label: tex(r.tex, SIZE),
-    op: r.op ? tex(r.op, SIZE) : null,
+    label: tex(r.tex, S),
+    op: r.op ? tex(r.op, S) : null,
     indent: r.indent ?? 0,
   }))
-  const result = fig.resultTex ? tex(fig.resultTex, SIZE) : null
-  if (!rows.length && !result) return svgWrap(40, 20, '')
+  const result = fig.resultTex ? tex(fig.resultTex, S) : null
+  if (!rows.length && !result) return svgWrap(S * 1.4, S * 0.7, '')
 
-  const digit = SIZE * 0.62
+  // Everything below is in glyph units, so the figure keeps the book's
+  // proportions whatever the size is set to.
+  const digit = S * 0.62 // one column of the right-aligned stack
+  const rowH = S * 1.35
+  const weight = S * 0.08 // the book's rules are thin at this scale
+  const pad = S * 0.3
+
   const opWidth = Math.max(0, ...rows.map((r) => r.op?.width ?? 0))
   const contentWidth = Math.max(
     ...rows.map((r) => r.label.width + r.indent * digit),
     result?.width ?? 0,
   )
-  const rowH = SIZE + ROW_GAP
-  const left = PAD + opWidth + 6
-  const width = left + contentWidth + PAD
+  // The operator sits at the far left with a whole glyph of air after it —
+  // the book sets `+` and `×` well clear of the column, not tight against it,
+  // and a tight one reads as part of the top number.
+  const left = pad + opWidth + S * 0.9
   const right = left + contentWidth
-  const height = (rows.length + (result ? 1 : 0)) * rowH + PAD * 2
+  // The rule runs from the operator's own left edge to just past the digits,
+  // which is what makes it the operation's rule rather than an underline
+  // under the last number.
+  const ruleRight = right + S * 0.15
+  const width = ruleRight + pad
+  const height = (rows.length + (result ? 1 : 0)) * rowH + pad * 2 - (rowH - S * 1.15)
 
   const body: string[] = []
-  let y = PAD
+  let y = pad
   rows.forEach((row, index) => {
-    if (row.op) body.push(place(row.op, PAD, y))
+    if (row.op) body.push(place(row.op, pad, y))
     body.push(place(row.label, right - row.label.width - row.indent * digit, y))
     if ((fig.hlineAfter ?? []).includes(index)) {
-      body.push(rule(PAD, y + rowH - ROW_GAP / 2, right))
+      body.push(rule(pad, y + S * 1.05, ruleRight, weight))
     }
     y += rowH
   })
