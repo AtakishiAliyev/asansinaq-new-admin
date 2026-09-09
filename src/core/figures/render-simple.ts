@@ -145,16 +145,32 @@ export function renderDivisionScheme(
   const dividend = tex(fig.dividendTex, SIZE)
   const divisor = tex(fig.divisorTex, SIZE)
   const quotient = tex(fig.quotientTex, SIZE)
-  const steps = (fig.steps ?? []).map((s) => ({
-    label: tex(s.tex, SIZE),
-    op: s.op ? tex(s.op, SIZE) : null,
-  }))
+  const steps: { label: { svg: string; width: number } | null; op: { svg: string; width: number } | null }[] =
+    (fig.steps ?? []).map((s) => ({
+      label: tex(s.tex, SIZE),
+      op: s.op ? tex(s.op, SIZE) : null,
+    }))
   const remainder = fig.remainderTex ? tex(fig.remainderTex, SIZE) : null
+
+  // The books ELIDE the subtraction. Not one of seven live schemes printed the
+  // `divisor × quotient` row: each shows the dividend, a `−` at the left of
+  // the row beneath it, a rule under that, and the remainder below the rule.
+  // So a scheme with a remainder and no steps is not a scheme with nothing
+  // between two numbers — it is the book's own form with its middle row left
+  // blank, and it is drawn as one: a step whose only content is the minus.
+  //
+  // It used to draw nothing there, on the reasoning that a rule between the
+  // dividend and the remainder reads as a FRACTION. What that produced was
+  // `x` over `11` with no mark of any kind, which reads as nothing at all, and
+  // the verification wave — comparing pictures — reported the missing `−` and
+  // rule on every one of those seven rows. The minus is what makes it not a
+  // fraction, and the book prints it every time.
+  if (!steps.length && remainder) steps.push({ label: null, op: tex('-', SIZE) })
 
   const leftWidth =
     Math.max(
       dividend.width,
-      ...steps.map((s) => s.label.width + (s.op ? s.op.width + 4 : 0)),
+      ...steps.map((s) => (s.label?.width ?? 0) + (s.op ? s.op.width + 4 : 0)),
       remainder?.width ?? 0,
     ) + PAD * 2
   const rightWidth = Math.max(divisor.width, quotient.width) + PAD * 2
@@ -198,17 +214,17 @@ export function renderDivisionScheme(
   let y = PAD + rowH
   for (const step of steps) {
     if (step.op) body.push(place(step.op, PAD * 0.5, y))
-    body.push(place(step.label, leftWidth - PAD - step.label.width, y))
+    if (step.label) body.push(place(step.label, leftWidth - PAD - step.label.width, y))
     y += rowH
   }
   if (remainder) {
-    // A rule above the remainder is the line under the LAST SUBTRACTION, so it
-    // belongs only when subtraction steps were actually drawn. Without steps it
-    // is a bar between two numbers with nothing between them, which is exactly
-    // the fraction this notation exists to not be.
-    if (steps.length) {
-      body.push(rule(leftWidth - PAD - remainder.width - 6, y - ROW_GAP / 2, leftWidth - PAD))
-    }
+    // The rule under the last subtraction — which, in the elided form, is the
+    // rule under the dividend. It spans the dividend's width rather than the
+    // remainder's, because that is the line the book draws: from under the
+    // minus to the bar. A stub the width of a one-digit remainder under a
+    // seven-character dividend was not the same figure.
+    const span = Math.max(dividend.width, ...steps.map((s) => s.label?.width ?? 0), remainder.width)
+    body.push(rule(leftWidth - PAD - span - 6, y - ROW_GAP / 2, leftWidth - PAD))
     body.push(place(remainder, leftWidth - PAD - remainder.width, y))
   }
 

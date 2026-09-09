@@ -630,6 +630,66 @@ export const renderSuite = suite('render', {
     ok(xs[2]! < xs[1]!, `indent sola sürüşdürmür: ${xs[1]} → ${xs[2]}`)
   },
 
+  // The books elide the subtraction: not one of seven live schemes printed the
+  // `divisor × quotient` row. Each shows the dividend, a `−` beneath it, a rule,
+  // and the remainder under the rule. The renderer used to draw NOTHING between
+  // dividend and remainder — `x` over `11` with no mark — and the verification
+  // wave, comparing pictures, faulted every one of those rows for the missing
+  // minus and rule. There was no case here, which is how it stayed that way.
+  'a division scheme with a remainder draws the elided subtraction row'() {
+    const svg = renderFigItem({
+      kind: 'division_scheme',
+      style: 'arithmetic',
+      dividendTex: 'abc0abc',
+      divisorTex: 'abc',
+      quotientTex: 'x',
+      remainderTex: 'y',
+    })
+    const texts = [...svg.matchAll(/<text[^>]*>([^<]*)<\/text>/g)].map((m) => m[1]!)
+    ok(texts.some((t) => /^[-−]$/.test(t)), 'sol tərəfdə çıxma işarəsi yoxdur')
+    // Bar, the rule under the divisor, and the rule under the dividend.
+    eq((svg.match(/<line /g) ?? []).length, 3, 'bölünənin altında xətt yoxdur')
+    // The remainder sits BELOW the minus, on its own row under the rule — not
+    // beside it, and not directly under the dividend.
+    const yOf = (glyph: string) => {
+      const m = svg.match(new RegExp(`translate\\([\\d.]+ ([\\d.]+)\\)"><text[^>]*>${glyph}<`))
+      return m ? Number(m[1]) : NaN
+    }
+    ok(yOf('y') > yOf('[-−]'), 'qalıq çıxma işarəsindən aşağıda deyil')
+  },
+
+  // Quotient-only: nothing was subtracted, so nothing is drawn below the
+  // dividend — a minus with no remainder would invent a step the book lacks.
+  'a division scheme without a remainder draws no subtraction row'() {
+    const svg = renderFigItem({
+      kind: 'division_scheme',
+      style: 'arithmetic',
+      dividendTex: 'A',
+      divisorTex: 'B',
+      quotientTex: '4',
+    })
+    const texts = [...svg.matchAll(/<text[^>]*>([^<]*)<\/text>/g)].map((m) => m[1]!)
+    notOk(texts.some((t) => /^[-−]$/.test(t)), 'qalıqsız sxemdə çıxma işarəsi çəkilib')
+    eq((svg.match(/<line /g) ?? []).length, 2, 'bar və bölən xəttindən başqa xətt olmamalıdır')
+  },
+
+  // Written-out steps keep their own operators; the elided row is not added
+  // on top of them, or a one-step scheme would show two minus signs.
+  'written subtraction steps are not doubled by the elided row'() {
+    const svg = renderFigItem({
+      kind: 'division_scheme',
+      style: 'polynomial',
+      dividendTex: 'x^2+3x',
+      divisorTex: 'x',
+      quotientTex: 'x+3',
+      steps: [{ tex: 'x^2', op: '-' }],
+      remainderTex: '3x',
+    })
+    const texts = [...svg.matchAll(/<text[^>]*>([^<]*)<\/text>/g)].map((m) => m[1]!)
+    eq(texts.filter((t) => /^[-−]$/.test(t)).length, 1, 'çıxma işarəsi ikiqat çəkilib')
+    eq((svg.match(/<line /g) ?? []).length, 3)
+  },
+
   // ---- the wire → figure → lint path for the new kind ----
 
   'the model can express a bisector, and it survives the wire'() {
