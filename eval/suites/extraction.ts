@@ -200,4 +200,26 @@ export const extractionSuite = suite('extraction', {
     eq(wireToQuestion({ stem: 'x', options: [], figure_box: [600, 40, 120, 960] }).figureBox, undefined, 'an inverted box is dropped')
     eq(wireToQuestion({ stem: 'x', options: [] }).figureBox, undefined, 'absent stays absent')
   },
+
+  // The strip has to be WIRED, not merely written. Removing the call from
+  // `wireToQuestion` left every case in the figure-echo suite green while live
+  // rows kept showing the stack twice — the unit was tested and the pipeline
+  // was not.
+  'the wire drops a stack the stem repeats'() {
+    const q = wireToQuestion({
+      stem: 'Şərt.\n$4\\ 5\\ B$\n$+\\ C\\ A\\ 9$\n$A\\ 2\\ A$\nSual?',
+      options: [],
+      figures: [
+        {
+          kind: 'vertical_arithmetic',
+          vertical: {
+            rows: [{ tex: '4\\ 5\\ B' }, { tex: 'C\\ A\\ 9', op: '+' }],
+            hline_after: [1],
+            result_tex: 'A\\ 2\\ A',
+          },
+        },
+      ],
+    } as never)
+    eq(q.stem, 'Şərt.\nSual?', `təkrar wire-da silinmir: ${JSON.stringify(q.stem)}`)
+  },
 })

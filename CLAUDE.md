@@ -692,6 +692,18 @@ largest single reason a correct question did not read as clean. Adding a level
 needed no migration, which is the point — a flag demoted to `info` leaves the
 lane by construction.
 
+**A stack the model drew AND typed out again loses the typed copy**
+(`core/questions/figure-echo.ts`). Tightening rule 14 to say an alt-alta
+operation is a figure got the figure — and the rows repeated above the question
+as well, so the reader saw the operation twice: once set as the book sets it,
+once as a column of stray fragments. It is settled in normalisation rather than
+by asking the prompt again, because it can be settled exactly: the figure holds
+those cells, so a stem line reproducing one carries nothing the row does not
+already show. Nothing is written, only a duplicate dropped — the ground
+`fixLeakedNewlines` already stands on. A RUN of at least two such lines is the
+safety margin: a stem legitimately names one of the figure's values on a line
+of its own, and gutting that would lose wording the book prints.
+
 **A deterministic finding a re-read can fix now BUYS that read**
 (`core/questions/structural-objections.ts`). The repair round used to be driven
 by the verification wave's critical differences and nothing else, and the wave

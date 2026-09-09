@@ -7,6 +7,7 @@
 // responseSchema moved to core/extract/schemas.ts
 
 import { COLOR_HEX } from '@/core/figures/figspec'
+import { stripFigureEcho } from '@/core/questions/figure-echo'
 import type {
   ColorToken,
   CubeFace,
@@ -453,7 +454,13 @@ export function wireToQuestion(raw: Record<string, unknown>): ExtractedQuestion 
   const figureBox = wireBox(raw.figure_box)
   return {
     numberSeen: Number(raw.number_seen ?? 0),
-    stem: fixLeakedNewlines(collapseDoubledCommands(String(raw.stem ?? ''))),
+    // The stack the model drew AND then typed out again: the figure holds
+    // those cells, so a stem line reproducing one shows the reader the
+    // operation twice and carries nothing the row does not already have.
+    stem: stripFigureEcho(
+      fixLeakedNewlines(collapseDoubledCommands(String(raw.stem ?? ''))),
+      items,
+    ),
     ...(figureBox ? { figureBox } : {}),
     options: ((raw.options as ExtractedOption[]) ?? []).map((o) => {
       const opt: ExtractedOption = { label: o.label }
