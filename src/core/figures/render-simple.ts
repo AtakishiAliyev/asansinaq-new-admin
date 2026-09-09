@@ -138,19 +138,36 @@ export function renderTable(fig: TableFig, tex: TexRenderer = plainTextRenderer)
  * reader who sees a horizontal bar between dividend and divisor reads a
  * fraction and answers a different question.
  */
+/**
+ * Glyph size for the scheme, and it is not the table's.
+ *
+ * The books print these at about twice the body text, because the figure IS
+ * the question — every symbol in it is something the reader has to work with.
+ * Drawn at the shared 13px it came out a hundred pixels wide and floated in
+ * the figure box like a footnote; the browser shows an SVG at its own declared
+ * size and the verification page only ever scales a figure DOWN, so nothing
+ * downstream could rescue it. Exported so the suite can hold it legible.
+ */
+export const DIVISION_SIZE = 30
+
 export function renderDivisionScheme(
   fig: DivisionScheme,
   tex: TexRenderer = plainTextRenderer,
 ): string {
-  const dividend = tex(fig.dividendTex, SIZE)
-  const divisor = tex(fig.divisorTex, SIZE)
-  const quotient = tex(fig.quotientTex, SIZE)
+  const S = DIVISION_SIZE
+  // Spacing in glyph units, so the figure keeps its proportions at any size.
+  const gapX = S * 0.5
+  const rowH = S * 1.45
+  const rule = S * 0.08 // stroke weight: the book's lines are thin at this scale
+  const dividend = tex(fig.dividendTex, S)
+  const divisor = tex(fig.divisorTex, S)
+  const quotient = tex(fig.quotientTex, S)
   const steps: { label: { svg: string; width: number } | null; op: { svg: string; width: number } | null }[] =
     (fig.steps ?? []).map((s) => ({
-      label: tex(s.tex, SIZE),
-      op: s.op ? tex(s.op, SIZE) : null,
+      label: tex(s.tex, S),
+      op: s.op ? tex(s.op, S) : null,
     }))
-  const remainder = fig.remainderTex ? tex(fig.remainderTex, SIZE) : null
+  const remainder = fig.remainderTex ? tex(fig.remainderTex, S) : null
 
   // The books ELIDE the subtraction. Not one of seven live schemes printed the
   // `divisor × quotient` row: each shows the dividend, a `−` at the left of
@@ -165,70 +182,76 @@ export function renderDivisionScheme(
   // the verification wave — comparing pictures — reported the missing `−` and
   // rule on every one of those seven rows. The minus is what makes it not a
   // fraction, and the book prints it every time.
-  if (!steps.length && remainder) steps.push({ label: null, op: tex('-', SIZE) })
+  if (!steps.length && remainder) steps.push({ label: null, op: tex('-', S) })
 
-  const leftWidth =
-    Math.max(
-      dividend.width,
-      ...steps.map((s) => (s.label?.width ?? 0) + (s.op ? s.op.width + 4 : 0)),
-      remainder?.width ?? 0,
-    ) + PAD * 2
-  const rightWidth = Math.max(divisor.width, quotient.width) + PAD * 2
-  const rowH = SIZE + ROW_GAP
+  // The geometry is the book's, measured off its own crops:
+  //
+  //        A │ B          the dividend ends at the bar, the divisor starts after it
+  //          ├────        a rule under the divisor, from the bar outward
+  //   −      │ 4          the minus at the far left, the quotient centred under B
+  //   ───────┘            the last rule runs INTO the bar, and the bar ENDS there
+  //        5              the remainder centred under the dividend
+  //
+  // Two of those were drawn wrong before and read as a different figure. The
+  // bar ran the full height, past the remainder, so the remainder sat beside a
+  // bracket it is not inside; and the rule stopped short of the bar, so the
+  // two never met. In the book they form a corner, and the corner is the
+  // shape a reader recognises as "division" from across the room.
+  const opWidth = Math.max(0, ...steps.map((s) => s.op?.width ?? 0))
+  const leftInner = Math.max(
+    dividend.width,
+    ...steps.map((s) => s.label?.width ?? 0),
+    remainder?.width ?? 0,
+  )
+  const leftEdge = gapX + opWidth + gapX // where the dividend column begins
+  const barX = leftEdge + leftInner + gapX
+  const rightInner = Math.max(divisor.width, quotient.width)
+  const width = barX + gapX + rightInner + gapX
   const leftRows = 1 + steps.length + (remainder ? 1 : 0)
-  const height = Math.max(leftRows, 2) * rowH + PAD * 2
+  const height = Math.max(leftRows, 2) * rowH + gapX
 
-  const barX = leftWidth
-  const splitY = PAD + rowH - ROW_GAP / 2
-  const body: string[] = [
-    // The bracket has to be unmistakable, because the failure mode is not an
-    // ugly figure — it is a reader answering a different question. A dividend
-    // above a bar above a remainder is read as a FRACTION, and the whole point
-    // of the Turkish scheme is that it is not one. So the vertical bar is
-    // heavier than any other rule in the figure and runs the full height, and
-    // the only horizontal line is the one under the divisor, joined to it.
-    tag('line', {
-      x1: barX,
-      y1: PAD * 0.4,
-      x2: barX,
-      y2: height - PAD * 0.4,
-      stroke: hex('ink'),
-      'stroke-width': 2.2,
-      'stroke-linecap': 'square',
-    }),
-    tag('line', {
-      x1: barX,
-      y1: splitY,
-      x2: barX + rightWidth,
-      y2: splitY,
-      stroke: hex('ink'),
-      'stroke-width': 2.2,
-      'stroke-linecap': 'square',
-    }),
-  ]
+  const top = gapX * 0.6
+  const rowY = (i: number) => top + i * rowH
+  const centred = (glyph: { width: number }, colStart: number, colWidth: number) =>
+    colStart + (colWidth - glyph.width) / 2
+  const stroke = { stroke: hex('ink'), 'stroke-width': rule, 'stroke-linecap': 'square' as const }
 
-  body.push(place(dividend, leftWidth - PAD - dividend.width, PAD))
-  body.push(place(divisor, barX + PAD, PAD))
-  body.push(place(quotient, barX + PAD, PAD + rowH))
+  const body: string[] = []
+  // Row 1: dividend right-aligned against the bar, divisor after it.
+  body.push(place(dividend, barX - gapX - dividend.width, rowY(0)))
+  body.push(place(divisor, centred(divisor, barX + gapX, rightInner), rowY(0)))
+  // The rule under the divisor, and the quotient under that.
+  const divisorRuleY = rowY(0) + S * 1.15
+  body.push(tag('line', { x1: barX, y1: divisorRuleY, x2: width - gapX * 0.5, y2: divisorRuleY, ...stroke }))
+  body.push(place(quotient, centred(quotient, barX + gapX, rightInner), rowY(1)))
 
-  let y = PAD + rowH
+  // The rule above the remainder, fixed before the rows are placed because the
+  // elided minus is positioned off it.
+  const ruleY = remainder ? rowY(1 + steps.length) - S * 0.3 : null
+
+  // Subtraction rows on the left: the operator at the far left, the label
+  // right-aligned against the bar like the dividend above it. A label-less
+  // row is the elided subtraction, and its minus does not sit on a row of its
+  // own — the book prints it hugging the rule, ink just above the line, which
+  // is what makes `−` and rule read as one mark rather than a stray sign.
+  let row = 1
   for (const step of steps) {
-    if (step.op) body.push(place(step.op, PAD * 0.5, y))
-    if (step.label) body.push(place(step.label, leftWidth - PAD - step.label.width, y))
-    y += rowH
-  }
-  if (remainder) {
-    // The rule under the last subtraction — which, in the elided form, is the
-    // rule under the dividend. It spans the dividend's width rather than the
-    // remainder's, because that is the line the book draws: from under the
-    // minus to the bar. A stub the width of a one-digit remainder under a
-    // seven-character dividend was not the same figure.
-    const span = Math.max(dividend.width, ...steps.map((s) => s.label?.width ?? 0), remainder.width)
-    body.push(rule(leftWidth - PAD - span - 6, y - ROW_GAP / 2, leftWidth - PAD))
-    body.push(place(remainder, leftWidth - PAD - remainder.width, y))
+    const opY = step.label || ruleY === null ? rowY(row) : ruleY - S * 0.8
+    if (step.op) body.push(place(step.op, gapX, opY))
+    if (step.label) body.push(place(step.label, barX - gapX - step.label.width, rowY(row)))
+    row++
   }
 
-  return svgWrap(leftWidth + rightWidth, height, body.join(''))
+  // The last rule and the bar meet at a corner; both end there.
+  let barBottom = divisorRuleY + rowH // enough to bracket the quotient when nothing follows
+  if (remainder && ruleY !== null) {
+    body.push(tag('line', { x1: gapX + opWidth + gapX * 0.5, y1: ruleY, x2: barX, y2: ruleY, ...stroke }))
+    body.push(place(remainder, centred(remainder, leftEdge, leftInner), rowY(row)))
+    barBottom = ruleY
+  }
+  body.unshift(tag('line', { x1: barX, y1: top, x2: barX, y2: barBottom, ...stroke }))
+
+  return svgWrap(width, height, body.join(''))
 }
 
 // ---- vertical arithmetic ----

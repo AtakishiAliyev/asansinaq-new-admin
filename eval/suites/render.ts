@@ -9,6 +9,7 @@ import {
 import { boxDistance, boxSegDistance, type Vec } from '@/core/figures/layout'
 import { wireToQuestion } from '@/core/questions/extraction'
 import { lintQuestion } from '@/core/questions/lint'
+import { DIVISION_SIZE } from '@/core/figures/render-simple'
 import { eq, notOk, ok, suite } from '../harness.ts'
 
 // The first coverage rendering has ever had.
@@ -656,6 +657,17 @@ export const renderSuite = suite('render', {
       return m ? Number(m[1]) : NaN
     }
     ok(yOf('y') > yOf('[-−]'), 'qalıq çıxma işarəsindən aşağıda deyil')
+    // Legible. Drawn at the shared 13px it was a hundred pixels wide and read
+    // as a footnote; the book prints it at twice the body text, and neither
+    // display scales a figure up.
+    ok(DIVISION_SIZE >= 24, `sxem ${DIVISION_SIZE}px-də oxunmur`)
+    ok(svg.includes(`font-size="${DIVISION_SIZE}"`), 'sxem öz ölçüsündə çəkilmir')
+    // The corner: the bar ENDS at the last rule and the rule runs INTO the bar.
+    const lines = [...svg.matchAll(/<line x1="([\d.]+)" y1="([\d.]+)" x2="([\d.]+)" y2="([\d.]+)"/g)].map((m) => m.slice(1).map(Number))
+    const bar = lines.find(([x1, , x2]) => x1 === x2)!
+    const bottom = lines.filter(([, y1, , y2]) => y1 === y2).sort((a, b) => b[1]! - a[1]!)[0]!
+    eq(bottom[2], bar[0], 'alt xətt bara çatmır')
+    eq(bar[3], bottom[1], 'bar alt xəttdə bitmir — küncü yoxdur')
   },
 
   // Quotient-only: nothing was subtracted, so nothing is drawn below the
