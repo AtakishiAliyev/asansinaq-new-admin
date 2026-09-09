@@ -163,6 +163,10 @@ export async function applyResult(
           verify_confidence: row.verify_confidence,
           verify_diff: row.verify_diff,
           verified: row.verified === true,
+          // Parked WITH the content it describes. Restoring figures without
+          // their lint leaves the row objecting to a version it no longer
+          // holds — and silent about the one it does.
+          flags: row.flags,
         }
       : null
 

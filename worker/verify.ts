@@ -308,6 +308,21 @@ export async function applyVerdict(
     verified: verdict.matches && verdict.confidence >= LOW_CONFIDENCE,
   })
   if (parked && !decision.keepNew) {
+    // The parked version's OWN lint comes back with its content. Without this
+    // the row carried one version's figures under another's flags: live, a row
+    // was restored with `n^2/n` in the divisor and an empty quotient while
+    // showing the clean lint of the repair that had just been discarded, so
+    // nothing objected to it and nothing could repair it.
+    //
+    // A version parked before flags were parked has none; there the flags in
+    // hand are the best available and are left alone.
+    const restored = Array.isArray(parked.flags)
+      ? (parked.flags as { level: string; code: string; message: string }[]).filter(
+          (f) => f.code !== 'repair_rejected',
+        )
+      : flags
+    flags.length = 0
+    flags.push(...restored)
     flags.push({
       level: 'warning',
       code: 'repair_rejected',

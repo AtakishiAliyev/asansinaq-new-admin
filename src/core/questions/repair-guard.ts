@@ -25,6 +25,23 @@ export interface StoredVersion {
   verify_diff: unknown
   /** Whether that verdict called it a match. */
   verified: boolean
+  /**
+   * The lint this version earned, parked with the content it describes.
+   *
+   * It was not parked at first, and a rollback therefore restored one
+   * version's figures under another version's flags. That is not cosmetic:
+   * `flags` is what auto-approve reads, what the Diqqət lane is computed from,
+   * and what decides whether a deterministic finding buys another read. Live,
+   * a row came back with `n^2/n` in the divisor and an empty quotient while
+   * carrying the clean lint of the repair that had been rolled back — so
+   * nothing objected to it, nothing could repair it, and re-queueing it by
+   * hand produced the same outcome every time.
+   *
+   * Optional because rows parked before this shipped do not have it; a
+   * rollback onto one of those keeps the flags it finds rather than clearing
+   * them, which is the same behaviour as before.
+   */
+  flags?: unknown
 }
 
 export interface RepairDecision {
@@ -119,5 +136,9 @@ export function parseStoredVersion(value: unknown): StoredVersion | null {
       typeof v.verify_confidence === 'number' ? v.verify_confidence : null,
     verify_diff: v.verify_diff ?? null,
     verified: v.verified === true,
+    // Only when the parked version actually carries it. A row parked before
+    // flags were parked has none, and inventing an empty list there would
+    // CLEAR the lint on rollback rather than leave it alone.
+    ...(Array.isArray(v.flags) ? { flags: v.flags } : {}),
   }
 }

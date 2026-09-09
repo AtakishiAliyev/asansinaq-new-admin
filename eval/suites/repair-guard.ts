@@ -137,6 +137,42 @@ export const repairGuardSuite = suite('repair-guard', {
     eq(parsed?.verified, true, 'and its verdict')
   },
 
+  // The lint travels WITH the content it describes. Without it a rollback
+  // restored one version's figures under another version's flags — and `flags`
+  // is what auto-approve reads, what the Diqqət lane is computed from, and what
+  // decides whether a deterministic finding buys another read. Live, a row came
+  // back with `n^2/n` in the divisor and an empty quotient while carrying the
+  // clean lint of the repair that had just been discarded.
+  'a parked version carries its own lint'() {
+    const parsed = parseStoredVersion({
+      stem: 'a',
+      options: [],
+      figures: null,
+      verify_confidence: 0.4,
+      verified: false,
+      flags: [{ level: 'error', code: 'division_role_empty', message: 'x' }],
+    })
+    deepEq(parsed?.flags, [{ level: 'error', code: 'division_role_empty', message: 'x' }], 'bayraqlar oxunmur')
+  },
+
+  // A row parked before flags were parked has none, and inventing an empty
+  // list there would CLEAR the lint on rollback rather than leave it alone.
+  'a version parked without flags reports none rather than an empty list'() {
+    const parsed = parseStoredVersion({
+      stem: 'a',
+      options: [],
+      figures: null,
+      verify_confidence: 0.4,
+      verified: false,
+    })
+    eq(parsed?.flags, undefined, 'boş siyahı uydurulur')
+    eq(
+      parseStoredVersion({ stem: 'a', options: [], figures: null, verify_confidence: 1, verified: true, flags: 'x' })?.flags,
+      undefined,
+      'siyahı olmayan dəyər qəbul edilir',
+    )
+  },
+
   // `figures: null` is a legitimate value — a question with no figure — so
   // presence must not be judged on it.
   'a parked version with no figure is still a version'() {

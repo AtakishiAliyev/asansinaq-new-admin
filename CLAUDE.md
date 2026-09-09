@@ -351,7 +351,15 @@ what each stage needs.
   breakpoint, as a checklist to test against the picture
   (`core/extract/repair-notes.ts`). Until they did, a repair was the same crop
   with the same words and no sampling, and it came back the same — the log
-  showed one row mismatching three times in a row on identical output. The
+  showed one row mismatching three times in a row on identical output.
+  **A parked version carries its own LINT as well as its verdict.** It did not
+  at first, so a rollback restored one version's figures under another
+  version's flags — and `flags` is what auto-approve reads, what the Diqqət
+  lane is computed from, and what decides whether a deterministic finding buys
+  another read. Live, a row came back showing `n^2/n` in a divisor and an empty
+  quotient while carrying the clean lint of the repair that had just been
+  discarded: nothing objected to it, nothing could repair it, and re-queueing
+  it by hand reached the same place every time. The
   verifier is told, in as many words, that a shaded region is a difference
   and always critical, and a venn's claims list exactly which regions are
   shaded — it passed two moved shadings with an empty diff before it was.
