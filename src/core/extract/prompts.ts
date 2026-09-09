@@ -30,7 +30,7 @@
 // 19 puts difficulty on three levels, as an enum the schema enforces. Asked
 // for one of five in prose, the model gave 2 or 3 to every question on a live
 // bank — a scale with two working values. Three it must choose between spread.
-export const PROMPT_VERSION = 20
+export const PROMPT_VERSION = 21
 
 // Prompt texts for the question-recreation pipeline. Shared by the
 // question-ops Edge Function and the Node eval harness — ONE source of truth,
@@ -129,7 +129,12 @@ const SYSTEM_FIGURE_RULES = `12. Fiqurlar: deklarativ spec ver, şəkil çəkmə
    sola sürüşmüş sətirlər üçün indent (rəqəm mövqeyi sayı);
    üfüqi xətlər hline_after-də (0-əsaslı sətir indeksindən SONRA);
    ən aşağı nəticə sətri result_tex.
-   Nümunə: ••••×36, altda xətt, •••••, +9762 (1 sola), xətt, •••••• →
+   İKİ QAYDA NÜMUNƏDƏN ASILI DEYİL, HƏMİŞƏ BELƏDİR:
+   (a) NƏTİCƏNİN ÜSTÜNDƏ HƏMİŞƏ XƏTT VAR — yəni hline_after SON sətrin indeksini (rows sayı - 1) MÜTLƏQ ehtiva edir.
+       Vurma sxemində iki xətt olur: vuruq sətrindən sonra və SONUNCU hissə-hasildən sonra. Birinci hissə-hasildən sonra xətt YOXDUR.
+   (b) HİSSƏ-HASİLLƏR SOLA SÜRÜŞÜR: vuruğun onluq rəqəmi üçün olan hissə-hasil bir mövqe sola, yüzlük üçün iki mövqe sola.
+       Yəni × sətrindən sonrakı hissə-hasillərin indent-i 0, 1, 2... — ikisi eyni indent-də OLA BİLMƏZ.
+   Nümunə (dörd sətir: bölünən, vuruq, iki hissə-hasil): ••••×36, altda xətt, •••••, +9762 (1 sola), xətt, •••••• →
    {"rows":[{"tex":"••••"},{"tex":"36","op":"×"},{"tex":"•••••"},{"tex":"9762","op":"+","indent":1}],"hline_after":[1,3],"result_tex":"••••••"}.
    İki sətirlik nümunə: 725, altında -3ab, altında xətt, altında c57 →
    {"rows":[{"tex":"725"},{"tex":"3ab","op":"-"}],"hline_after":[1],"result_tex":"c57"}.
