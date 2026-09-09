@@ -16,7 +16,16 @@ import type {
   TableFig,
   VerticalArithmetic,
 } from '@/core/figures/figspec'
-import { esc, hex, num, plainTextRenderer, tag, type TexRenderer } from '@/core/figures/svg-emit'
+import {
+  esc,
+  hex,
+  num,
+  overlineRule,
+  plainTextRenderer,
+  splitOverline,
+  tag,
+  type TexRenderer,
+} from '@/core/figures/svg-emit'
 
 const SIZE = 13
 const PAD = 8
@@ -57,28 +66,36 @@ function arithmeticText(
   size: number,
   fallback: TexRenderer,
 ): { svg: string; width: number; height: number } {
-  const text = tex.replace(/\$+/g, '').trim()
+  // `\overline{ab}` is drawn here rather than deferred: the bar is the whole
+  // difference between a two-digit number and a product, and deferring it put
+  // one MathJax italic serif row in the middle of an otherwise sans figure.
+  const { inner, overline } = splitOverline(tex)
+  const text = inner.replace(/\$+/g, '').trim()
   if (!PLAIN_TEXT.test(text)) return fallback(tex, size)
   const chars = [...text].length
+  // The trailing gap is counted in on purpose. Every row carries the same one,
+  // so a right-aligned stack still lines up exactly; leaving it out would make
+  // the box narrower than the ink and push the last character over the edge it
+  // is aligned to.
+  const width = Math.ceil(chars * size * (SANS_ADVANCE + TRACKING))
+  const body = tag(
+    'text',
+    {
+      x: 0,
+      y: num(size * (overline ? 0.9 : 0.78)),
+      'font-size': size,
+      'font-family': ARITHMETIC_FONT,
+      'letter-spacing': num(size * TRACKING),
+      fill: 'currentColor',
+    },
+    esc(text),
+  )
   return {
-    svg: tag(
-      'text',
-      {
-        x: 0,
-        y: num(size * 0.78),
-        'font-size': size,
-        'font-family': ARITHMETIC_FONT,
-        'letter-spacing': num(size * TRACKING),
-        fill: 'currentColor',
-      },
-      esc(text),
-    ),
-    // The trailing gap is counted in on purpose. Every row carries the same
-    // one, so a right-aligned stack still lines up exactly; leaving it out
-    // would make the box narrower than the ink and push the last character
-    // over the edge it is aligned to.
-    width: Math.ceil(chars * size * (SANS_ADVANCE + TRACKING)),
-    height: Math.ceil(size * 1.15),
+    // The bar stops short of the trailing letter-space, so it covers the
+    // digits and not the gap the measurement leaves after them.
+    svg: overline ? body + overlineRule(width - size * TRACKING, size) : body,
+    width,
+    height: Math.ceil(size * (overline ? 1.27 : 1.15)),
   }
 }
 

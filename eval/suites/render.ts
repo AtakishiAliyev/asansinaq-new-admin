@@ -10,7 +10,7 @@ import { boxDistance, boxSegDistance, type Vec } from '@/core/figures/layout'
 import { wireToQuestion } from '@/core/questions/extraction'
 import { lintQuestion } from '@/core/questions/lint'
 import { ARITHMETIC_SIZE } from '@/core/figures/render-simple'
-import type { TexRenderer } from '@/core/figures/svg-emit'
+import { plainTextRenderer, type TexRenderer } from '@/core/figures/svg-emit'
 import { eq, notOk, ok, suite } from '../harness.ts'
 
 // The first coverage rendering has ever had.
@@ -671,13 +671,50 @@ export const renderSuite = suite('render', {
       height: size,
     })
     eq(renderFigItem(fig), renderFigItem(fig, { tex: italic }), 'enjektə edilən şrift sxemə sızır')
-    // Real mathematics still goes to it: an overline IS the notation for a
-    // multi-digit number, and plain letter-spaced text cannot carry it.
-    const overlined = renderFigItem(
-      { ...fig, rows: [{ tex: '\\overline{ab}' }, { tex: 'CA9', op: '+' }] },
+    // Real mathematics still goes to it — a power, a fraction — because
+    // letter-spaced plain text cannot carry either.
+    const power = renderFigItem(
+      { ...fig, rows: [{ tex: 'x^2+3x' }, { tex: 'CA9', op: '+' }] },
       { tex: italic },
     )
-    ok(overlined.includes('font-style="italic"'), 'həqiqi riyaziyyat enjektə edilən şriftə getmir')
+    ok(power.includes('font-style="italic"'), 'həqiqi riyaziyyat enjektə edilən şriftə getmir')
+  },
+
+  // `\overline{ab}` is the two-digit number whose digits are a and b; `ab`
+  // without the bar is the product a·b. The command map expanded `\overline`
+  // to the empty string, so every one of them silently became the other. It is
+  // drawn in the scheme's OWN font rather than deferred, or one MathJax italic
+  // serif row would sit in the middle of an otherwise sans figure.
+  'an overlined number keeps its bar, in the scheme own font'() {
+    const fig: FigItem = {
+      kind: 'vertical_arithmetic',
+      rows: [{ tex: '\\overline{9BC}' }, { tex: '\\overline{CB}', op: '+' }],
+      hlineAfter: [1],
+      resultTex: '1••5',
+    }
+    const svg = renderFigItem(fig)
+    const texts = [...svg.matchAll(/<text[^>]*>([^<]*)<\/text>/g)].map((m) => m[1]!)
+    ok(texts.includes('9BC'), `mətn itib: ${texts.join(', ')}`)
+    notOk(svg.includes('overline'), 'əmr mətn kimi çap olunub')
+    // Two rows carry a bar, plus the operation's own rule.
+    eq((svg.match(/<line /g) ?? []).length, 3, 'üst xətt çəkilmir')
+    // The bar sits ABOVE the digits it covers, not through them.
+    const barY = Number(svg.match(/<line x1="0" y1="([\d.]+)"/)![1])
+    const baseline = Number(svg.match(/<text x="0" y="([\d.]+)"/)![1])
+    ok(barY < baseline - ARITHMETIC_SIZE * 0.7, `üst xətt rəqəmlərin üstündə deyil: ${barY} / ${baseline}`)
+    // And it does not depend on the typesetter: the panel and the worker draw
+    // the same bytes, which is what makes the two comparable glyph for glyph.
+    const italic: TexRenderer = (t, size) => ({ svg: `<text font-size="${size}">${t}</text>`, width: t.length * size, height: size })
+    eq(renderFigItem(fig, { tex: italic }), svg, 'enjektə edilən şrift üst xətti dəyişir')
+  },
+
+  // The shared fallback lost it too, which is where geometry and graph labels
+  // get their glyphs: `\overline{AB}` on a segment is the segment's name.
+  'the shared typesetter draws an overline rather than dropping it'() {
+    const { svg, height } = plainTextRenderer('\\overline{AB}', 20)
+    ok(svg.includes('AB'), 'mətn itib')
+    ok(svg.includes('<line '), 'üst xətt çəkilmir')
+    ok(height > 20 * 1.15, 'qutu üst xətt üçün böyüməyib')
   },
 
   // The books elide the subtraction: not one of seven live schemes printed the
