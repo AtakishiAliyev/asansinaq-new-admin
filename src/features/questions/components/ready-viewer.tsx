@@ -69,12 +69,20 @@ function Field({
 export function ReadyViewer({
   items,
   index,
+  offset = 0,
+  total,
   categories,
   onNavigate,
   onClose,
 }: {
   items: QuestionListItem[]
   index: number
+  /** Where the loaded page starts in the whole list — see the table's own. */
+  offset?: number
+  /** The filtered list's full size, so the counter names the same row the
+   *  table's first column does. The ARROWS still move within the loaded page;
+   *  crossing a page boundary is the pager's job. */
+  total?: number
   /** The OPEN row's own subject tree, so the picker is never empty. */
   categories: Category[]
   onNavigate: (id: number) => void
@@ -164,7 +172,7 @@ export function ReadyViewer({
           ) : null}
           <VerifiedBadge verified={item.verified} />
           <span className="text-muted-foreground ml-auto text-sm tabular-nums">
-            {index + 1} / {items.length}
+            {offset + index + 1} / {total ?? items.length}
           </span>
           <Button
             variant="ghost"

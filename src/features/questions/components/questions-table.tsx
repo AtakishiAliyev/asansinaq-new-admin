@@ -74,12 +74,21 @@ export interface TableSelection {
 export function QuestionsTable({
   items,
   variant = 'work',
+  offset = 0,
   selection,
   categoryName,
   onOpen,
 }: {
   items: QuestionListItem[]
   variant?: 'work' | 'ready'
+  /**
+   * Where this page starts in the whole filtered list, so the number in the
+   * first column is the question's place in the catalogue rather than its
+   * place on the screen. An operator working through 142 questions closes the
+   * viewer at 50 and has to find 50 again; a column that restarts at 1 on
+   * every page cannot tell them which row that was.
+   */
+  offset?: number
   /** Omitted on a list nothing can be done to in bulk — no checkbox column. */
   selection?: TableSelection
   /** Resolves a category id to its label; only read by the ready variant. */
@@ -104,6 +113,9 @@ export function QuestionsTable({
               />
             </TableHead>
           ) : null}
+          <TableHead className="text-muted-foreground w-12 text-right text-xs font-normal">
+            #
+          </TableHead>
           <TableHead className="w-24">Görüntü</TableHead>
           <TableHead>Kitab / yer</TableHead>
           <TableHead>Sual</TableHead>
@@ -122,7 +134,7 @@ export function QuestionsTable({
         </TableRow>
       </TableHeader>
       <TableBody>
-        {items.map((q) => {
+        {items.map((q, i) => {
           const flags = parseFlags(q.flags)
           const errors = flags.filter((f) => f.level === 'error').length
           const url = signed.data?.get(q.crop_path)
@@ -143,6 +155,9 @@ export function QuestionsTable({
                   />
                 </TableCell>
               ) : null}
+              <TableCell className="text-muted-foreground text-right text-xs tabular-nums">
+                {offset + i + 1}
+              </TableCell>
               <TableCell>
                 {url ? (
                   <img

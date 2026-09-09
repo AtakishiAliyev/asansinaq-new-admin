@@ -281,6 +281,7 @@ export function ReadyPage() {
         <QuestionsTable
           items={items}
           variant="ready"
+          offset={page * QUESTIONS_PAGE_SIZE}
           selection={{
             selected: selectedIds,
             onToggle: toggleOne,
@@ -325,6 +326,8 @@ export function ReadyPage() {
         <ReadyViewer
           items={items}
           index={openIndex}
+          offset={page * QUESTIONS_PAGE_SIZE}
+          total={total}
           categories={openCategories.data ?? []}
           onNavigate={setOpenId}
           onClose={() => setOpenId(null)}
