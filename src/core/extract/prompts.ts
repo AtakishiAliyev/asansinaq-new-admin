@@ -30,7 +30,7 @@
 // 19 puts difficulty on three levels, as an enum the schema enforces. Asked
 // for one of five in prose, the model gave 2 or 3 to every question on a live
 // bank — a scale with two working values. Three it must choose between spread.
-export const PROMPT_VERSION = 19
+export const PROMPT_VERSION = 20
 
 // Prompt texts for the question-recreation pipeline. Shared by the
 // question-ops Edge Function and the Node eval harness — ONE source of truth,
@@ -121,14 +121,18 @@ const SYSTEM_FIGURE_RULES = `12. Fiqurlar: deklarativ spec ver, şəkil çəkmə
    Hər rol ÖZ xanasına. Xananın içinə "/" və ya \\frac YAZMA — bir xanada iki rol olmaz.
    Xanalar ifadədirsə (n^2, K+4, a+1) rollar asan qarışır: şəkildəki YERİNƏ bax, ifadənin özünə yox.
    Səhifədə YANAŞI iki sxem varsa İKİSİNİ də ver və layout_direction="row" qoy — biri şərt, o biri sualdır.
-14. ŞAQULİ HESAB (alt-alta çarpma/toplama) — kind="vertical_arithmetic":
-   rows = çap olunduğu sıra ilə YUXARIDAN AŞAĞI hər sətir; sətrin solunda operator varsa həmin sətrə op yaz ("×" vuruq sətrində, "+" sürüşdürülmüş hissə-hasil sətrində);
+14. ŞAQULİ HESAB (alt-alta yazılmış TOPLAMA, ÇIXMA və ya ÇARPMA) — kind="vertical_arithmetic":
+   Rəqəmləri/hərfləri ALT-ALTA düzülmüş, altında üfüqi xətt olan HƏR əməliyyat bu fiqurdur — iki sətirlik sadə toplama və çıxma da daxil.
+   Onu şərtin içində sətir-sətir mətn kimi YAZMA və "725 - 3ab = c57" kimi bərabərliyə ÇEVİRMƏ: sual sütunların düzülüşü haqqındadır, kim hansı mərtəbədədir — bir sətrə yazılan hesab başqa sualdır.
+   rows = çap olunduğu sıra ilə YUXARIDAN AŞAĞI hər sətir; sətrin solunda operator varsa həmin sətrə op yaz ("+" toplama sətrində, "-" çıxma sətrində, "×" vuruq sətrində, "+" sürüşdürülmüş hissə-hasil sətrində);
    gizli rəqəmlər üçün hər nöqtə əvəzinə "•" simvolu (məs. "••••");
    sola sürüşmüş sətirlər üçün indent (rəqəm mövqeyi sayı);
    üfüqi xətlər hline_after-də (0-əsaslı sətir indeksindən SONRA);
    ən aşağı nəticə sətri result_tex.
    Nümunə: ••••×36, altda xətt, •••••, +9762 (1 sola), xətt, •••••• →
    {"rows":[{"tex":"••••"},{"tex":"36","op":"×"},{"tex":"•••••"},{"tex":"9762","op":"+","indent":1}],"hline_after":[1,3],"result_tex":"••••••"}.
+   İki sətirlik nümunə: 725, altında -3ab, altında xətt, altında c57 →
+   {"rows":[{"tex":"725"},{"tex":"3ab","op":"-"}],"hline_after":[1],"result_tex":"c57"}.
 15. MÜSTƏVİ HƏNDƏSƏ (bucaqlar, şüalar, üçbucaqlar, paralel xətlər) — kind="geometry".
    points: hər adlandırılmış nöqtə {id, x, y, label, dot}. Koordinatlar sadə müstəvi, y AŞAĞI (SVG kimi), width/height ver (məs. 320x240).
    lines: {from, to, kind} — kind="segment" (parça), "ray" (şüa, from-dan to istiqamətinə sonsuz), "line" (düz xətt, hər iki tərəfə sonsuz).

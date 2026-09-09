@@ -211,4 +211,56 @@ export const lintSuite = suite('lint', {
       'a short shared token is not an echo',
     )
   },
+
+  // Three live rows came back with the column sum typed into the stem — `3a5`,
+  // `+638`, `10b3` as three lines and no figure — and were auto-approved,
+  // because a warning does not block auto-approval and nothing else objected.
+  // The question is about lining the columns up; text does not line up.
+  'a column sum typed into the stem is an error'() {
+    const flags = lintQuestion(q({ stem: '3a5 üç basamaklı doğal sayıdır.\n3a5\n+ 638\n10b3\nToplam 3 ile bölünüyorsa a + b kaçtır?' }))
+    const flag = flags.find((f) => f.code === 'column_sum_as_text')
+    ok(flag, `column_sum_as_text: ${flags.map((f) => f.code).join(', ')}`)
+    eq(flag!.level, 'error', 'xəbərdarlıq avto-təsdiqi dayandırmır')
+  },
+
+  'four stacked addends are caught too'() {
+    const stem = 'Verilen işlemde iki basamaklı dört doğal sayı toplanıyor.\naa\nab\nbb\n+ ba\n198\nBuna göre kaç farklı ba sayısı yazılabilir?'
+    ok(codes(q({ stem })).includes('column_sum_as_text'), 'dörd toplanan tutulmur')
+  },
+
+  // The figure IS there — the model may quote a line of it in prose, and
+  // flagging that would fire on every column question that got it right.
+  'a stem beside a real vertical_arithmetic figure is left alone'() {
+    const flags = codes(
+      q({
+        stem: '3a5\n+ 638\n10b3',
+        figures: {
+          v: 1,
+          items: [
+            {
+              kind: 'vertical_arithmetic',
+              rows: [{ tex: '3a5' }, { tex: '638', op: '+' }],
+              hlineAfter: [1],
+              resultTex: '10b3',
+            },
+          ],
+        },
+      } as never),
+    )
+    notOk(flags.includes('column_sum_as_text'), 'fiqur varkən bayraq qalxır')
+  },
+
+  // Ordinary multi-line stems must survive: premise lines carry `=`, words and
+  // punctuation, and none of them is a stacked operation.
+  'a premise stated on its own lines is not a column sum'() {
+    const stem = 'a ve b tam sayılardır.\n$a = 3$\n$b = 5$\nBuna göre a + b kaçtır?'
+    notOk(codes(q({ stem })).includes('column_sum_as_text'), 'adi şərt sətirləri bayraq qaldırır')
+  },
+
+  // Two lines are not enough: a stacked operation the books print has at least
+  // two operands and a result, and a two-line run is too easy to hit by
+  // accident — a short label above a short value, say.
+  'two short lines alone are not a column sum'() {
+    notOk(codes(q({ stem: 'K\n+ 12' })).includes('column_sum_as_text'), 'iki sətir bayraq qaldırır')
+  },
 })

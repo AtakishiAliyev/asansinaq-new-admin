@@ -151,6 +151,42 @@ function lintFigureRefs(q: ExtractedQuestion): Flag[] {
   return flags
 }
 
+/**
+ * Whether the stem holds an alt-alta operation that should have been a figure.
+ *
+ * Tight on purpose. It wants at least three consecutive lines that are each a
+ * bare number-or-letters group, optionally led by an operator, and at least
+ * one line that carries the operator — which is a column sum and very little
+ * else. A stem that already has the figure is left alone: the model may
+ * legitimately repeat a line of it in prose.
+ */
+function looksLikeTypedColumnSum(q: ExtractedQuestion): boolean {
+  if (q.figures?.items.some((i) => i.kind === 'vertical_arithmetic')) return false
+  // Strip the maths delimiters: the model wraps these lines in `$…$` about
+  // half the time, and the shape is the same either way.
+  const lines = q.stem
+    .split('\n')
+    .map((l) => l.replace(/\$\$?/g, '').replace(/\\overline\s*\{([^}]*)\}/g, '$1').trim())
+    .filter((l) => l.length > 0)
+  // A row of the stack: digits, letters and masked-digit dots, nothing else.
+  // No `=`, which is what separates a stacked operation from a stated one.
+  const ROW = /^([+\-−×÷]\s*)?[0-9a-zA-Z•.,]{1,8}$/
+  let run = 0
+  let withOperator = 0
+  for (const line of lines) {
+    const m = ROW.exec(line)
+    if (!m) {
+      run = 0
+      withOperator = 0
+      continue
+    }
+    run++
+    if (m[1]) withOperator++
+    if (run >= 3 && withOperator >= 1) return true
+  }
+  return false
+}
+
 export function lintQuestion(q: ExtractedQuestion, expectedNumber?: number): Flag[] {
   const flags: Flag[] = []
   const add = (level: Flag['level'], code: string, message: string) => flags.push({ level, code, message })
@@ -181,6 +217,27 @@ export function lintQuestion(q: ExtractedQuestion, expectedNumber?: number): Fla
     }
   }
   if (/saveh|oca/i.test(q.stem)) add('error', 'watermark_leak', 'Mətndə watermark izi (saveh/oca)')
+
+  // A column sum typed into the stem instead of drawn.
+  //
+  // Three live rows came back with `3a5 / +638 / 10b3` as three lines of stem
+  // text and no figure at all, and one with `725 - 3ab = c57` flattened onto a
+  // single line. Every one of them read correctly and every one of them lost
+  // the question: these are masked-digit puzzles, and what the student is
+  // asked to do is line the columns up. A sum on one line, or in lines the
+  // renderer sets flush-left, is a different question with the same numbers.
+  //
+  // An ERROR rather than a warning, and deliberately: a warning would not stop
+  // auto-approval, which is exactly how those rows reached the approved lane
+  // with nobody looking. A false positive costs one review; a miss puts an
+  // unanswerable question in front of a student.
+  if (looksLikeTypedColumnSum(q)) {
+    add(
+      'error',
+      'column_sum_as_text',
+      'Sütunlu hesab şərtə mətn kimi yazılıb — vertical_arithmetic fiquru olmalıdır',
+    )
+  }
 
   // math compiles
   extractTex(q.stem).forEach((t) => {
