@@ -72,6 +72,18 @@ export function ReadyPage() {
     return categoryLabel(categories.data ?? [], id) ?? `#${id}`
   }
 
+  // The OPEN question's own book decides its topic tree, not the filter's.
+  // With "all books" selected there is no filter subject, so the viewer had no
+  // tree at all and showed a bare `#9` where the topic's name belongs — and
+  // could not offer to change it, because a picker with an empty list is not a
+  // choice. Loading it per open row also means the tree is always the right
+  // one when the list spans several books.
+  const openItem = openIndex >= 0 ? items[openIndex] : undefined
+  const openBook = openItem
+    ? (books.data ?? []).find((b) => b.id === openItem.book_id)
+    : undefined
+  const openCategories = useCategories(openBook?.subject_id ?? null)
+
   function updateFilters(patch: Partial<QuestionFilters>) {
     setFilters((f) => ({ ...f, ...patch }))
     setPage(0) // a filter change invalidates the offset
@@ -312,7 +324,7 @@ export function ReadyPage() {
         <ReadyViewer
           items={items}
           index={openIndex}
-          categoryName={categoryName}
+          categories={openCategories.data ?? []}
           onNavigate={setOpenId}
           onClose={() => setOpenId(null)}
         />

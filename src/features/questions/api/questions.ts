@@ -293,6 +293,65 @@ export function useRejectQuestion() {
 }
 
 /**
+ * One field at a time, not the whole trio.
+ *
+ * Sending all three on every edit reintroduces the row's own state as an input:
+ * two clicks in quick succession both read the values the SECOND one has not
+ * seen refreshed yet, so setting a difficulty writes back the answer as it was
+ * before the click that preceded it. Every field here is optional and only the
+ * ones present are written.
+ */
+export interface EditApprovedInput {
+  id: number
+  categoryId?: number
+  reviewerDifficulty?: number
+  /** Always a reviewer's own pick here — the printed key never writes through
+   *  this path — so it carries `answer_source` with it. */
+  answer?: string
+}
+
+/**
+ * Correct the three fields of a question that is already live.
+ *
+ * Not `useApproveQuestion` with a different name: that one also writes
+ * `status` and `reviewed_at`, which on an approved row means restamping a
+ * decision nobody took again. This writes what changed and nothing else.
+ *
+ * `verified` is deliberately untouched. The wave's verdict is about whether
+ * the RECREATION matches the crop — the stem, the options, the figure — and
+ * none of these three fields is part of that comparison. Clearing it here
+ * would send a question that was already checked back through a paid
+ * re-verification to learn nothing.
+ *
+ * `answer_source` moves to `reviewer` only when the reviewer actually chose,
+ * so an answer that came from the printed key and was merely displayed is not
+ * relabelled as a human's.
+ */
+export function useEditApproved() {
+  return useQuestionMutation<EditApprovedInput>(
+    async (input) => {
+      const { error } = await supabase
+        .from('questions')
+        .update({
+          ...(input.categoryId === undefined
+            ? {}
+            : { category_id: input.categoryId }),
+          ...(input.reviewerDifficulty === undefined
+            ? {}
+            : { reviewer_difficulty: input.reviewerDifficulty }),
+          ...(input.answer === undefined
+            ? {}
+            : { answer: input.answer, answer_source: 'reviewer' as const }),
+        })
+        .eq('id', input.id)
+        .eq('status', 'approved')
+      if (error) throw error
+    },
+    () => 'Dəyişiklik saxlanıldı',
+  )
+}
+
+/**
  * Send an approved question back to review.
  *
  * The only write the ready screen has, and it is deliberately the reverse of
