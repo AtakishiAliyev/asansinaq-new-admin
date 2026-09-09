@@ -621,7 +621,15 @@ questions, so cost is a first-class concern, not an afterthought.
   resolved model — an unchanged re-run is nearly free.
 - A daily budget cap (`DAILY_BUDGET_USD`, checked via `ops_spend_today()`)
   refuses new spend server-side. The client treats that refusal as a stop, not
-  as a per-question failure.
+  as a per-question failure. **It is set in TWO places and they can disagree**:
+  the worker's own environment (`render.yaml`, and `.env` when it runs locally)
+  where `worker/config.ts` REQUIRES it, and the `question-ops` function's
+  secrets, where it falls back to 20 if unset. The panel's Xərclər page reads
+  the cap from the function, so an unset secret shows a limit the worker is not
+  using — and the interactive import ops start refusing at 20 while the worker
+  spends on to 50. Set both: `npx supabase secrets set DAILY_BUDGET_USD=…`
+  alongside the worker's. A secret change does not redeploy the function; the
+  new value lands on its next cold start.
 - Batch work is paced by the Batches API itself, not by a client gate. The
   shared rate gate (`lib/rate-gate.ts`) covers the browser's *interactive* ops
   only: a provider 429 backs every caller off together and lowers the ceiling,
