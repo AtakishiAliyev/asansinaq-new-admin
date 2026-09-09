@@ -16,10 +16,71 @@ import type {
   TableFig,
   VerticalArithmetic,
 } from '@/core/figures/figspec'
-import { hex, num, plainTextRenderer, tag, type TexRenderer } from '@/core/figures/svg-emit'
+import { esc, hex, num, plainTextRenderer, tag, type TexRenderer } from '@/core/figures/svg-emit'
 
 const SIZE = 13
 const PAD = 8
+
+/**
+ * The typesetter for the arithmetic schemes, and the reason it is not the
+ * shared one.
+ *
+ * The books set these puzzles in an upright SANS with the characters held
+ * well apart — `4 5 B`, `+ C A 9` — because the reader's whole job is to see
+ * which digit is over which. What we drew was Georgia in the panel and
+ * MathJax's italic serif in the worker: two different faces for one figure,
+ * neither of them the book's, and letters so tight that a three-character
+ * number read as a word.
+ *
+ * Handled here rather than by changing `plainTextRenderer`, which is right as
+ * it is for geometry and graph labels — a variable on an axis SHOULD be
+ * italic serif. And handled for BOTH renderers, so the figure the operator
+ * approves in the panel is the figure the verification wave rasterises;
+ * before this they could not be compared glyph for glyph because they were
+ * set in different fonts.
+ *
+ * Anything with real mathematics in it — `\overline{ab}`, `x^2+3x`, a
+ * fraction — is passed to the injected renderer untouched. Those carry
+ * meaning that letter-spaced plain text cannot: an overline IS the notation
+ * for a multi-digit number, and dropping it changes the question.
+ */
+const ARITHMETIC_FONT = 'Arial, Helvetica, "DejaVu Sans", sans-serif'
+/** Digits and capitals average about this much of the size in either face. */
+const SANS_ADVANCE = 0.64
+/** The air the book leaves between characters, as a fraction of the size. */
+const TRACKING = 0.15
+/** Only ordinary characters: no command, no script, no fraction. */
+const PLAIN_TEXT = /^[0-9A-Za-z•·.,\s+\-−×÷=()]+$/
+
+function arithmeticText(
+  tex: string,
+  size: number,
+  fallback: TexRenderer,
+): { svg: string; width: number; height: number } {
+  const text = tex.replace(/\$+/g, '').trim()
+  if (!PLAIN_TEXT.test(text)) return fallback(tex, size)
+  const chars = [...text].length
+  return {
+    svg: tag(
+      'text',
+      {
+        x: 0,
+        y: num(size * 0.78),
+        'font-size': size,
+        'font-family': ARITHMETIC_FONT,
+        'letter-spacing': num(size * TRACKING),
+        fill: 'currentColor',
+      },
+      esc(text),
+    ),
+    // The trailing gap is counted in on purpose. Every row carries the same
+    // one, so a right-aligned stack still lines up exactly; leaving it out
+    // would make the box narrower than the ink and push the last character
+    // over the edge it is aligned to.
+    width: Math.ceil(chars * size * (SANS_ADVANCE + TRACKING)),
+    height: Math.ceil(size * 1.15),
+  }
+}
 
 const place = (fragment: { svg: string }, x: number, y: number): string =>
   tag('g', { transform: `translate(${num(x)} ${num(y)})` }, fragment.svg)
@@ -164,15 +225,16 @@ export function renderDivisionScheme(
   const gapX = S * 0.6 // dividend → bar, and bar → divisor
   const rowH = S * 1.45
   const rule = S * 0.08 // stroke weight: the book's lines are thin at this scale
-  const dividend = tex(fig.dividendTex, S)
-  const divisor = tex(fig.divisorTex, S)
-  const quotient = tex(fig.quotientTex, S)
+  const glyph = (t: string) => arithmeticText(t, S, tex)
+  const dividend = glyph(fig.dividendTex)
+  const divisor = glyph(fig.divisorTex)
+  const quotient = glyph(fig.quotientTex)
   const steps: { label: { svg: string; width: number } | null; op: { svg: string; width: number } | null }[] =
     (fig.steps ?? []).map((s) => ({
-      label: tex(s.tex, S),
-      op: s.op ? tex(s.op, S) : null,
+      label: glyph(s.tex),
+      op: s.op ? glyph(s.op) : null,
     }))
-  const remainder = fig.remainderTex ? tex(fig.remainderTex, S) : null
+  const remainder = fig.remainderTex ? glyph(fig.remainderTex) : null
 
   // The books ELIDE the subtraction. Not one of seven live schemes printed the
   // `divisor × quotient` row: each shows the dividend, a `−` at the left of
@@ -295,17 +357,18 @@ export function renderVerticalArithmetic(
   tex: TexRenderer = plainTextRenderer,
 ): string {
   const S = ARITHMETIC_SIZE
+  const glyph = (t: string) => arithmeticText(t, S, tex)
   const rows = (fig.rows ?? []).map((r) => ({
-    label: tex(r.tex, S),
-    op: r.op ? tex(r.op, S) : null,
+    label: glyph(r.tex),
+    op: r.op ? glyph(r.op) : null,
     indent: r.indent ?? 0,
   }))
-  const result = fig.resultTex ? tex(fig.resultTex, S) : null
+  const result = fig.resultTex ? glyph(fig.resultTex) : null
   if (!rows.length && !result) return svgWrap(S * 1.4, S * 0.7, '')
 
   // Everything below is in glyph units, so the figure keeps the book's
   // proportions whatever the size is set to.
-  const digit = S * 0.62 // one column of the right-aligned stack
+  const digit = S * (SANS_ADVANCE + TRACKING) // one column of the right-aligned stack
   const rowH = S * 1.35
   const weight = S * 0.08 // the book's rules are thin at this scale
   const pad = S * 0.3

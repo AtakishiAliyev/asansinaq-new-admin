@@ -10,6 +10,7 @@ import { boxDistance, boxSegDistance, type Vec } from '@/core/figures/layout'
 import { wireToQuestion } from '@/core/questions/extraction'
 import { lintQuestion } from '@/core/questions/lint'
 import { ARITHMETIC_SIZE } from '@/core/figures/render-simple'
+import type { TexRenderer } from '@/core/figures/svg-emit'
 import { eq, notOk, ok, suite } from '../harness.ts'
 
 // The first coverage rendering has ever had.
@@ -642,6 +643,41 @@ export const renderSuite = suite('render', {
     const opX = xs[1]!
     eq(Number(line[1]), opX, 'xətt operatordan başlamır')
     ok(Number(line[2]) > xs[0]! + ARITHMETIC_SIZE, 'xətt rəqəmlərin sağına çatmır')
+    // The book's face: upright sans, characters held apart, so the reader can
+    // see which digit is over which. Georgia in the panel and MathJax's italic
+    // serif in the worker meant one figure had two faces, neither the book's,
+    // and a three-character number read as a word.
+    ok(/font-family="[^"]*sans-serif"/.test(svg), 'sxem sans şriftlə çəkilmir')
+    notOk(/Georgia/.test(svg), 'sxemdə serif şrift qalıb')
+    const spacing = Number(svg.match(/letter-spacing="([\d.]+)"/)![1])
+    ok(spacing > ARITHMETIC_SIZE * 0.1, `simvol aralığı dar: ${spacing}`)
+  },
+
+  // Both typesetters must draw a plain arithmetic row the SAME way. Before
+  // this the panel showed Georgia and the verification wave rasterised
+  // MathJax italic, so the figure the operator approved and the figure the
+  // comparison scored were set in different fonts and could not be compared
+  // glyph for glyph.
+  'a plain arithmetic row ignores the injected typesetter'() {
+    const fig: FigItem = {
+      kind: 'vertical_arithmetic',
+      rows: [{ tex: '45B' }, { tex: 'CA9', op: '+' }],
+      hlineAfter: [1],
+      resultTex: 'A2A',
+    }
+    const italic: TexRenderer = (t, size) => ({
+      svg: `<text font-size="${size}" font-style="italic">${t}</text>`,
+      width: t.length * size,
+      height: size,
+    })
+    eq(renderFigItem(fig), renderFigItem(fig, { tex: italic }), 'enjektə edilən şrift sxemə sızır')
+    // Real mathematics still goes to it: an overline IS the notation for a
+    // multi-digit number, and plain letter-spaced text cannot carry it.
+    const overlined = renderFigItem(
+      { ...fig, rows: [{ tex: '\\overline{ab}' }, { tex: 'CA9', op: '+' }] },
+      { tex: italic },
+    )
+    ok(overlined.includes('font-style="italic"'), 'həqiqi riyaziyyat enjektə edilən şriftə getmir')
   },
 
   // The books elide the subtraction: not one of seven live schemes printed the
