@@ -156,7 +156,7 @@ export function renderDivisionScheme(
 ): string {
   const S = DIVISION_SIZE
   // Spacing in glyph units, so the figure keeps its proportions at any size.
-  const gapX = S * 0.5
+  const gapX = S * 0.6 // dividend → bar, and bar → divisor
   const rowH = S * 1.45
   const rule = S * 0.08 // stroke weight: the book's lines are thin at this scale
   const dividend = tex(fig.dividendTex, S)
@@ -182,35 +182,45 @@ export function renderDivisionScheme(
   // the verification wave — comparing pictures — reported the missing `−` and
   // rule on every one of those seven rows. The minus is what makes it not a
   // fraction, and the book prints it every time.
-  if (!steps.length && remainder) steps.push({ label: null, op: tex('-', S) })
+  const elided = !steps.length && !!remainder
 
-  // The geometry is the book's, measured off its own crops:
+  // The elided minus is a STROKE, not a glyph. The two typesetters disagree
+  // about what `-` is — the browser's serif prints a hyphen a third of an em
+  // wide, MathJax a minus nearly an em — so the same scheme came out with a
+  // different mark in the panel and on the verification page, and neither
+  // was the book's: a thin bar six tenths of a glyph long, drawn level with
+  // the quotient. A line is the same in both and is measured, not guessed.
+  const minusLen = S * 0.6
+  const minusX = S * 0.3
+
+  // The geometry is the book's, measured off its own crops, in glyph heights:
   //
-  //        A │ B          the dividend ends at the bar, the divisor starts after it
-  //          ├────        a rule under the divisor, from the bar outward
-  //   −      │ 4          the minus at the far left, the quotient centred under B
-  //   ───────┘            the last rule runs INTO the bar, and the bar ENDS there
-  //        5              the remainder centred under the dividend
+  //        A │ B          0.6 either side of the bar
+  //          ├────        the rule under the divisor, 0.5 past its right edge
+  //   −      │ 4          the minus 1.8 left of the dividend, level with the
+  //   ───────┘            quotient; the last rule runs from the minus's own
+  //        5              left end INTO the bar, and the bar ENDS there
   //
   // Two of those were drawn wrong before and read as a different figure. The
   // bar ran the full height, past the remainder, so the remainder sat beside a
   // bracket it is not inside; and the rule stopped short of the bar, so the
   // two never met. In the book they form a corner, and the corner is the
-  // shape a reader recognises as "division" from across the room.
-  const opWidth = Math.max(0, ...steps.map((s) => s.op?.width ?? 0))
+  // shape a reader recognises as "division" from across the room. The rule's
+  // LENGTH is part of that shape too: it starts where the minus starts, well
+  // left of the dividend, not a glyph's width before the bar.
+  const opWidth = Math.max(elided ? minusLen : 0, ...steps.map((s) => s.op?.width ?? 0))
   const leftInner = Math.max(
     dividend.width,
     ...steps.map((s) => s.label?.width ?? 0),
     remainder?.width ?? 0,
   )
-  const leftEdge = gapX + opWidth + gapX // where the dividend column begins
+  const leftEdge = minusX + opWidth + S * 1.2 // where the dividend column begins
   const barX = leftEdge + leftInner + gapX
   const rightInner = Math.max(divisor.width, quotient.width)
-  const width = barX + gapX + rightInner + gapX
-  const leftRows = 1 + steps.length + (remainder ? 1 : 0)
-  const height = Math.max(leftRows, 2) * rowH + gapX
+  const divisorRuleEnd = barX + gapX + rightInner + S * 0.5
+  const width = divisorRuleEnd + S * 0.2
 
-  const top = gapX * 0.6
+  const top = S * 0.3
   const rowY = (i: number) => top + i * rowH
   const centred = (glyph: { width: number }, colStart: number, colWidth: number) =>
     colStart + (colWidth - glyph.width) / 2
@@ -222,35 +232,46 @@ export function renderDivisionScheme(
   body.push(place(divisor, centred(divisor, barX + gapX, rightInner), rowY(0)))
   // The rule under the divisor, and the quotient under that.
   const divisorRuleY = rowY(0) + S * 1.15
-  body.push(tag('line', { x1: barX, y1: divisorRuleY, x2: width - gapX * 0.5, y2: divisorRuleY, ...stroke }))
+  body.push(tag('line', { x1: barX, y1: divisorRuleY, x2: divisorRuleEnd, y2: divisorRuleY, ...stroke }))
   body.push(place(quotient, centred(quotient, barX + gapX, rightInner), rowY(1)))
 
   // The rule above the remainder, fixed before the rows are placed because the
   // elided minus is positioned off it.
-  const ruleY = remainder ? rowY(1 + steps.length) - S * 0.3 : null
+  const stepRows = elided ? 1 : steps.length
+  const ruleY = remainder ? rowY(1 + stepRows) - S * 0.3 : null
 
-  // Subtraction rows on the left: the operator at the far left, the label
-  // right-aligned against the bar like the dividend above it. A label-less
-  // row is the elided subtraction, and its minus does not sit on a row of its
-  // own — the book prints it hugging the rule, ink just above the line, which
-  // is what makes `−` and rule read as one mark rather than a stray sign.
+  // Written subtraction rows on the left: the operator at the far left, the
+  // label right-aligned against the bar like the dividend above it.
   let row = 1
   for (const step of steps) {
-    const opY = step.label || ruleY === null ? rowY(row) : ruleY - S * 0.8
-    if (step.op) body.push(place(step.op, gapX, opY))
+    if (step.op) body.push(place(step.op, minusX, rowY(row)))
     if (step.label) body.push(place(step.label, barX - gapX - step.label.width, rowY(row)))
     row++
   }
+  // The elided row: its minus does not sit on a row of its own — the book
+  // prints it level with the quotient, 0.8 above the rule, so `−` and rule
+  // read as one mark rather than a stray sign.
+  if (elided && ruleY !== null) {
+    const y = ruleY - S * 0.8
+    body.push(tag('line', { x1: minusX, y1: y, x2: minusX + minusLen, y2: y, ...stroke }))
+    row++
+  }
 
-  // The last rule and the bar meet at a corner; both end there.
+  // The last rule and the bar meet at a corner; both end there. The remainder
+  // sits a little further under the rule than a row's own pitch gives it —
+  // the book leaves 0.7 of a glyph between the two.
   let barBottom = divisorRuleY + rowH // enough to bracket the quotient when nothing follows
+  let bottom = rowY(row - 1) + S * 1.15
   if (remainder && ruleY !== null) {
-    body.push(tag('line', { x1: gapX + opWidth + gapX * 0.5, y1: ruleY, x2: barX, y2: ruleY, ...stroke }))
-    body.push(place(remainder, centred(remainder, leftEdge, leftInner), rowY(row)))
+    body.push(tag('line', { x1: minusX, y1: ruleY, x2: barX, y2: ruleY, ...stroke }))
+    const remainderY = rowY(row) + S * 0.25
+    body.push(place(remainder, centred(remainder, leftEdge, leftInner), remainderY))
     barBottom = ruleY
+    bottom = remainderY + S * 1.15
   }
   body.unshift(tag('line', { x1: barX, y1: top, x2: barX, y2: barBottom, ...stroke }))
 
+  const height = Math.max(bottom, barBottom) + S * 0.2
   return svgWrap(width, height, body.join(''))
 }
 

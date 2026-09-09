@@ -646,26 +646,33 @@ export const renderSuite = suite('render', {
       quotientTex: 'x',
       remainderTex: 'y',
     })
-    const texts = [...svg.matchAll(/<text[^>]*>([^<]*)<\/text>/g)].map((m) => m[1]!)
-    ok(texts.some((t) => /^[-−]$/.test(t)), 'sol tərəfdə çıxma işarəsi yoxdur')
-    // Bar, the rule under the divisor, and the rule under the dividend.
-    eq((svg.match(/<line /g) ?? []).length, 3, 'bölünənin altında xətt yoxdur')
-    // The remainder sits BELOW the minus, on its own row under the rule — not
-    // beside it, and not directly under the dividend.
+    const lines = [...svg.matchAll(/<line x1="([\d.]+)" y1="([\d.]+)" x2="([\d.]+)" y2="([\d.]+)"/g)].map((m) => m.slice(1).map(Number) as [number, number, number, number])
+    // Bar, the rule under the divisor, the minus, and the rule under the
+    // dividend. The minus is a STROKE, not a glyph: the browser's serif and
+    // MathJax draw `-` at different widths, and the book's mark is a bar.
+    eq(lines.length, 4, 'bölünənin altında xətt yoxdur')
+    const bar = lines.find(([x1, , x2]) => x1 === x2)!
+    const flat = lines.filter(([, y1, , y2]) => y1 === y2).sort((a, b) => a[1] - b[1])
+    const [divisorRule, minus, bottom] = flat as [typeof flat[0], typeof flat[0], typeof flat[0]]
+    ok(divisorRule[0] === bar[0] && divisorRule[2] > bar[0], 'bölənin altındakı xətt bardan sağa getmir')
+    ok(minus[2] - minus[0] < DIVISION_SIZE, 'çıxma işarəsi xətt kimi uzundur')
+    ok(minus[2] < bar[0] - DIVISION_SIZE * 2, 'çıxma işarəsi bölünənin yanında deyil, solunda olmalıdır')
+    // The minus hugs the rule: above it, and starting where the rule starts.
+    ok(minus[1] < bottom[1] && bottom[1] - minus[1] < DIVISION_SIZE, 'çıxma işarəsi xəttin üstündə deyil')
+    eq(minus[0], bottom[0], 'alt xətt çıxma işarəsinin başladığı yerdən başlamır')
+    // The remainder sits BELOW the rule, on its own row — not beside the
+    // minus, and not directly under the dividend.
     const yOf = (glyph: string) => {
       const m = svg.match(new RegExp(`translate\\([\\d.]+ ([\\d.]+)\\)"><text[^>]*>${glyph}<`))
       return m ? Number(m[1]) : NaN
     }
-    ok(yOf('y') > yOf('[-−]'), 'qalıq çıxma işarəsindən aşağıda deyil')
+    ok(yOf('y') > bottom[1], 'qalıq alt xəttdən aşağıda deyil')
     // Legible. Drawn at the shared 13px it was a hundred pixels wide and read
     // as a footnote; the book prints it at twice the body text, and neither
     // display scales a figure up.
     ok(DIVISION_SIZE >= 24, `sxem ${DIVISION_SIZE}px-də oxunmur`)
     ok(svg.includes(`font-size="${DIVISION_SIZE}"`), 'sxem öz ölçüsündə çəkilmir')
     // The corner: the bar ENDS at the last rule and the rule runs INTO the bar.
-    const lines = [...svg.matchAll(/<line x1="([\d.]+)" y1="([\d.]+)" x2="([\d.]+)" y2="([\d.]+)"/g)].map((m) => m.slice(1).map(Number))
-    const bar = lines.find(([x1, , x2]) => x1 === x2)!
-    const bottom = lines.filter(([, y1, , y2]) => y1 === y2).sort((a, b) => b[1]! - a[1]!)[0]!
     eq(bottom[2], bar[0], 'alt xətt bara çatmır')
     eq(bar[3], bottom[1], 'bar alt xəttdə bitmir — küncü yoxdur')
   },
