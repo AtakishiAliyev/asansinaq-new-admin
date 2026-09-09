@@ -11,7 +11,6 @@ import { classifySuite } from './suites/classify.ts'
 import { compareSuite } from './suites/compare.ts'
 import { extractionSuite } from './suites/extraction.ts'
 import { figureEchoSuite } from './suites/figure-echo.ts'
-import { modelAsideSuite } from './suites/model-aside.ts'
 import { figureRefsSuite } from './suites/figure-refs.ts'
 import { geometryEditSuite } from './suites/geometry-edit.ts'
 import { figuresSuite } from './suites/figures.ts'
@@ -75,7 +74,6 @@ const SUITES: Suite[] = [
   genRequestSuite,
   figureRefsSuite,
   figureEchoSuite,
-  modelAsideSuite,
   renderSuite,
   pageRangeSuite,
 ]

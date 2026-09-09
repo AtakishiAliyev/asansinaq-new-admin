@@ -707,19 +707,6 @@ largest single reason a correct question did not read as clean. Adding a level
 needed no migration, which is the point — a flag demoted to `info` leaves the
 lane by construction.
 
-**The line the model writes for ITSELF is dropped** (`core/questions/
-model-aside.ts`). Eighteen of one run's 150 questions ended with a line the
-book does not print — `⇒ BA = ?`, `⇒ Toplam = ?`, `$\Rightarrow$ A sayısının
-son basamağı = ?` — the model restating what the question asks before answering
-it, which the student then reads as part of the question. Measured against the
-book's own text layer rather than assumed: thirteen appear nowhere in it, the
-rest are the question sentence repeated with an arrow bolted on, and across the
-run no stem line beginning with an implication arrow was one the book had
-printed. Only a TRAILING line, because a book does print an implication inside
-a chain of working and such a line is followed by the sentence that asks the
-question — and never the last line left, since an arrow is not grounds for
-emptying a stem.
-
 **A stack the model drew AND typed out again loses the typed copy**
 (`core/questions/figure-echo.ts`). Tightening rule 14 to say an alt-alta
 operation is a figure got the figure — and the rows repeated above the question

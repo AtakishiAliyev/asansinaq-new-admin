@@ -8,7 +8,6 @@
 
 import { COLOR_HEX } from '@/core/figures/figspec'
 import { stripFigureEcho } from '@/core/questions/figure-echo'
-import { stripModelAside } from '@/core/questions/model-aside'
 import type {
   ColorToken,
   CubeFace,
@@ -459,7 +458,7 @@ export function wireToQuestion(raw: Record<string, unknown>): ExtractedQuestion 
     // those cells, so a stem line reproducing one shows the reader the
     // operation twice and carries nothing the row does not already have.
     stem: stripFigureEcho(
-      stripModelAside(fixLeakedNewlines(collapseDoubledCommands(String(raw.stem ?? '')))),
+      fixLeakedNewlines(collapseDoubledCommands(String(raw.stem ?? ''))),
       items,
     ),
     ...(figureBox ? { figureBox } : {}),

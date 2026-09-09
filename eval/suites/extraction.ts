@@ -223,12 +223,4 @@ export const extractionSuite = suite('extraction', {
     eq(q.stem, 'Şərt.\nSual?', `təkrar wire-da silinmir: ${JSON.stringify(q.stem)}`)
   },
 
-  // Wired, not merely written — the same gap the figure-echo case closes.
-  'the wire drops a trailing line the model wrote for itself'() {
-    const q = wireToQuestion({
-      stem: 'a ve b tam sayılardır.\nBuna göre a + b kaçtır?\n⇒ a + b = ?',
-      options: [],
-    } as never)
-    eq(q.stem, 'a ve b tam sayılardır.\nBuna göre a + b kaçtır?', `ox sətri wire-da qalır: ${JSON.stringify(q.stem)}`)
-  },
 })
