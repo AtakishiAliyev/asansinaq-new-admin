@@ -40,10 +40,12 @@ either: cost belongs to `/ops` (Xərclər), and a number an operator cannot act
 on from a question screen is noise beside the counts they came for.
 
 **The overview (`/`) draws the bank by subject and topic** (`bank_by_topic`,
-`dashboard/components/topic-coverage.tsx`): one bar per topic of the chosen
-subject, approved against still-in-pipeline, with how many books fed it. The
-empty topics are drawn too, dimmed, at the bottom — the chart exists to show
-where the bank is thin, and hiding the gaps would hide the answer. Counted
+`dashboard/components/topic-coverage.tsx`), in two views of one cut. The MAP
+is one tile per topic, empty ones dimmed and folded past ten — it answers
+"which topics still have nothing", and a chart that drew only the filled ones
+would hide exactly that. The CHART ranks the filled topics on one axis,
+approved against still-in-pipeline, drawn as SVG because one chart does not
+earn a dependency and every colour has to be a theme token. Counted
 server-side, because the bank passed a thousand rows and a browser-side count
 stops at PostgREST's page without saying so. Questions with no topic are left
 out: a coverage chart has no honest place for them.

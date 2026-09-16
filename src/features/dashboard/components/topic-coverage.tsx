@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
+import { BarChart3, LayoutGrid } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { QueryErrorAlert } from '@/components/query-error-alert'
@@ -12,89 +14,41 @@ import {
   useBankByTopic,
   type TopicTotals,
 } from '@/features/dashboard/api/bank-by-topic'
+import { TopicBarChart } from '@/features/dashboard/components/topic-bar-chart'
+import { TopicMap, type TopicRow } from '@/features/dashboard/components/topic-map'
 
 // Where the bank is thick and where it is thin, by subject and topic.
 //
-// The question this answers is the one an operator planning the next import
-// asks: which topics have questions, from how many books, and which are still
-// empty. So the empty topics are drawn too, dimmed, at the bottom — a chart
-// that showed only the filled ones would hide exactly the gaps it is for.
-//
-// One bar per topic, sorted by size. Each bar is two segments: approved (a
-// status, so it wears the status green the approved badge already wears) and
-// still in the pipeline (neutral). Numbers are text in text ink beside the
-// bar, not painted in the bar's colour, so they read at any width.
+// Two views of the same cut, because they answer different questions. The
+// MAP shows every topic of a subject as a tile, empty ones dimmed — the
+// question it answers is "which topics still have nothing", and a chart that
+// drew only the filled ones would hide exactly that. The CHART ranks the
+// filled topics against one axis, approved against still-in-pipeline — the
+// question it answers is "of what we have, how does it compare". The map is
+// the default; the chart is a click away.
 
 function Stat({ label, value, hint }: { label: string; value: number | string; hint?: string }) {
   return (
-    <div className="flex flex-col gap-0.5">
+    <div className="bg-muted/40 flex flex-col gap-0.5 rounded-lg px-3 py-2.5">
       <span className="text-muted-foreground font-mono text-[11px] tracking-[0.14em] uppercase">
         {label}
       </span>
       <span className="text-xl font-semibold tabular-nums">
         {value}
-        {hint ? <span className="text-muted-foreground ml-1 text-sm font-normal">{hint}</span> : null}
+        {hint ? <span className="text-muted-foreground ml-1.5 text-sm font-normal">{hint}</span> : null}
       </span>
     </div>
   )
 }
 
-function TopicBar({
-  name,
-  totals,
-  max,
-}: {
-  name: string
-  totals: TopicTotals | undefined
-  max: number
-}) {
-  const total = totals?.total ?? 0
-  const approved = totals?.approved ?? 0
-  const pending = total - approved
-  const width = (n: number) => (max > 0 ? `${(n / max) * 100}%` : '0%')
-  const empty = total === 0
-  const title = empty
-    ? `${name}: sual yoxdur`
-    : `${name}: ${total} sual · ${approved} təsdiqlənib · ${pending} hazırlanır · ${totals?.books ?? 0} kitab`
-  return (
-    <li
-      title={title}
-      className={cn('grid grid-cols-[minmax(0,14rem)_1fr_auto] items-center gap-3', empty && 'opacity-50')}
-    >
-      <span className="truncate text-sm">{name}</span>
-      <div className="bg-muted/40 relative h-3 rounded-[4px]" aria-hidden>
-        {/* Two segments with a 2px surface gap between them, both anchored to
-            the baseline; the rounded end belongs to the outermost segment. */}
-        {approved > 0 ? (
-          <div
-            className="absolute inset-y-0 left-0 rounded-l-[4px] bg-emerald-600 dark:bg-emerald-500"
-            style={{ width: width(approved), borderTopRightRadius: pending ? 0 : 4, borderBottomRightRadius: pending ? 0 : 4 }}
-          />
-        ) : null}
-        {pending > 0 ? (
-          <div
-            className="bg-muted-foreground/55 absolute inset-y-0 rounded-r-[4px]"
-            style={{
-              left: `calc(${width(approved)} + ${approved ? 2 : 0}px)`,
-              width: `calc(${width(pending)} - ${approved ? 2 : 0}px)`,
-              borderTopLeftRadius: approved ? 0 : 4,
-              borderBottomLeftRadius: approved ? 0 : 4,
-            }}
-          />
-        ) : null}
-      </div>
-      <span className="text-muted-foreground w-28 text-right font-mono text-xs tabular-nums">
-        {empty ? '—' : `${total} · ${totals?.books ?? 0} kitab`}
-      </span>
-    </li>
-  )
-}
+type View = 'map' | 'chart'
 
 export function TopicCoverage() {
   const bank = useBankByTopic()
   const subjects = useAllSubjects()
   const books = useBooks()
   const [subjectId, setSubjectId] = useState<number | null>(null)
+  const [view, setView] = useState<View>('map')
 
   const bySubject = useMemo(() => subjectTotals(bank.data ?? []), [bank.data])
 
@@ -108,7 +62,7 @@ export function TopicCoverage() {
 
   const categories = useCategories(subjectId)
   const byTopic = useMemo(
-    () => (subjectId === null ? new Map() : topicTotals(bank.data ?? [], subjectId)),
+    () => (subjectId === null ? new Map<number, TopicTotals>() : topicTotals(bank.data ?? [], subjectId)),
     [bank.data, subjectId],
   )
   const booksBySubject = useMemo(() => {
@@ -117,12 +71,12 @@ export function TopicCoverage() {
     return m
   }, [books.data])
 
-  const topics = useMemo(() => {
-    const list = (categories.data ?? []).map((c) => ({ id: c.id, name: c.name, totals: byTopic.get(c.id) as TopicTotals | undefined }))
-    // Filled topics by size, then the empty ones in their catalogue order.
+  const topics = useMemo<TopicRow[]>(() => {
+    const list = (categories.data ?? []).map((c) => ({ id: c.id, name: c.name, totals: byTopic.get(c.id) }))
+    // Filled topics by size; the empty ones keep their catalogue order after.
     return list.sort((a, b) => (b.totals?.total ?? 0) - (a.totals?.total ?? 0))
   }, [categories.data, byTopic])
-  const max = topics[0]?.totals?.total ?? 0
+  const emptyCount = topics.filter((t) => (t.totals?.total ?? 0) === 0).length
   const current = subjectId === null ? undefined : bySubject.get(subjectId)
 
   const pending = bank.isPending || subjects.isPending
@@ -130,11 +84,33 @@ export function TopicCoverage() {
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Bank fənn və mövzu üzrə</CardTitle>
-        <CardDescription>
-          Hansı mövzuda neçə sual var, neçə kitabdan gəlib, hansı mövzular hələ boşdur.
-        </CardDescription>
+      <CardHeader className="flex flex-row items-start justify-between gap-4">
+        <div className="flex flex-col gap-1.5">
+          <CardTitle>Bank fənn və mövzu üzrə</CardTitle>
+          <CardDescription>
+            Hansı mövzuda neçə sual var, neçə kitabdan gəlib, hansı mövzular hələ boşdur.
+          </CardDescription>
+        </div>
+        <div role="group" aria-label="Görünüş" className="bg-muted flex shrink-0 rounded-md p-0.5">
+          {(
+            [
+              { key: 'map', label: 'Xəritə', icon: LayoutGrid },
+              { key: 'chart', label: 'Qrafik', icon: BarChart3 },
+            ] as const
+          ).map((v) => (
+            <Button
+              key={v.key}
+              size="sm"
+              variant={view === v.key ? 'secondary' : 'ghost'}
+              aria-pressed={view === v.key}
+              className={cn('h-7', view === v.key && 'bg-background shadow-sm')}
+              onClick={() => setView(v.key)}
+            >
+              <v.icon data-icon="inline-start" />
+              {v.label}
+            </Button>
+          ))}
+        </div>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
         {error ? (
@@ -164,9 +140,7 @@ export function TopicCoverage() {
                     )}
                   >
                     {s.name}
-                    <span className="ml-1.5 tabular-nums opacity-70">
-                      {t?.total ?? 0}
-                    </span>
+                    <span className="ml-1.5 tabular-nums opacity-70">{t?.total ?? 0}</span>
                   </button>
                 )
               })}
@@ -174,7 +148,7 @@ export function TopicCoverage() {
 
             {subjectId !== null ? (
               <>
-                <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                   <Stat label="Kitab" value={booksBySubject.get(subjectId) ?? 0} />
                   <Stat
                     label="Mövzu"
@@ -191,24 +165,14 @@ export function TopicCoverage() {
 
                 {topics.length === 0 ? (
                   <p className="text-muted-foreground text-sm">Bu fənndə hələ mövzu yoxdur.</p>
+                ) : view === 'map' ? (
+                  <TopicMap topics={topics} />
+                ) : topics.length === emptyCount ? (
+                  <p className="text-muted-foreground text-sm">
+                    Bu fənndə hələ sual yoxdur — qrafikdə çəkiləsi bir şey yoxdur.
+                  </p>
                 ) : (
-                  <div className="flex flex-col gap-2">
-                    <div className="text-muted-foreground flex items-center gap-4 text-xs" aria-label="Şərti işarələr">
-                      <span className="flex items-center gap-1.5">
-                        <span aria-hidden className="inline-block size-2.5 rounded-[2px] bg-emerald-600 dark:bg-emerald-500" />
-                        təsdiqlənmiş
-                      </span>
-                      <span className="flex items-center gap-1.5">
-                        <span aria-hidden className="bg-muted-foreground/55 inline-block size-2.5 rounded-[2px]" />
-                        hazırlanır
-                      </span>
-                    </div>
-                    <ul className="flex flex-col gap-1.5">
-                      {topics.map((t) => (
-                        <TopicBar key={t.id} name={t.name} totals={t.totals} max={max} />
-                      ))}
-                    </ul>
-                  </div>
+                  <TopicBarChart topics={topics} emptyCount={emptyCount} />
                 )}
               </>
             ) : null}
