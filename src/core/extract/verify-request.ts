@@ -324,6 +324,8 @@ export function describeFigure(figure: unknown): string | null {
   if (!Array.isArray(items)) return null
   const venn = describeVenn(items)
   if (venn) return venn
+  const division = describeDivision(items)
+  if (division) return division
   const geo = items.find(
     (i) => (i as { kind?: string }).kind === 'geometry',
   ) as
@@ -372,6 +374,38 @@ export function describeFigure(figure: unknown): string | null {
   }
 
   return lines.join('\n')
+}
+
+/**
+ * What a division scheme CLAIMS: which expression sits in which of its four
+ * places.
+ *
+ * The roles are told apart only by position, and "is `7` under the dividend
+ * or under the divisor in the original?" is a check the verifier can make.
+ * "Do these two pictures match?" was one it failed on nine live schemes: the
+ * remainder had been read into the quotient's cell, both pictures showed a
+ * tidy scheme, and the wave called every one a match.
+ */
+function describeDivision(items: unknown[]): string | null {
+  const schemes = items.filter((i) => (i as { kind?: string }).kind === 'division_scheme') as {
+    dividendTex?: string
+    divisorTex?: string
+    quotientTex?: string
+    remainderTex?: string
+  }[]
+  if (!schemes.length) return null
+  const cell = (v: string | undefined) => (v && v.trim() ? v.trim() : 'BOŞ')
+  return schemes
+    .map((d, i) => {
+      const head = schemes.length > 1 ? `Bölmə sxemi ${i + 1}: ` : 'Bölmə sxemi: '
+      return (
+        head +
+        `bölünən (sol-yuxarı) = ${cell(d.dividendTex)}; bölən (sağ-yuxarı) = ${cell(d.divisorTex)}; ` +
+        `bölənin ALTINDA = ${cell(d.quotientTex)}; bölünənin ALTINDA, çıxma xəttindən sonra = ${cell(d.remainderTex)}. ` +
+        'Orijinalda hər ifadənin barın HANSI TƏRƏFİNDƏ olduğunu yoxla: bölünənin altındakı ifadə bölənin altına yazılıbsa, bu KRİTİK fərqdir'
+      )
+    })
+    .join('\n')
 }
 
 /**

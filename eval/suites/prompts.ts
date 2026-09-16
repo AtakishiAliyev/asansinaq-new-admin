@@ -275,6 +275,21 @@ export const promptsSuite = suite('prompts', {
     ok(/BOYALI bölgənin fərqli olması.*"critical"/.test(VERIFY_QUESTION_PROMPT), 'and always critical')
   },
 
+  // The roles of a division scheme are told apart only by position, and the
+  // verifier passed nine schemes whose remainder had been read into the
+  // quotient's cell. Stated as claims, "which side of the bar" becomes a check.
+  'a division scheme\u2019s claims name which side of the bar each cell is on'() {
+    const claims = describeFigure({
+      v: 1,
+      items: [
+        { kind: 'division_scheme', style: 'arithmetic', dividendTex: 'P(x)', divisorTex: 'x-4', quotientTex: '', remainderTex: '7' },
+      ],
+    })
+    ok(claims?.includes('bölənin ALTINDA = BOŞ'), `boş bölüm adlanmır: ${claims}`)
+    ok(claims?.includes('bölünənin ALTINDA, çıxma xəttindən sonra = 7'), `qalıq yeri ilə adlanmır: ${claims}`)
+    ok(claims?.includes('KRİTİK'), 'tərəf səhvi kritik sayılmır')
+  },
+
   'a venn\u2019s claims name exactly what is shaded'() {
     const claims = describeFigure({
       items: [
