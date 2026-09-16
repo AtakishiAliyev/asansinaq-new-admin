@@ -179,13 +179,22 @@ what each stage needs.
   rule, `7` under the DIVIDEND — kept coming back with the `7` under the
   divisor as the quotient and the remainder blank: nine live schemes, three
   of them approved, because the wave compares pictures and both pictures
-  showed a tidy scheme. So the lint judges by DEGREE
-  (`division_role_misplaced`: a quotient of lower degree than the divisor
-  beside an empty remainder is the remainder in the wrong cell; function
-  notation like `B(x)` and bare symbols are degree-unknown and left alone),
-  the finding is on the repairable list so it buys a read with the right cell
-  named, and the verifier is handed the scheme as CLAIMS — which expression
-  is on which side of the bar — the way a venn's shading is. The renderer,
+  showed a tidy scheme. So the lint reads the row three ways
+  (`division_role_misplaced`): a lone `-` in the remainder cell is the
+  subtraction sign read as a cell, so the quotient is the remainder; a
+  quotient of lower degree than the divisor beside an empty remainder is the
+  remainder in the wrong cell; and a NAMED unknown — `K`, `K(x)`, which has
+  no degree — is judged by the answers the question offers for it, all of
+  degree below the divisor's making it the remainder, while `B(x)` with
+  answers of the divisor's degree is left alone. The text layer cannot settle
+  it: the book draws the minus on a quotient-only scheme too (p392/3), and
+  the flattened string keeps no row. The finding is on the repairable list
+  so it buys a read with the right cell named, and the verifier is handed
+  the scheme as CLAIMS — which expression is on which side of the bar — the
+  way a venn's shading is. What none of this catches is a quotient the model
+  INVENTED beside a remainder it read correctly (p398/5, `x` under
+  `x²−x−1`): it has the degree a real quotient would, and only the verifier's
+  claims can say the page prints nothing there. The renderer,
   for its part, draws the bottom rule and the corner on every scheme: the
   book prints the corner whether or not a remainder follows, and a
   quotient-only scheme used to get no rule and a bar running on past the
