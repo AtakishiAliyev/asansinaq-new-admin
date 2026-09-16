@@ -679,6 +679,16 @@ export type Database = {
     }
     Functions: {
       apply_answer_keys: { Args: { p_pairs: Json }; Returns: number }
+      bank_by_topic: {
+        Args: { p_subject_id?: number }
+        Returns: {
+          book_id: number
+          category_id: number
+          n: number
+          status: string
+          subject_id: number
+        }[]
+      }
       claim_expired: {
         Args: { p_claimed_at: string; p_lease_until: string }
         Returns: boolean
