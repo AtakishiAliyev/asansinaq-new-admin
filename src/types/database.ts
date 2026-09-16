@@ -831,6 +831,14 @@ export type Database = {
       ops_spend_daily: { Args: { p_days?: number }; Returns: Json }
       ops_spend_today: { Args: never; Returns: number }
       ops_summary_today: { Args: never; Returns: Json }
+      question_flag_counts: {
+        Args: { p_book_id?: number; p_status?: string }
+        Returns: {
+          code: string
+          level: string
+          n: number
+        }[]
+      }
       questions_throughput: { Args: never; Returns: Json }
       queue_lease: { Args: never; Returns: string }
       release_questions: { Args: { p_ids: number[] }; Returns: number }
