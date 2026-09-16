@@ -5,7 +5,8 @@
 // POSITION. When the cells are plain numbers it usually gets them right. When
 // they are expressions the roles scramble: one live row came back with
 // dividend "A", divisor "n^2/n" and an EMPTY quotient, which is two roles
-// crammed into one cell and a third left blank.
+// crammed into one cell. (The blank quotient on its own is not the defect —
+// the remainder-only form prints none — the slash in the divisor is.)
 //
 // None of that renders as an error. It draws a perfectly tidy scheme that says
 // something the page does not, so the checks here are deterministic and cheap:
@@ -41,14 +42,30 @@ export function divisionRoleProblems(fig: DivisionScheme): RoleProblem[] {
     ['bölən', fig.divisorTex],
     ['bölüm', fig.quotientTex],
   ]
+  const filled = (v: string | undefined) => (v ?? '').trim().length > 0
 
-  for (const [name, value] of cells) {
-    if (!(value ?? '').trim()) {
+  // The two cells every scheme prints. The quotient is NOT one of them: the
+  // polynomial-remainder form these books lean on — `P(x) │ x²+1`, a minus,
+  // the rule, `7x+7` beneath — prints no quotient at all, because the
+  // question is about the remainder. Fifty-six live schemes of exactly that
+  // shape were flagged for an empty quotient, and not one was a misread. The
+  // misread that motivated this check (dividend `A`, divisor `n^2/n`,
+  // quotient blank) is still caught: its divisor carries the slash.
+  for (const [name, value] of cells.slice(0, 2)) {
+    if (!filled(value)) {
       problems.push({
         code: 'division_role_empty',
-        message: `Bölmə sxemində "${name}" xanası boşdur — dörd rolun hamısı şəkildən oxunmalıdır`,
+        message: `Bölmə sxemində "${name}" xanası boşdur — bölünən və bölən hər sxemdə çap olunur`,
       })
     }
+  }
+  // A scheme with neither a quotient nor a remainder says nothing: two
+  // numbers and a bar. One of the two lower cells has to be there.
+  if (!filled(fig.quotientTex) && !filled(fig.remainderTex)) {
+    problems.push({
+      code: 'division_role_empty',
+      message: 'Bölmə sxemində nə bölüm, nə qalıq var — aşağı xanalardan ən azı biri şəkildən oxunmalıdır',
+    })
   }
 
   for (const [name, value] of [...cells, ['qalıq', fig.remainderTex] as [string, string | undefined]]) {

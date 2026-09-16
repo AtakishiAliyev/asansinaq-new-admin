@@ -165,7 +165,10 @@ what each stage needs.
 
   **Typeset kinds stay specs on any book** (`TYPESET_KINDS`: division scheme,
   vertical arithmetic, table, number line). They are arithmetic on a grid,
-  exact in the DSL and linted for their roles; cutting one traded that for a
+  exact in the DSL and linted for their roles — where "roles" means dividend
+  and divisor, and one of quotient or remainder: the polynomial-remainder form
+  prints NO quotient, and requiring one flagged fifty-six correct schemes and
+  bought each two paid repairs for nothing; cutting one traded that for a
   scan, and on p412/14 for the wrong region of the scan — the localizer, given
   no box, took a line of equations and the division scheme the question turned
   on was gone. A drawn kind that IS rerouted keeps its `origin` on the cut and

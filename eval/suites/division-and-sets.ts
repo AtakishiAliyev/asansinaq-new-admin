@@ -6,7 +6,7 @@
 import { divisionRoleProblems } from '@/core/questions/division-roles'
 import { setRefProblems, stemSetNames } from '@/core/questions/set-refs'
 import type { DivisionScheme, FigureDoc } from '@/core/figures/figspec'
-import { eq, ok, suite } from '../harness.ts'
+import { eq, notOk, ok, suite } from '../harness.ts'
 
 const scheme = (over: Partial<DivisionScheme> = {}): DivisionScheme => ({
   kind: 'division_scheme',
@@ -41,7 +41,8 @@ export const divisionRolesSuite = suite('division-roles', {
   },
 
   // p28q6: dividend "A", divisor "n^2/n", quotient EMPTY. Two roles crammed
-  // into one cell and a third left blank, rendering as a tidy scheme.
+  // into one cell, rendering as a tidy scheme. The slash is the defect; the
+  // blank quotient on its own is a form the book prints (see below).
   'a divisor holding a division is caught'() {
     const problems = divisionRoleProblems(
       scheme({ dividendTex: 'A', divisorTex: 'n^2/n', quotientTex: '', remainderTex: '64' }),
@@ -50,9 +51,40 @@ export const divisionRolesSuite = suite('division-roles', {
       problems.some((p) => p.code === 'division_role_crammed'),
       'the crammed cell is named',
     )
-    ok(
+    notOk(
       problems.some((p) => p.code === 'division_role_empty'),
-      'and so is the empty one',
+      'a blank quotient beside a remainder is not itself a defect',
+    )
+  },
+
+  // The polynomial-remainder form: `P(x) │ x²+1`, a minus, the rule, `7x+7`
+  // beneath — and NO quotient, because the question is about the remainder.
+  // Fifty-six live schemes of this shape were flagged for an empty quotient
+  // and not one was a misread; the flag kept every one of them out of the
+  // verified lane and bought two paid repairs each for nothing.
+  'a remainder-only scheme is the book\'s own form, not a defect'() {
+    const problems = divisionRoleProblems(
+      scheme({ dividendTex: 'P(x)', divisorTex: 'x^2+1', quotientTex: '', remainderTex: '7x+7' }),
+    )
+    eq(problems.length, 0, `bölümsüz sxem bayraq qaldırır: ${problems.map((p) => p.code).join(',')}`)
+  },
+
+  // Two numbers and a bar say nothing: one of the lower cells has to exist.
+  'a scheme with neither quotient nor remainder is caught'() {
+    const problems = divisionRoleProblems(
+      scheme({ dividendTex: 'A', divisorTex: 'B', quotientTex: '', remainderTex: undefined }),
+    )
+    ok(problems.some((p) => p.code === 'division_role_empty'), 'nə bölüm, nə qalıq')
+  },
+
+  'a missing dividend or divisor is still caught'() {
+    ok(
+      divisionRoleProblems(scheme({ divisorTex: '' })).some((p) => p.code === 'division_role_empty'),
+      'boş bölən',
+    )
+    ok(
+      divisionRoleProblems(scheme({ dividendTex: '' })).some((p) => p.code === 'division_role_empty'),
+      'boş bölünən',
     )
   },
 
