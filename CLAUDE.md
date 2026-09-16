@@ -480,6 +480,21 @@ what each stage needs.
   path that gets measured. Category selection is folded into extraction rather
   than being its own op: the model has read the question by the time it could
   answer, so a second call re-sends the crop to learn nothing.
+
+  **The one repair that stays is to the INPUT: redrawing the crop box**
+  (`questions/api/recrop.ts`, the "Kropu düzəlt" button on the review screen).
+  A box drawn wrong is not a verdict on the question and not a second reading
+  of it; it is a wrong picture handed to the reader. The editor renders the
+  page from the archived PDF, lets the operator move or resize the box in the
+  segmenter's own frame, re-cuts the crop through the import's own cutter,
+  writes the bytes to the row's existing `crop_path`, and hands the row back
+  to the worker as a fresh crop — content, verdict, `repair_round` and
+  `prev_version` all cleared, or the parked-version rule would score the new
+  read against the old one and could keep the old. The box a person drew is
+  stored in `questions.crop_box` and OUTRANKS the segmenter from then on: a
+  re-import of that page leaves the row alone and says so, rather than
+  quietly redrawing the narrow box someone had just corrected. Null means the
+  segmenter's box, which is deterministic and needs no storing.
 - **The worker's CONTROL PLANE is in the UI; the worker is not.** The process
   stays a daemon because its independence from any open tab is the point of the
   batch lane — a run that dies when someone closes a window is what this

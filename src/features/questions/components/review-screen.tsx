@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Crop, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -9,6 +9,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Spinner } from '@/components/ui/spinner'
+import { useBooks } from '@/features/books'
 import { useCategories } from '@/features/taxonomy'
 import {
   useApproveQuestion,
@@ -20,6 +21,7 @@ import {
   FlagBadges,
   VerifiedBadge,
 } from '@/features/questions/components/question-diagnostics'
+import { CropEditorDialog } from '@/features/questions/components/crop-editor-dialog'
 import { ReviewActions } from '@/features/questions/components/review-actions'
 import { ReviewPanes } from '@/features/questions/components/review-panes'
 import { imagePathsOf, parseFlags } from '@/features/questions/lib/row'
@@ -62,7 +64,12 @@ export function ReviewScreen({
   const item = index >= 0 ? items[index] : undefined
   const contentRef = useRef<HTMLDivElement>(null)
   const categories = useCategories(subjectId)
+  const books = useBooks()
   const approve = useApproveQuestion()
+  // The one repair that stays: a crop drawn wrong is not a verdict on the
+  // question, it is a wrong INPUT, and it is fixed by redrawing the box and
+  // reading again — through the pipeline, not around it.
+  const [cropOpen, setCropOpen] = useState(false)
   const reject = useRejectQuestion()
   const [categoryId, setCategoryId] = useState<number | null>(null)
   const [difficulty, setDifficulty] = useState<Difficulty | null>(null)
@@ -163,7 +170,9 @@ export function ReviewScreen({
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (!item || busy) return
+      // The crop editor has its own keyboard (arrows nudge the box); while it
+      // is open, none of these may fire underneath it.
+      if (!item || busy || cropOpen) return
       const target = e.target as HTMLElement | null
       if (target && ['INPUT', 'TEXTAREA'].includes(target.tagName)) return
       // A focused control owns its own Enter/Space; approving from under it
@@ -242,6 +251,15 @@ export function ReviewScreen({
           <span className="text-muted-foreground ml-auto text-sm tabular-nums">
             {index + 1} / {items.length}
           </span>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            onClick={() => setCropOpen(true)}
+          >
+            <Crop data-icon="inline-start" />
+            Kropu düzəlt
+          </Button>
           <Button variant="ghost" size="icon-sm" aria-label="Bağla" onClick={onClose}>
             <X />
           </Button>
@@ -319,6 +337,22 @@ export function ReviewScreen({
             <ChevronRight />
           </Button>
         </div>
+
+        {cropOpen ? (
+          <CropEditorDialog
+            item={item}
+            book={(books.data ?? []).find((b) => b.id === item.book_id)}
+            onClose={() => setCropOpen(false)}
+            onSaved={() => {
+              // The row is `cropped` again and leaves this list on refetch;
+              // move on the way a reject does, captured before the refetch
+              // reorders the rows under us.
+              const after = nextId()
+              setCropOpen(false)
+              goTo(after)
+            }}
+          />
+        ) : null}
       </DialogContent>
     </Dialog>
   )
