@@ -41,6 +41,16 @@ export interface QuestionFilters {
   /** Free text over the stem; empty means no search. */
   search: string
   /**
+   * One lint code, or every row whatever it carries.
+   *
+   * The work screen's real cuts run by code: after a segmenter fix, "every
+   * option_count row, re-queue them"; before a session, "every
+   * verify_mismatch". Diqqət/Təmiz put those in one pile. Applied
+   * server-side as a jsonb containment so the page, the count and the filter
+   * agree, which they would not if the rows were sifted in the browser.
+   */
+  flag: string | 'all'
+  /**
    * Reading order.
    *
    * `book` is the catalogue's own — the order a person would meet these
@@ -62,6 +72,7 @@ const SHARED_DEFAULTS = {
   difficulty: 'all',
   answer: 'all',
   search: '',
+  flag: 'all',
   sort: 'book',
 } as const
 
@@ -168,6 +179,11 @@ async function fetchQuestions(
     query = query.eq('difficulty', filters.difficulty)
   if (filters.answer === 'has') query = query.not('answer', 'is', null)
   else if (filters.answer === 'missing') query = query.is('answer', null)
+  // The string form, not the array: supabase-js sends an array of objects as
+  // a Postgres array literal, which the jsonb column rejects with an empty
+  // message. Serialised, it goes through as the jsonb it is.
+  if (filters.flag !== 'all')
+    query = query.contains('flags', JSON.stringify([{ code: filters.flag }]))
   // Escaped: a `%` or `_` typed into the box is a literal the operator meant,
   // not a wildcard, and a bare `,` would end the PostgREST filter value.
   if (filters.search.trim())
@@ -242,6 +258,51 @@ async function fetchCounts(bookId: number | 'all'): Promise<QuestionCounts> {
     attention,
     clean,
   }
+}
+
+export interface FlagCount {
+  code: string
+  /** The worst level the code stands at anywhere in the scope. */
+  level: 'error' | 'warning' | 'info'
+  n: number
+}
+
+const LEVEL_RANK = { error: 0, warning: 1, info: 2 } as const
+
+// One code can stand at two levels (verify_mismatch is an error with a
+// critical difference named, a warning without), so the RPC groups by both
+// and the rows are merged here: one entry per code, its worst level, its
+// total. Counted server-side, over the whole scope, for the same reason the
+// status counts are.
+async function fetchFlagCounts(
+  bookId: number | 'all',
+  status: QuestionFilters['status'],
+): Promise<FlagCount[]> {
+  const { data, error } = await supabase.rpc('question_flag_counts', {
+    p_book_id: bookId === 'all' ? undefined : bookId,
+    p_status: status === 'all' ? undefined : status,
+  })
+  if (error) throw error
+  const merged = new Map<string, FlagCount>()
+  for (const row of data ?? []) {
+    const level = (row.level in LEVEL_RANK ? row.level : 'info') as FlagCount['level']
+    const seen = merged.get(row.code)
+    if (!seen) merged.set(row.code, { code: row.code, level, n: Number(row.n) })
+    else {
+      seen.n += Number(row.n)
+      if (LEVEL_RANK[level] < LEVEL_RANK[seen.level]) seen.level = level
+    }
+  }
+  return [...merged.values()].sort(
+    (a, b) => LEVEL_RANK[a.level] - LEVEL_RANK[b.level] || b.n - a.n || a.code.localeCompare(b.code),
+  )
+}
+
+export function useFlagCounts(bookId: number | 'all', status: QuestionFilters['status']) {
+  return useQuery({
+    queryKey: questionKeys.flagCounts(bookId, status),
+    queryFn: () => fetchFlagCounts(bookId, status),
+  })
 }
 
 export function useQuestionCounts(bookId: number | 'all') {

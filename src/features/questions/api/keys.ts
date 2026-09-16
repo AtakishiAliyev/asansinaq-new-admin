@@ -7,6 +7,8 @@ export const questionKeys = {
     [...questionKeys.lists(), filters, page] as const,
   counts: (bookId: number | 'all') =>
     [...questionKeys.all, 'counts', bookId] as const,
+  flagCounts: (bookId: number | 'all', status: string) =>
+    [...questionKeys.all, 'flag-counts', bookId, status] as const,
   spend: () => [...questionKeys.all, 'spend'] as const,
   throughput: () => [...questionKeys.all, 'throughput'] as const,
   worker: () => [...questionKeys.all, 'worker'] as const,

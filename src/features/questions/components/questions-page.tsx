@@ -20,6 +20,7 @@ import {
   DEFAULT_FILTERS,
   isAttention,
   QUESTIONS_PAGE_SIZE,
+  useFlagCounts,
   useQuestionCounts,
   useQuestions,
   type QuestionFilters,
@@ -57,6 +58,7 @@ export function QuestionsPage() {
   const books = useBooks()
   const questions = useQuestions(filters, page)
   const counts = useQuestionCounts(filters.bookId)
+  const flagCounts = useFlagCounts(filters.bookId, filters.status)
 
   const items = useMemo(() => questions.data?.items ?? [], [questions.data])
   const loaded = questions.data?.loaded ?? 0
@@ -215,6 +217,47 @@ export function QuestionsPage() {
             )
           })}
         </div>
+
+        <Select
+          value={filters.flag}
+          onValueChange={(v) => updateFilters({ flag: v })}
+        >
+          <SelectTrigger className="w-52" aria-label="Qeyd süzgəci">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              <SelectItem value="all">Bütün qeydlər</SelectItem>
+              {(flagCounts.data ?? []).map((f) => (
+                <SelectItem key={f.code} value={f.code}>
+                  <span
+                    aria-hidden
+                    className={cn(
+                      'mr-1.5 inline-block size-1.5 rounded-full align-middle',
+                      f.level === 'error'
+                        ? 'bg-destructive'
+                        : f.level === 'warning'
+                          ? 'bg-amber-500'
+                          : 'bg-muted-foreground/60',
+                    )}
+                  />
+                  <span className="font-mono text-xs">{f.code}</span>
+                  <span className="text-muted-foreground ml-1.5 text-xs">{f.n}</span>
+                </SelectItem>
+              ))}
+              {/* A code the operator chose can leave the list under them (a
+                  bulk action cleared it); keep it selectable so the trigger
+                  never shows an empty control. */}
+              {filters.flag !== 'all' &&
+              !(flagCounts.data ?? []).some((f) => f.code === filters.flag) ? (
+                <SelectItem value={filters.flag}>
+                  <span className="font-mono text-xs">{filters.flag}</span>
+                  <span className="text-muted-foreground ml-1.5 text-xs">0</span>
+                </SelectItem>
+              ) : null}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
 
         <div
           role="group"

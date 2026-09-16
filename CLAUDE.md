@@ -21,7 +21,14 @@ answer exists, a search over the wording) and exactly one write — sending a
 question back to review.
 
 The scope is enforced server-side under every other filter, `status: 'all'`
-included, so neither list can leak into the other. Book order is the
+included, so neither list can leak into the other. The work screen also cuts
+by LINT CODE (`question_flag_counts`, a `flags @> …` containment behind a GIN
+index): Diqqət/Təmiz put a crop missing its fifth answer, a disputed verdict
+and a duplicate option in one pile, and the operator's real work runs by
+code — every `option_count` row after a segmenter fix, every
+`verify_mismatch` before a session. The list of codes is the scope's own,
+counted server-side, so an empty code never appears and a chosen one never
+disagrees with the page under it. Book order is the
 catalogue's default because that is what a catalogue is for, and **son
 təsdiqlənən öndə** exists for the other way the screen is used: a question
 rejected on the work screen, re-read and approved lands wherever its page
