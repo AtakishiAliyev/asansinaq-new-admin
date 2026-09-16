@@ -3,7 +3,7 @@
 // Both exist because a figure can be internally flawless and still answer a
 // different question, which is invisible to every check that looks at the
 // figure alone. Every fixture is a live spec.
-import { divisionRoleProblems } from '@/core/questions/division-roles'
+import { divisionRoleProblems, polyDegree } from '@/core/questions/division-roles'
 import { setRefProblems, stemSetNames } from '@/core/questions/set-refs'
 import type { DivisionScheme, FigureDoc } from '@/core/figures/figspec'
 import { eq, notOk, ok, suite } from '../harness.ts'
@@ -75,6 +75,41 @@ export const divisionRolesSuite = suite('division-roles', {
       scheme({ dividendTex: 'A', divisorTex: 'B', quotientTex: '', remainderTex: undefined }),
     )
     ok(problems.some((p) => p.code === 'division_role_empty'), 'nə bölüm, nə qalıq')
+  },
+
+  // The remainder-only form read with the remainder in the wrong cell: the
+  // book prints `P(x) │ x−4`, a minus, the rule, `7` under the DIVIDEND; the
+  // model wrote the 7 under the divisor as the quotient. Nine live schemes,
+  // three approved, and the verifier passed every one.
+  'a remainder written into the quotient cell is caught by its degree'() {
+    for (const [divisor, quotient] of [['x-4', '7'], ['x^3-27', 'x^2+3x-5'], ['x^2-5x+6', '(3x-5)'], ['x^2-1', '3x']]) {
+      const problems = divisionRoleProblems(
+        scheme({ dividendTex: 'P(x)', divisorTex: divisor, quotientTex: quotient, remainderTex: undefined }),
+      )
+      ok(problems.some((p) => p.code === 'division_role_misplaced'), `${quotient} / ${divisor} tutulmur`)
+    }
+  },
+
+  // `B(x)` under `x²+1` IS a quotient named as a function; the `x` inside the
+  // brackets is not a degree. A bare symbol is unknowable and left alone too.
+  'a quotient named as a function or a symbol is not judged by degree'() {
+    for (const quotient of ['B(x)', 'K(x)', 'P(x+1)', 'K', 'a']) {
+      const problems = divisionRoleProblems(
+        scheme({ dividendTex: 'x^4+3x^3', divisorTex: 'x^2+1', quotientTex: quotient, remainderTex: undefined }),
+      )
+      notOk(problems.some((p) => p.code === 'division_role_misplaced'), `${quotient} yanlış tutulub`)
+    }
+    eq(polyDegree('B(x)'), null, 'funksiya yazılışı dərəcəsizdir')
+    eq(polyDegree('x^2+3x-5'), 2, 'kvadrat')
+    eq(polyDegree('7'), 0, 'sabit')
+    eq(polyDegree('(3x-5)'), 1, 'mötərizəli xətti')
+  },
+
+  'a quotient of full degree beside an empty remainder is fine'() {
+    const problems = divisionRoleProblems(
+      scheme({ dividendTex: 'x^4+3x^3+2x^2-x-6', divisorTex: 'x^2+1', quotientTex: 'x^2+3x+1', remainderTex: undefined }),
+    )
+    notOk(problems.some((p) => p.code === 'division_role_misplaced'), 'tam dərəcəli bölüm yanlış tutulub')
   },
 
   'a missing dividend or divisor is still caught'() {

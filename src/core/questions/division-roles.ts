@@ -15,7 +15,11 @@
 import type { DivisionScheme } from '@/core/figures/figspec'
 
 export interface RoleProblem {
-  code: 'division_role_empty' | 'division_role_crammed' | 'division_arithmetic'
+  code:
+    | 'division_role_empty'
+    | 'division_role_crammed'
+    | 'division_role_misplaced'
+    | 'division_arithmetic'
   message: string
 }
 
@@ -34,6 +38,24 @@ function asInteger(tex: string | undefined): number | null {
  * `\frac` counts for the same reason.
  */
 const CRAMMED = /[/÷]|\\frac|\\dfrac/
+
+/**
+ * The degree of a polynomial in x, or null when the cell is not one.
+ *
+ * Function notation is the case that has to be null rather than wrong:
+ * `B(x)`, `K(x)`, `P(x+1)` all contain an `x`, and read as degree one they
+ * would make every quotient named as a function look misplaced. A bare
+ * symbol (`K`, `a`) is null too — it could be anything.
+ */
+export function polyDegree(tex: string | undefined): number | null {
+  const s = (tex ?? '').replace(/\s|\\left|\\right/g, '')
+  if (!s) return null
+  if (/[A-Za-z]\(/.test(s)) return null // f(x), P(x+1): a name applied, not a polynomial
+  if (!/x/.test(s)) return /^[-+]?\(?\d+(\.\d+)?\)?$/.test(s) ? 0 : null
+  if (/[A-Zb-wyz]/.test(s)) return null // other symbols in play: degree is not knowable
+  const powers = [...s.matchAll(/x(?:\^\{?(\d+)\}?)?/g)].map((m) => (m[1] ? Number(m[1]) : 1))
+  return powers.length ? Math.max(...powers) : null
+}
 
 export function divisionRoleProblems(fig: DivisionScheme): RoleProblem[] {
   const problems: RoleProblem[] = []
@@ -77,6 +99,32 @@ export function divisionRoleProblems(fig: DivisionScheme): RoleProblem[] {
           'iki rol bir xanaya yığılıb; hər rol öz xanasına yazılmalıdır',
       })
     }
+  }
+
+  // The remainder-only form, read with the remainder in the wrong cell. The
+  // book prints the remainder under the DIVIDEND, below a minus and a rule;
+  // the model kept putting that expression under the divisor instead, as the
+  // quotient, and leaving the remainder blank. Nine live schemes, three of
+  // them approved, because the verifier compares pictures and did not see
+  // which side of the bar the expression was on. Degree settles it: the
+  // remainder of a division by a degree-d polynomial has degree below d, and
+  // in these books a quotient never does.
+  const dq = polyDegree(fig.quotientTex)
+  const dd = polyDegree(fig.divisorTex)
+  if (
+    filled(fig.quotientTex) &&
+    !filled(fig.remainderTex) &&
+    dq !== null &&
+    dd !== null &&
+    dd > 0 &&
+    dq < dd
+  ) {
+    problems.push({
+      code: 'division_role_misplaced',
+      message:
+        `Bölmə sxemində "${fig.quotientTex}" bölüm xanasına yazılıb, amma dərəcəsi (${dq}) bölənin dərəcəsindən (${dd}) kiçikdir — ` +
+        'bu QALIQDIR: kitabda bölünənin altında, çıxma xəttinin altındadır. remainder_tex-ə yaz, quotient_tex boş qalsın',
+    })
   }
 
   // When every cell is a number the scheme is checkable outright, and a scheme

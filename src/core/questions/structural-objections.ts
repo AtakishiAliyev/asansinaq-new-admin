@@ -35,6 +35,9 @@ export const REPAIRABLE_CODES: Record<string, string> = {
   // The Turkish division scheme: a role left empty, or two roles in one cell.
   division_role_empty: 'figure',
   division_role_crammed: 'figure',
+  // The remainder read into the quotient cell. The message names the cell it
+  // belongs in, so the next read has an instruction, not a complaint.
+  division_role_misplaced: 'figure',
   // A structured kind claiming a figure the DSL cannot hold. The message names
   // the remedy — `kind="image"` — so the next read has a clear instruction.
   kind_over_reach: 'figure',
