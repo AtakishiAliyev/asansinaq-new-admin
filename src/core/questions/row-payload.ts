@@ -13,8 +13,36 @@
 import type { ExtractedQuestion } from '@/core/questions/extraction'
 import { lintQuestion, type Flag } from '@/core/questions/lint'
 
-/** Verdicts a person reached. Nothing the pipeline produces may overwrite one. */
-const REVIEWED = new Set(['approved', 'rejected'])
+/**
+ * Where a fresh read lands, given where the row was.
+ *
+ * `approved` is a person's verdict on a LIVE question, and nothing the
+ * pipeline produces may take that question off the shelf: the row keeps its
+ * status through any re-read. `rejected` used to be treated the same way,
+ * and it was wrong: the only path that re-reads a rejected row is the
+ * operator queuing it by hand, which IS the decision that the rejected
+ * read is to be replaced. Kept as `rejected`, the new read hid under the
+ * old verdict — never back in the review lane, and never auto-approvable,
+ * because the rejection's `reviewed_at` stayed on the row and the rule
+ * refuses any row a person has ruled on.
+ */
+function statusAfterRead(
+  current: string,
+  fresh: 'structured' | 'failed',
+): 'structured' | 'failed' | 'approved' {
+  return current === 'approved' ? 'approved' : fresh
+}
+
+/**
+ * A rejection is a verdict on the read it was given. When that read is
+ * replaced, the verdict goes with it — including the timestamp, or the new
+ * read would be refused by auto-approve as "already ruled on" forever.
+ */
+function reopened(current: string): Record<string, unknown> {
+  return current === 'rejected'
+    ? { reviewed_at: null, reviewed_by: null, auto_approved: false }
+    : {}
+}
 
 /**
  * A read has no verdict yet, so the one the row carried has to go with it.
@@ -133,7 +161,8 @@ export function buildRowPayload(
       status: 'failed',
       flags,
       update: {
-        status: REVIEWED.has(context.currentStatus) ? context.currentStatus : 'failed',
+        status: statusAfterRead(context.currentStatus, 'failed'),
+        ...reopened(context.currentStatus),
         flags,
         verified: false,
         ...CLEARED_VERDICT,
@@ -150,7 +179,8 @@ export function buildRowPayload(
     status: 'structured',
     flags,
     update: {
-      status: REVIEWED.has(context.currentStatus) ? context.currentStatus : 'structured',
+      status: statusAfterRead(context.currentStatus, 'structured'),
+      ...reopened(context.currentStatus),
       // NULL, not '': the column forbids a blank string precisely so a missing
       // wording cannot be confused with a present empty one.
       stem: question.stem.trim() || null,

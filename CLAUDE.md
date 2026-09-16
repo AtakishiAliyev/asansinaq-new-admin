@@ -780,7 +780,14 @@ category, and an answer unless the operator says otherwise.
 It also refuses a row whose `reviewed_at` is set. On a `structured` row that
 timestamp can only have come from the Hazır suallar screen's "təsdiqi geri al",
 because approving and rejecting both move the row out of `structured` — so it
-is the exact signal for "a person pulled this back on purpose". Without it
+is the exact signal for "a person pulled this back on purpose". That holds
+because a REJECTED row read again comes back `structured` with the
+rejection's timestamp cleared (`row-payload.ts`): the only path that re-reads
+a rejected row is the operator queuing it, which is the decision that the
+rejected read is to be replaced. It used to keep the status, and the new read
+hid under "rədd edilib" while the old timestamp made it un-approvable for
+good. `approved` is different — a live question never leaves the shelf on a
+re-read — and keeps both its status and its timestamp. Without it
 every other condition still held on such a row and the sweep re-approved it on
 its next pass, the panel silently undoing its own operator.
 

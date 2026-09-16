@@ -72,6 +72,30 @@ export const rowPayloadSuite = suite('row-payload', {
   'a reviewer’s status survives a re-read'() {
     const { update } = buildRowPayload(question(), {}, context({ currentStatus: 'approved' }))
     eq(update.status, 'approved', 'approved stays approved')
+    eq('reviewed_at' in update, false, 'an approval keeps its timestamp')
+  },
+
+  // A rejection is a verdict on the read it was given. The only path that
+  // re-reads a rejected row is the operator queuing it by hand — the decision
+  // that the read is to be replaced — so the verdict goes with the read. Kept,
+  // the new read hid under "rədd edilib" and, with the rejection's timestamp
+  // still on the row, could never be auto-approved.
+  'a rejected row read again returns to review'() {
+    const { update } = buildRowPayload(question(), {}, context({ currentStatus: 'rejected' }))
+    eq(update.status, 'structured', 'rejected does not survive a re-read')
+    eq(update.reviewed_at, null, 'the rejection timestamp is cleared')
+    eq(update.reviewed_by, null, 'and its author')
+    eq(update.auto_approved, false, 'the flag starts over')
+  },
+
+  'a rejected row whose re-read is empty shows as failed, not rejected'() {
+    const { update } = buildRowPayload(
+      question({ stem: '', options: [], figures: null }),
+      {},
+      context({ currentStatus: 'rejected' }),
+    )
+    eq(update.status, 'failed', 'a failed re-read is visible as failed')
+    eq(update.reviewed_at, null, 'the rejection timestamp is cleared')
   },
 
   'a reviewer’s answer is never replaced by the key'() {
