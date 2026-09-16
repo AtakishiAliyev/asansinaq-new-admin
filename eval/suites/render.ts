@@ -807,7 +807,15 @@ export const renderSuite = suite('render', {
     })
     const texts = [...svg.matchAll(/<text[^>]*>([^<]*)<\/text>/g)].map((m) => m[1]!)
     notOk(texts.some((t) => /^[-−]$/.test(t)), 'qalıqsız sxemdə çıxma işarəsi çəkilib')
-    eq((svg.match(/<line /g) ?? []).length, 2, 'bar və bölən xəttindən başqa xətt olmamalıdır')
+    // Bar, the rule under the divisor, and the bottom rule — the corner is
+    // printed on every scheme, remainder or not. The one thing a quotient-only
+    // scheme drops is the minus.
+    const lines = [...svg.matchAll(/<line x1="([\d.]+)" y1="([\d.]+)" x2="([\d.]+)" y2="([\d.]+)"/g)].map((m) => m.slice(1).map(Number))
+    eq(lines.length, 3, 'qalıqsız sxemdə də künc çəkilməlidir')
+    const bar = lines.find(([x1, , x2]) => x1 === x2)!
+    const bottom = lines.filter(([, y1, , y2]) => y1 === y2).sort((a, b) => b[1]! - a[1]!)[0]!
+    eq(bottom[2], bar[0], 'alt xətt bara çatmır')
+    eq(bar[3], bottom[1], 'bar alt xəttdə bitmir — küncü yoxdur')
   },
 
   // Written-out steps keep their own operators; the elided row is not added

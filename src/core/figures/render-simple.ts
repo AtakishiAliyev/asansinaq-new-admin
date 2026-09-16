@@ -337,10 +337,14 @@ export function renderDivisionScheme(
   body.push(tag('line', { x1: barX, y1: divisorRuleY, x2: divisorRuleEnd, y2: divisorRuleY, ...stroke }))
   body.push(place(quotient, centred(quotient, barX + gapX, rightInner), rowY(1)))
 
-  // The rule above the remainder, fixed before the rows are placed because the
-  // elided minus is positioned off it.
+  // The bottom rule, fixed before the rows are placed because the elided
+  // minus is positioned off it. It is drawn on EVERY scheme: the book prints
+  // the corner — bar meeting rule — whether or not a remainder follows. A
+  // quotient-only scheme used to get no rule at all and a bar that ran on past
+  // the quotient, which is not the shape the book prints and was the one
+  // visible difference on a row the verifier had passed.
   const stepRows = elided ? 1 : steps.length
-  const ruleY = remainder ? rowY(1 + stepRows) - S * 0.3 : null
+  const ruleY = remainder ? rowY(1 + stepRows) - S * 0.3 : divisorRuleY + rowH
 
   // Written subtraction rows on the left: the operator at the far left, the
   // label right-aligned against the bar like the dividend above it.
@@ -353,27 +357,28 @@ export function renderDivisionScheme(
   // The elided row: its minus does not sit on a row of its own — the book
   // prints it level with the quotient, 0.8 above the rule, so `−` and rule
   // read as one mark rather than a stray sign.
-  if (elided && ruleY !== null) {
+  if (elided) {
     const y = ruleY - S * 0.8
     body.push(tag('line', { x1: minusX, y1: y, x2: minusX + minusLen, y2: y, ...stroke }))
     row++
   }
 
-  // The last rule and the bar meet at a corner; both end there. The remainder
-  // sits a little further under the rule than a row's own pitch gives it —
-  // the book leaves 0.7 of a glyph between the two.
-  let barBottom = divisorRuleY + rowH // enough to bracket the quotient when nothing follows
-  let bottom = rowY(row - 1) + S * 1.15
-  if (remainder && ruleY !== null) {
-    body.push(tag('line', { x1: minusX, y1: ruleY, x2: barX, y2: ruleY, ...stroke }))
+  // The bottom rule and the bar meet at a corner; both end there. With a
+  // subtraction the rule starts at the minus's own left end; without one
+  // there is no operator gutter to reach into, and the book starts it at the
+  // dividend's left edge. The remainder sits a little further under the rule
+  // than a row's own pitch gives it — the book leaves 0.7 of a glyph.
+  const ruleLeft = remainder || steps.length ? minusX : leftEdge
+  body.push(tag('line', { x1: ruleLeft, y1: ruleY, x2: barX, y2: ruleY, ...stroke }))
+  let bottom = Math.max(rowY(row - 1) + S * 1.15, ruleY + S * 0.3)
+  if (remainder) {
     const remainderY = rowY(row) + S * 0.25
     body.push(place(remainder, centred(remainder, leftEdge, leftInner), remainderY))
-    barBottom = ruleY
     bottom = remainderY + S * 1.15
   }
-  body.unshift(tag('line', { x1: barX, y1: top, x2: barX, y2: barBottom, ...stroke }))
+  body.unshift(tag('line', { x1: barX, y1: top, x2: barX, y2: ruleY, ...stroke }))
 
-  const height = Math.max(bottom, barBottom) + S * 0.2
+  const height = bottom + S * 0.2
   return svgWrap(width, height, body.join(''))
 }
 
