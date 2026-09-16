@@ -30,7 +30,7 @@
 // 19 puts difficulty on three levels, as an enum the schema enforces. Asked
 // for one of five in prose, the model gave 2 or 3 to every question on a live
 // bank — a scale with two working values. Three it must choose between spread.
-export const PROMPT_VERSION = 22
+export const PROMPT_VERSION = 23
 
 // Prompt texts for the question-recreation pipeline. Shared by the
 // question-ops Edge Function and the Node eval harness — ONE source of truth,
@@ -122,6 +122,8 @@ const SYSTEM_FIGURE_RULES = `12. Fiqurlar: deklarativ spec ver, şəkil çəkmə
    Xanalar ifadədirsə (n^2, K+4, a+1) rollar asan qarışır: şəkildəki YERİNƏ bax, ifadənin özünə yox.
    YALNIZ-QALIQ FORMASI: sol tərəfdə "−" işarəsi və bölünənin altında üfüqi xətt varsa, o xəttin ALTINDAKI ifadə QALIQDIR (remainder_tex) — bölənin altına YAZMA, quotient_tex BOŞ qalsın.
    Dərəcə yoxlaması: bölənin dərəcəsindən KİÇİK dərəcəli ifadə (x−4 üçün sabit, x³−27 üçün x²+3x−5) həmişə qalıqdır, bölüm ola bilməz.
+   Sxemdə K və ya K(x) kimi AD varsa və sual onu soruşursa (K = ?), variantlara bax: hamısı bölənin dərəcəsindən kiçikdirsə K QALIQDIR — remainder_tex-ə.
+   Tək "−" işarəsi heç vaxt xana deyil: onu remainder_tex-ə və ya quotient_tex-ə YAZMA.
    Səhifədə YANAŞI iki sxem varsa İKİSİNİ də ver və layout_direction="row" qoy — biri şərt, o biri sualdır.
 14. ŞAQULİ HESAB (alt-alta yazılmış TOPLAMA, ÇIXMA və ya ÇARPMA) — kind="vertical_arithmetic":
    Rəqəmləri/hərfləri ALT-ALTA düzülmüş, altında üfüqi xətt olan HƏR əməliyyat bu fiqurdur — iki sətirlik sadə toplama və çıxma da daxil.
