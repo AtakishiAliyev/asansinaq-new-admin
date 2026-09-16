@@ -256,6 +256,15 @@ function splitColumns(
     if (left.length < 3 || right.length < 3) continue
     const la = findAnchors(left, profile)
     const ra = findAnchors(right, profile)
+    // A split with question numbers on only ONE side is not a column gutter,
+    // whatever the whitespace looks like. On the last page of a test — three
+    // questions down the left, the whole right half of the page empty — the
+    // only qualifying run was the 18–30pt gap between "D)" and "E)", and its
+    // right side held exactly the three "E)" options: enough items to pass
+    // the count above, no anchors, so the "column" was dropped and every one
+    // of those questions lost its fifth answer. Thirteen pages of one book,
+    // eleven of another, all with this signature.
+    if (!la.length || !ra.length) continue
     const ordered =
       la.length > 0 &&
       ra.length > 0 &&

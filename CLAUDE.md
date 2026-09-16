@@ -72,6 +72,19 @@ what each stage needs.
   cache key. Re-importing a worked page refreshes the crop object and re-cuts
   the pictures of rows already structured without touching their content —
   that is how an older book gets the resolution without a paid re-read.
+- **A whitespace band with question numbers on only one side is not a column
+  gutter.** The last page of a test — three questions down the left, the
+  right half of the page empty — has exactly one run of clear space wide
+  enough to qualify: the 18–30pt gap between `D)` and `E)`. Its right side
+  held the three `E)` options, enough items to pass the count gate and no
+  anchors, so it was taken as a column, found nothing, and was dropped with
+  the fifth answer of every question on the page. Thirteen pages of Soru
+  Bankası 2025 A and eleven of DENEME 05.04.2025 carried that exact
+  signature, always questions 13–15, and the text layer could not expose it
+  because it is cut from the same box as the crop. `splitColumns` now refuses
+  a candidate with anchors on one side only. Measured over every local book:
+  the 24 pages regain `E)`, nothing else moves, and three phantom "questions"
+  the same rule had invented from Golden Group's answer-key pages disappear.
 - **The `worker/` service owns every batch model call.** A long-running
   Node/TypeScript process claims work through the queue RPCs with the service
   role key, builds one structured request per question, submits it to the

@@ -68,6 +68,33 @@ export const segmenterSuite = suite('segment', {
     )
   },
 
+  // The last page of a test: three questions down the left, the right half of
+  // the page empty. The only run of clear space wide enough to be a gutter was
+  // the gap between "D)" and "E)", and its right side held exactly the three
+  // "E)" options — enough items to pass the count gate, no anchors — so that
+  // "column" was dropped and every question on the page lost its fifth
+  // answer. Thirteen pages of Soru Bankası 2025 A and eleven of DENEME
+  // 05.04.2025 carried this exact signature.
+  'a whitespace band with question numbers on only one side is not a gutter'() {
+    const specs = [13, 14, 15].flatMap((n, i) => {
+      const y = 60 + i * 240
+      return [
+        { str: `${n}. Aşağıdakılardan hansı doğrudur?`, x: 40, y, w: 180 },
+        // Four options in one item, the fifth on its own 25pt to the right —
+        // the way this book's text layer actually prints it.
+        { str: 'A) 1  B) 2  C) 3  D) 4', x: 60, y: y + 24, w: 170 },
+        { str: 'E) 5', x: 255, y: y + 24, w: 22 },
+      ]
+    })
+    const page = seg(specs)
+    eq(page.bands.map((b) => b.col).join(''), '000', 'səhifə tək sütundur')
+    eq(page.bands.map((b) => b.number).join(','), '13,14,15', 'üç sual')
+    for (const b of page.bands) {
+      ok(b.bbox.x + b.bbox.w >= 277, `q${b.number} kropu E)-yə çatmır: sağ kənar ${(b.bbox.x + b.bbox.w).toFixed(0)}`)
+      ok(b.textLayer.includes('E) 5'), `q${b.number} mətn qatında E) yoxdur`)
+    }
+  },
+
   'a numbered list is not a question page'() {
     // Anchors one text line apart: an answer-key table or a contents page.
     // Emitting crops for these would bill a model call per list row.
