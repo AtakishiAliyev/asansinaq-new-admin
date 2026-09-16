@@ -105,6 +105,72 @@ export const divisionRolesSuite = suite('division-roles', {
     eq(polyDegree('(3x-5)'), 1, 'mötərizəli xətti')
   },
 
+  // The subtraction sign read as a cell. Three live rows put "-" in the
+  // remainder cell and the remainder under the divisor; the wave passed all
+  // three.
+  'a lone minus in the remainder cell marks the quotient as the remainder'() {
+    for (const [divisor, quotient] of [['x^3-3', 'K'], ['x^2-1', '2x+5'], ['x^2-5x-14', '2x+3']]) {
+      const problems = divisionRoleProblems(
+        scheme({ dividendTex: 'P(x)', divisorTex: divisor, quotientTex: quotient, remainderTex: '-' }),
+      )
+      eq(problems.filter((p) => p.code === 'division_role_misplaced').length, 1, `${quotient} / ${divisor}`)
+      ok(problems[0]!.message.includes('çıxma işarəsidir'), 'səbəb minusu adlandırmır')
+    }
+  },
+
+  // `K(x)` under `x³+1` with the question asking `K = ?` and five answers of
+  // degree at most two: the answers carry the unknown's degree, and it is
+  // below the divisor's, so K(x) is the remainder. Two live rows, one of
+  // them approved — and the same reading leaves the book's one quotient-only
+  // scheme alone, because its answers reach the divisor's degree.
+  'a named unknown the options put below the divisor\u2019s degree is the remainder'() {
+    const cases: [string, string, string, string[]][] = [
+      ['K(x)', 'x^3+1', '\\Rightarrow K = ?', ['-2x', '-x', 'x^2', '2x^2', '-x^2-x']],
+      ['K(x)', 'x-2', 'K(x) = ?', ['10', '14', '18', '22', '26']],
+      ['K', 'x^2+x-12', 'K(x) = ?', ['x-4', '4x-1', 'x+4', '4-x', '4x+1']],
+      ['K', 'x-1', 'K = ?', ['3', '5', '7', '9', '11']],
+      ['K', 'x^2+2x+4', 'K=?', ['-4x', '-4x+5', '-4x-9', '4x-2', '4x+10']],
+      ['K', 'x^2-3x+2', 'K(x) = ?', ['2x+1', 'x-2', '-3x+6', '2x-1', 'x-1']],
+    ]
+    for (const [quotient, divisor, stem, optionTexs] of cases) {
+      const problems = divisionRoleProblems(
+        scheme({ dividendTex: 'P(x)', divisorTex: divisor, quotientTex: quotient, remainderTex: '' }),
+        { stem, optionTexs },
+      )
+      ok(problems.some((p) => p.code === 'division_role_misplaced'), `${quotient} / ${divisor} tutulmur`)
+    }
+  },
+
+  'a named quotient whose options reach the divisor\u2019s degree is left alone'() {
+    const problems = divisionRoleProblems(
+      scheme({ dividendTex: 'x^4+2x^3-x^2+1', divisorTex: 'x^2+x-1', quotientTex: 'B(x)', remainderTex: '' }),
+      { stem: 'B(x) = ?', optionTexs: ['x^2+x-1', '-2x^2+x', '-x^2+4x', '-x^2-x', '-x^2-x-1'] },
+    )
+    notOk(problems.some((p) => p.code === 'division_role_misplaced'), 'B(x) bölümü yanlış tutulub')
+  },
+
+  // The options only speak for the name the question asks about. Numeric
+  // answers to `a+b = ?` say nothing about a `B(x)` in the quotient cell.
+  'options for a different unknown do not judge the quotient'() {
+    const problems = divisionRoleProblems(
+      scheme({ dividendTex: 'x^3+ax^2+b', divisorTex: 'x^2+1', quotientTex: 'B(x)', remainderTex: '' }),
+      { stem: 'a+b = ?', optionTexs: ['-2', '0', '2', '4', '6'] },
+    )
+    notOk(problems.some((p) => p.code === 'division_role_misplaced'), 'a+b variantları B(x)-i mühakimə edib')
+  },
+
+  // What the lint cannot see: a quotient the model invented beside a remainder
+  // it read correctly. `x` under `x²−x−1` is of the degree a real quotient
+  // would have, so nothing here can call it wrong; the verifier's claims block
+  // is what carries that case.
+  'an invented quotient beside a correct remainder is left to the verifier'() {
+    const problems = divisionRoleProblems(
+      scheme({ dividendTex: 'x^3+x^2+ax-b', divisorTex: 'x^2-x-1', quotientTex: 'x', remainderTex: '3x' }),
+      { stem: 'a+b = ?', optionTexs: ['-2', '0', '2', '4', '6'] },
+    )
+    eq(problems.length, 0, 'determinist yoxlama bunu tuta bilməz — tutursa, səbəbi yaz')
+  },
+
   'a quotient of full degree beside an empty remainder is fine'() {
     const problems = divisionRoleProblems(
       scheme({ dividendTex: 'x^4+3x^3+2x^2-x-6', divisorTex: 'x^2+1', quotientTex: 'x^2+3x+1', remainderTex: undefined }),

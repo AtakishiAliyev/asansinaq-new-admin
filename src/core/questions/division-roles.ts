@@ -48,7 +48,7 @@ const CRAMMED = /[/÷]|\\frac|\\dfrac/
  * symbol (`K`, `a`) is null too — it could be anything.
  */
 export function polyDegree(tex: string | undefined): number | null {
-  const s = (tex ?? '').replace(/\s|\\left|\\right/g, '')
+  const s = (tex ?? '').replace(/\s|\\left|\\right/g, '').replace(/[−–]/g, '-')
   if (!s) return null
   if (/[A-Za-z]\(/.test(s)) return null // f(x), P(x+1): a name applied, not a polynomial
   if (!/x/.test(s)) return /^[-+]?\(?\d+(\.\d+)?\)?$/.test(s) ? 0 : null
@@ -57,7 +57,35 @@ export function polyDegree(tex: string | undefined): number | null {
   return powers.length ? Math.max(...powers) : null
 }
 
-export function divisionRoleProblems(fig: DivisionScheme): RoleProblem[] {
+/** A lone minus sign: the subtraction operator, which is not a cell. */
+const LONE_MINUS = /^[-−–]$/
+
+/**
+ * A cell that is a NAME rather than an expression — `K`, `K(x)`, `B(x)`,
+ * `P^2(x)` — and the letter it goes by.
+ */
+function namedUnknown(tex: string | undefined): string | null {
+  const m = (tex ?? '').replace(/\s/g, '').match(/^([A-Z])(?:\^\{?\d\}?)?(?:\([a-z](?:[+-]\d+)?\))?$/)
+  return m ? m[1]! : null
+}
+
+/** Does the stem ask for this name — `K = ?`, `K(x) = ?`, `⇒ B(x)=?` */
+function stemAsksFor(stem: string, name: string): boolean {
+  return new RegExp(`(^|[^A-Za-z\\\\])${name}(\\^\\{?\\d\\}?)?(\\([^)]*\\))?\\s*=\\s*\\?`).test(stem)
+}
+
+/**
+ * The question around the scheme, for the one check that needs it: which
+ * role a NAMED unknown plays cannot be read off the name, but the options
+ * the question offers for it carry its degree.
+ */
+export interface SchemeContext {
+  stem: string
+  /** every option's TeX; an option with none is an empty string */
+  optionTexs: string[]
+}
+
+export function divisionRoleProblems(fig: DivisionScheme, context?: SchemeContext): RoleProblem[] {
   const problems: RoleProblem[] = []
   const cells: [string, string | undefined][] = [
     ['bölünən', fig.dividendTex],
@@ -109,22 +137,45 @@ export function divisionRoleProblems(fig: DivisionScheme): RoleProblem[] {
   // which side of the bar the expression was on. Degree settles it: the
   // remainder of a division by a degree-d polynomial has degree below d, and
   // in these books a quotient never does.
+  //
+  // Three readings settle it, each on its own. The remainder cell holding a
+  // lone minus is the surest: the model read the subtraction sign as a cell,
+  // so whatever it put under the divisor is what sits under that sign. Then
+  // degree. Then, for a NAMED unknown — `K`, `K(x)` — which degree cannot
+  // judge, the options the question offers for it: a divisor of degree three
+  // and five answers of degree at most two make `K(x)` the remainder, and the
+  // one quotient-only scheme in the book (`B(x)` under `x²+x−1`, answers of
+  // degree two) is left alone by the same measure.
   const dq = polyDegree(fig.quotientTex)
   const dd = polyDegree(fig.divisorTex)
-  if (
-    filled(fig.quotientTex) &&
-    !filled(fig.remainderTex) &&
-    dq !== null &&
-    dd !== null &&
-    dd > 0 &&
-    dq < dd
-  ) {
+  const misplaced = (why: string) =>
     problems.push({
       code: 'division_role_misplaced',
       message:
-        `Bölmə sxemində "${fig.quotientTex}" bölüm xanasına yazılıb, amma dərəcəsi (${dq}) bölənin dərəcəsindən (${dd}) kiçikdir — ` +
+        `Bölmə sxemində "${fig.quotientTex}" bölüm xanasına yazılıb, amma ${why} — ` +
         'bu QALIQDIR: kitabda bölünənin altında, çıxma xəttinin altındadır. remainder_tex-ə yaz, quotient_tex boş qalsın',
     })
+  if (LONE_MINUS.test((fig.remainderTex ?? '').trim())) {
+    if (filled(fig.quotientTex)) misplaced('qalıq xanasındakı "-" çıxma işarəsidir, xana deyil')
+    else
+      problems.push({
+        code: 'division_role_misplaced',
+        message: 'Qalıq xanasında tək "-" var: bu çıxma işarəsidir, xana deyil. Xəttin altındakı ifadəni remainder_tex-ə yaz',
+      })
+  } else if (filled(fig.quotientTex) && !filled(fig.remainderTex) && dd !== null && dd > 0) {
+    if (dq !== null && dq < dd) {
+      misplaced(`dərəcəsi (${dq}) bölənin dərəcəsindən (${dd}) kiçikdir`)
+    } else if (dq === null && context) {
+      const name = namedUnknown(fig.quotientTex)
+      const degrees = context.optionTexs.map(polyDegree)
+      if (
+        name !== null &&
+        stemAsksFor(context.stem, name) &&
+        degrees.length >= 2 &&
+        degrees.every((d) => d !== null && d < dd)
+      )
+        misplaced(`sual "${name}"-nı soruşur və bütün variantlar bölənin dərəcəsindən (${dd}) kiçikdir`)
+    }
   }
 
   // When every cell is a number the scheme is checkable outright, and a scheme

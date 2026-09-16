@@ -2,7 +2,7 @@ import { canonMath } from '@/core/questions/compare'
 import { texCompiles } from '@/core/questions/tex-normalize'
 import { pointsLieOnCurves, sampleCurve } from '@/core/figures/curve'
 import { documentIneligible } from '@/core/figures/kind-eligibility'
-import { divisionRoleProblems } from '@/core/questions/division-roles'
+import { divisionRoleProblems, type SchemeContext } from '@/core/questions/division-roles'
 import { setRefProblems } from '@/core/questions/set-refs'
 import { parseSetExpr, setIdsUsed } from '@/core/figures/set-expr'
 import type { ExtractedQuestion } from '@/core/questions/extraction'
@@ -328,7 +328,8 @@ export function lintQuestion(q: ExtractedQuestion, expectedNumber?: number): Fla
   if (!q.figures && REFERENCES_DRAWING.test(q.stem))
     add('error', 'missing_figure', 'Stem şəkilə istinad edir, amma fiqur çıxarılmayıb')
 
-  if (q.figures) flags.push(...lintFigures(q.figures))
+  if (q.figures)
+    flags.push(...lintFigures(q.figures, { stem: q.stem, optionTexs: q.options.map((o) => o.tex ?? '') }))
   // Needs the stem as well as the figure, so it sits beside lintFigures rather
   // than inside it: a venn can be internally perfect and still not be the
   // diagram the question asks about.
@@ -350,7 +351,7 @@ export function lintQuestion(q: ExtractedQuestion, expectedNumber?: number): Fla
   return flags
 }
 
-function lintFigures(doc: FigureDoc): Flag[] {
+function lintFigures(doc: FigureDoc, context: SchemeContext): Flag[] {
   const flags: Flag[] = []
 
   // A structured kind claiming a figure it cannot hold is worse than no
@@ -359,7 +360,7 @@ function lintFigures(doc: FigureDoc): Flag[] {
   // auto-approved on a figure the DSL was never able to express.
   for (const item of doc.items) {
     if (item.kind !== 'division_scheme') continue
-    for (const problem of divisionRoleProblems(item)) {
+    for (const problem of divisionRoleProblems(item, context)) {
       flags.push({ level: 'error', code: problem.code, message: problem.message })
     }
   }
