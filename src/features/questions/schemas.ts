@@ -31,6 +31,8 @@ export const questionRowSchema = z.object({
   figure_kind: z.enum(['colored', 'rule', 'none']),
   is_scan: z.boolean(),
   text_layer: z.string().nullable(),
+  /** The operator's own crop box, or null for the segmenter's. See recrop.ts. */
+  crop_box: z.unknown().nullable().default(null),
   status: z.enum(['cropped', 'structured', 'approved', 'rejected', 'failed']),
   stem: z.string().nullable(),
   options: z.unknown().nullable(),

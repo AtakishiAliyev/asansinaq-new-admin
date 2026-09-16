@@ -379,6 +379,7 @@ export type Database = {
           col: number
           created_at: string
           created_by: string | null
+          crop_box: Json | null
           crop_mime: string
           crop_path: string
           difficulty: number | null
@@ -433,6 +434,7 @@ export type Database = {
           col: number
           created_at?: string
           created_by?: string | null
+          crop_box?: Json | null
           crop_mime: string
           crop_path: string
           difficulty?: number | null
@@ -487,6 +489,7 @@ export type Database = {
           col?: number
           created_at?: string
           created_by?: string | null
+          crop_box?: Json | null
           crop_mime?: string
           crop_path?: string
           difficulty?: number | null
@@ -702,6 +705,7 @@ export type Database = {
           col: number
           created_at: string
           created_by: string | null
+          crop_box: Json | null
           crop_mime: string
           crop_path: string
           difficulty: number | null
@@ -770,6 +774,7 @@ export type Database = {
           col: number
           created_at: string
           created_by: string | null
+          crop_box: Json | null
           crop_mime: string
           crop_path: string
           difficulty: number | null

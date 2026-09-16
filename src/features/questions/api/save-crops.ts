@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
 import { normalizeError } from '@/lib/errors'
+import { isCropBox } from '@/core/segment/manual-band'
 import type { Crop } from '@/core/segment/types'
 import type { FigureDoc } from '@/core/figures/figspec'
 import type {
@@ -12,6 +13,7 @@ import type { Flag } from '@/core/questions/lint'
 import type { PageResult } from '@/features/import/hooks/use-segmentation'
 import type { Book } from '@/features/books'
 import { questionKeys } from '@/features/questions/api/keys'
+import { dataUrlToBlob } from '@/features/questions/lib/data-url'
 import {
   attachFigureImages,
   attachOptionImages,
@@ -39,6 +41,7 @@ interface ExistingRow {
   options: unknown
   figures: unknown
   flags: unknown
+  crop_box: unknown
 }
 
 // The preserve rule is a correctness guard, so it may never ride on a
@@ -54,7 +57,7 @@ async function fetchExistingRows(
     const { data, error } = await supabase
       .from('questions')
       .select(
-        'id, page_number, col, q_no, status, crop_path, options, figures, flags',
+        'id, page_number, col, q_no, status, crop_path, options, figures, flags, crop_box',
       )
       .eq('book_id', bookId)
       .in('page_number', pages)
@@ -67,18 +70,6 @@ async function fetchExistingRows(
     rows.push(...batch)
     if (batch.length < SELECT_PAGE) return rows
   }
-}
-
-function dataUrlToBlob(dataUrl: string): { blob: Blob; mime: string } {
-  const m = dataUrl.match(/^data:([^;]+);base64,(.*)$/)
-  if (!m) throw new Error('yanlış dataUrl')
-  // A match always fills both groups — b64 can be empty, never absent.
-  const mime = m[1]!
-  const b64 = m[2]!
-  const bin = atob(b64)
-  const bytes = new Uint8Array(bin.length)
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
-  return { blob: new Blob([bytes], { type: mime }), mime }
 }
 
 function cropStoragePath(bookId: number, crop: Crop, mime: string) {
@@ -105,6 +96,8 @@ export interface SaveCropsResult {
   skippedKeys: string[]
   /** how many of those had their crop and cut pictures actually refreshed */
   refreshed: number
+  /** rows whose crop a person drew by hand: left exactly as they are */
+  handDrawn: number
   failed: number
 }
 
@@ -214,20 +207,32 @@ async function saveCrops({
     })),
   )
   if (!entries.length)
-    return { saved: [], skippedKeys: [], refreshed: 0, failed: 0 }
+    return { saved: [], skippedKeys: [], refreshed: 0, handDrawn: 0, failed: 0 }
 
   const pages = [...new Set(entries.map((e) => e.crop.pageNumber))]
   const existingRows = await fetchExistingRows(book.id, pages)
 
+  // A crop a person drew outranks the one the segmenter would draw today. A
+  // re-import used to refresh every worked row's pixels from the segmenter's
+  // band, which would quietly put back the exact box the operator had just
+  // corrected — the narrow one that lost the fifth answer. Those rows are
+  // left whole, whatever their status, and counted so the toast says so.
+  const handDrawnKeys = new Set(
+    existingRows.filter((r) => isCropBox(r.crop_box)).map((r) => rowKey(r)),
+  )
   const protectedRows = new Map(
     existingRows
       .filter((r) => !['cropped', 'failed'].includes(r.status))
+      .filter((r) => !handDrawnKeys.has(rowKey(r)))
       .map((r) => [rowKey(r), r] as const),
   )
-  const saveable = entries.filter((e) => !protectedRows.has(e.key))
+  const saveable = entries.filter(
+    (e) => !protectedRows.has(e.key) && !handDrawnKeys.has(e.key),
+  )
   const skippedKeys = entries
     .filter((e) => protectedRows.has(e.key))
     .map((e) => e.key)
+  const handDrawn = entries.filter((e) => handDrawnKeys.has(e.key)).length
 
   let failed = 0
 
@@ -324,7 +329,7 @@ async function saveCrops({
     }
   }
 
-  return { saved, skippedKeys, refreshed, failed }
+  return { saved, skippedKeys, refreshed, handDrawn, failed }
 }
 
 export function useSaveCrops() {
@@ -340,6 +345,8 @@ export function useSaveCrops() {
         parts.push(`${result.refreshed} emal olunmuş sualın kəsimi yeniləndi`)
       const untouched = result.skippedKeys.length - result.refreshed
       if (untouched > 0) parts.push(`${untouched} ötürüldü (artıq emal olunub)`)
+      if (result.handDrawn)
+        parts.push(`${result.handDrawn} əl ilə kəsilmiş sual toxunulmadı`)
       if (result.failed) parts.push(`${result.failed} alınmadı`)
       ;(result.failed ? toast.warning : toast.success)(parts.join(', '))
     },
