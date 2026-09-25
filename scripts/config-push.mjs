@@ -13,7 +13,11 @@
 
 import { spawnSync } from 'node:child_process'
 
-const REQUIRED = ['SUPABASE_AUTH_SITE_URL', 'SUPABASE_AUTH_REDIRECT_WILDCARD']
+const REQUIRED = [
+  'SUPABASE_AUTH_SITE_URL',
+  'SUPABASE_AUTH_REDIRECT_WILDCARD',
+  'SUPABASE_AUTH_STUDENT_REDIRECT_WILDCARD',
+]
 const LOOPBACK = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)/i
 
 const missing = REQUIRED.filter((k) => !process.env[k])

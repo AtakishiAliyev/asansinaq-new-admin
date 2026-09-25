@@ -176,6 +176,7 @@ site_url = "env(SUPABASE_AUTH_SITE_URL)"
 additional_redirect_urls = [
   "env(SUPABASE_AUTH_SITE_URL)",
   "env(SUPABASE_AUTH_REDIRECT_WILDCARD)",
+  "env(SUPABASE_AUTH_STUDENT_REDIRECT_WILDCARD)",
 ]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
@@ -191,7 +192,7 @@ refresh_token_reuse_interval = 10
 # Allow/disallow new user signups to your project.
 # Off: admins are provisioned through the Auth admin API, never self-created.
 # Mirrors the hosted project and is relied on by public.is_admin().
-enable_signup = false
+enable_signup = true
 # Allow/disallow anonymous sign-ins to your project.
 enable_anonymous_sign_ins = false
 # Allow/disallow testing manual linking of accounts
@@ -216,7 +217,7 @@ password_requirements = ""
 # Number of emails that can be sent per hour. Requires auth.email.smtp to be enabled.
 # The built-in 2/hour ceiling only applies to Supabase's shared sender; with our
 # own SMTP it just throttles sign-ins, so it is raised here.
-email_sent = 30
+email_sent = 200
 # Number of SMS messages that can be sent per hour. Requires auth.sms to be enabled.
 sms_sent = 30
 # Number of anonymous sign-ins that can be made per hour per IP address. Requires enable_anonymous_sign_ins = true.
@@ -224,9 +225,9 @@ anonymous_users = 30
 # Number of sessions that can be refreshed in a 5 minute interval per IP address.
 token_refresh = 150
 # Number of sign up and sign-in requests that can be made in a 5 minute interval per IP address (excludes anonymous users).
-sign_in_sign_ups = 30
+sign_in_sign_ups = 60
 # Number of OTP / Magic link verifications that can be made in a 5 minute interval per IP address.
-token_verifications = 30
+token_verifications = 60
 # Number of Web3 logins that can be made in a 5 minute interval per IP address.
 web3 = 30
 
@@ -273,8 +274,15 @@ sender_name = "Asansinaq"
 
 # The sign-in email carries both the code and the link: the link only works in
 # the browser that requested it, so the code is what makes another device work.
+# One code email for both apps. signInWithOtp sends `magic_link` to a user
+# that exists and `confirmation` to one it is creating, so both templates
+# carry the same body and the code is in the SUBJECT — it shows in the
+# notification without the mail being opened.
 [auth.email.template.magic_link]
-subject = "{{ .Token }} — Asansinaq admin girişi"
+subject = "{{ .Token }} — Asansinaq giriş kodu"
+content_path = "./supabase/templates/magic-link.html"
+[auth.email.template.confirmation]
+subject = "{{ .Token }} — Asansinaq giriş kodu"
 content_path = "./supabase/templates/magic-link.html"
 
 # Uncomment to customize email template
