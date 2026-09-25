@@ -106,6 +106,105 @@ export type Database = {
           },
         ]
       }
+      attempt_events: {
+        Row: {
+          at: string
+          attempt_id: number
+          id: number
+          kind: string
+          payload: Json | null
+          seq: number | null
+        }
+        Insert: {
+          at: string
+          attempt_id: number
+          id?: never
+          kind: string
+          payload?: Json | null
+          seq?: number | null
+        }
+        Update: {
+          at?: string
+          attempt_id?: number
+          id?: never
+          kind?: string
+          payload?: Json | null
+          seq?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attempt_events_attempt_id_fkey"
+            columns: ["attempt_id"]
+            isOneToOne: false
+            referencedRelation: "exam_attempts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      attempt_responses: {
+        Row: {
+          attempt_id: number
+          choice: string | null
+          flagged: boolean
+          seq: number
+          updated_at: string
+        }
+        Insert: {
+          attempt_id: number
+          choice?: string | null
+          flagged?: boolean
+          seq: number
+          updated_at?: string
+        }
+        Update: {
+          attempt_id?: number
+          choice?: string | null
+          flagged?: boolean
+          seq?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attempt_responses_attempt_id_fkey"
+            columns: ["attempt_id"]
+            isOneToOne: false
+            referencedRelation: "exam_attempts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      attempt_sketches: {
+        Row: {
+          attempt_id: number
+          data: Json
+          layer: string
+          seq: number
+          updated_at: string
+        }
+        Insert: {
+          attempt_id: number
+          data: Json
+          layer: string
+          seq: number
+          updated_at?: string
+        }
+        Update: {
+          attempt_id?: number
+          data?: Json
+          layer?: string
+          seq?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attempt_sketches_attempt_id_fkey"
+            columns: ["attempt_id"]
+            isOneToOne: false
+            referencedRelation: "exam_attempts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       books: {
         Row: {
           content_hash: string | null
@@ -230,6 +329,434 @@ export type Database = {
           },
         ]
       }
+      exam_attempts: {
+        Row: {
+          answers_revealed_at: string | null
+          attempt_no: number
+          blank_count: number | null
+          correct_count: number | null
+          current_seq: number
+          exam_id: number
+          id: number
+          last_seen_at: string
+          max_score: number | null
+          score: number | null
+          section_scores: Json | null
+          started_at: string
+          status: string
+          submitted_at: string | null
+          submitted_by: string | null
+          time_used_seconds: number
+          updated_at: string
+          user_id: string
+          version_id: number
+          wrong_count: number | null
+        }
+        Insert: {
+          answers_revealed_at?: string | null
+          attempt_no: number
+          blank_count?: number | null
+          correct_count?: number | null
+          current_seq?: number
+          exam_id: number
+          id?: never
+          last_seen_at?: string
+          max_score?: number | null
+          score?: number | null
+          section_scores?: Json | null
+          started_at?: string
+          status?: string
+          submitted_at?: string | null
+          submitted_by?: string | null
+          time_used_seconds?: number
+          updated_at?: string
+          user_id: string
+          version_id: number
+          wrong_count?: number | null
+        }
+        Update: {
+          answers_revealed_at?: string | null
+          attempt_no?: number
+          blank_count?: number | null
+          correct_count?: number | null
+          current_seq?: number
+          exam_id?: number
+          id?: never
+          last_seen_at?: string
+          max_score?: number | null
+          score?: number | null
+          section_scores?: Json | null
+          started_at?: string
+          status?: string
+          submitted_at?: string | null
+          submitted_by?: string | null
+          time_used_seconds?: number
+          updated_at?: string
+          user_id?: string
+          version_id?: number
+          wrong_count?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "exam_attempts_exam_id_fkey"
+            columns: ["exam_id"]
+            isOneToOne: false
+            referencedRelation: "exams"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "exam_attempts_version_id_fkey"
+            columns: ["version_id"]
+            isOneToOne: false
+            referencedRelation: "exam_versions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      exam_items: {
+        Row: {
+          exam_id: number
+          position: number
+          question_id: number
+          section_position: number
+        }
+        Insert: {
+          exam_id: number
+          position: number
+          question_id: number
+          section_position: number
+        }
+        Update: {
+          exam_id?: number
+          position?: number
+          question_id?: number
+          section_position?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "exam_items_exam_id_fkey"
+            columns: ["exam_id"]
+            isOneToOne: false
+            referencedRelation: "exams"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "exam_items_question_id_fkey"
+            columns: ["question_id"]
+            isOneToOne: false
+            referencedRelation: "questions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      exam_template_sections: {
+        Row: {
+          duration_seconds: number | null
+          penalty_ratio: number
+          points_correct: number
+          position: number
+          program_id: number
+          question_count: number
+          subject_id: number
+          template_id: number
+        }
+        Insert: {
+          duration_seconds?: number | null
+          penalty_ratio?: number
+          points_correct: number
+          position: number
+          program_id: number
+          question_count: number
+          subject_id: number
+          template_id: number
+        }
+        Update: {
+          duration_seconds?: number | null
+          penalty_ratio?: number
+          points_correct?: number
+          position?: number
+          program_id?: number
+          question_count?: number
+          subject_id?: number
+          template_id?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "exam_template_sections_subject_id_program_id_fkey"
+            columns: ["subject_id", "program_id"]
+            isOneToOne: false
+            referencedRelation: "subjects"
+            referencedColumns: ["id", "program_id"]
+          },
+          {
+            foreignKeyName: "exam_template_sections_template_id_program_id_fkey"
+            columns: ["template_id", "program_id"]
+            isOneToOne: false
+            referencedRelation: "exam_templates"
+            referencedColumns: ["id", "program_id"]
+          },
+        ]
+      }
+      exam_templates: {
+        Row: {
+          allow_retake: boolean
+          archived_at: string | null
+          base_score: number
+          created_at: string
+          duration_seconds: number
+          id: number
+          min_score: number
+          name: string
+          name_pattern: string
+          navigation: string
+          pause_on_exit: boolean
+          program_id: number
+          reveal_answers: string
+          scoring_method: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          allow_retake?: boolean
+          archived_at?: string | null
+          base_score?: number
+          created_at?: string
+          duration_seconds: number
+          id?: never
+          min_score?: number
+          name: string
+          name_pattern: string
+          navigation?: string
+          pause_on_exit?: boolean
+          program_id: number
+          reveal_answers?: string
+          scoring_method?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          allow_retake?: boolean
+          archived_at?: string | null
+          base_score?: number
+          created_at?: string
+          duration_seconds?: number
+          id?: never
+          min_score?: number
+          name?: string
+          name_pattern?: string
+          navigation?: string
+          pause_on_exit?: boolean
+          program_id?: number
+          reveal_answers?: string
+          scoring_method?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "exam_templates_program_id_fkey"
+            columns: ["program_id"]
+            isOneToOne: false
+            referencedRelation: "programs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      exam_version_items: {
+        Row: {
+          answer: string
+          category_id: number | null
+          difficulty: number | null
+          figures: Json | null
+          options: Json
+          position: number
+          question_id: number | null
+          question_updated_at: string | null
+          section_position: number
+          seq: number
+          stem: string
+          subject_id: number
+          version_id: number
+        }
+        Insert: {
+          answer: string
+          category_id?: number | null
+          difficulty?: number | null
+          figures?: Json | null
+          options: Json
+          position: number
+          question_id?: number | null
+          question_updated_at?: string | null
+          section_position: number
+          seq: number
+          stem: string
+          subject_id: number
+          version_id: number
+        }
+        Update: {
+          answer?: string
+          category_id?: number | null
+          difficulty?: number | null
+          figures?: Json | null
+          options?: Json
+          position?: number
+          question_id?: number | null
+          question_updated_at?: string | null
+          section_position?: number
+          seq?: number
+          stem?: string
+          subject_id?: number
+          version_id?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "exam_version_items_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "exam_version_items_question_id_fkey"
+            columns: ["question_id"]
+            isOneToOne: false
+            referencedRelation: "questions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "exam_version_items_subject_id_fkey"
+            columns: ["subject_id"]
+            isOneToOne: false
+            referencedRelation: "subjects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "exam_version_items_version_id_fkey"
+            columns: ["version_id"]
+            isOneToOne: false
+            referencedRelation: "exam_versions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      exam_versions: {
+        Row: {
+          duration_seconds: number
+          exam_id: number
+          id: number
+          max_score: number
+          published_at: string
+          published_by: string | null
+          question_count: number
+          rules: Json
+          version_no: number
+        }
+        Insert: {
+          duration_seconds: number
+          exam_id: number
+          id?: never
+          max_score: number
+          published_at?: string
+          published_by?: string | null
+          question_count: number
+          rules: Json
+          version_no: number
+        }
+        Update: {
+          duration_seconds?: number
+          exam_id?: number
+          id?: never
+          max_score?: number
+          published_at?: string
+          published_by?: string | null
+          question_count?: number
+          rules?: Json
+          version_no?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "exam_versions_exam_id_fkey"
+            columns: ["exam_id"]
+            isOneToOne: false
+            referencedRelation: "exams"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "exam_versions_published_by_fkey"
+            columns: ["published_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      exams: {
+        Row: {
+          access_rule: string | null
+          created_at: string
+          created_by: string | null
+          current_version_id: number | null
+          draft_updated_at: string
+          id: number
+          is_visible: boolean
+          program_id: number
+          seq: number
+          template_id: number
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          access_rule?: string | null
+          created_at?: string
+          created_by?: string | null
+          current_version_id?: number | null
+          draft_updated_at?: string
+          id?: never
+          is_visible?: boolean
+          program_id: number
+          seq: number
+          template_id: number
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          access_rule?: string | null
+          created_at?: string
+          created_by?: string | null
+          current_version_id?: number | null
+          draft_updated_at?: string
+          id?: never
+          is_visible?: boolean
+          program_id?: number
+          seq?: number
+          template_id?: number
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "exams_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "exams_current_version_fkey"
+            columns: ["current_version_id"]
+            isOneToOne: false
+            referencedRelation: "exam_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "exams_template_id_program_id_fkey"
+            columns: ["template_id", "program_id"]
+            isOneToOne: false
+            referencedRelation: "exam_templates"
+            referencedColumns: ["id", "program_id"]
+          },
+        ]
+      }
       ops_cache: {
         Row: {
           created_at: string
@@ -313,23 +840,94 @@ export type Database = {
           },
         ]
       }
+      placement_attempts: {
+        Row: {
+          answers: Json
+          expires_at: string
+          question_ids: number[]
+          started_at: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          answers?: Json
+          expires_at: string
+          question_ids: number[]
+          started_at?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          answers?: Json
+          expires_at?: string
+          question_ids?: number[]
+          started_at?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      placement_blueprint: {
+        Row: {
+          band: string
+          category_id: number
+          ord: number
+        }
+        Insert: {
+          band: string
+          category_id: number
+          ord: number
+        }
+        Update: {
+          band?: string
+          category_id?: number
+          ord?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "placement_blueprint_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           created_at: string
           full_name: string
+          goal_score: number | null
+          grade: string | null
           id: string
+          level: string | null
+          onboarded_at: string | null
+          placement_at: string | null
+          placement_score: number | null
           updated_at: string
         }
         Insert: {
           created_at?: string
           full_name?: string
+          goal_score?: number | null
+          grade?: string | null
           id: string
+          level?: string | null
+          onboarded_at?: string | null
+          placement_at?: string | null
+          placement_score?: number | null
           updated_at?: string
         }
         Update: {
           created_at?: string
           full_name?: string
+          goal_score?: number | null
+          grade?: string | null
           id?: string
+          level?: string | null
+          onboarded_at?: string | null
+          placement_at?: string | null
+          placement_score?: number | null
           updated_at?: string
         }
         Relationships: []
@@ -679,6 +1277,52 @@ export type Database = {
     }
     Functions: {
       apply_answer_keys: { Args: { p_pairs: Json }; Returns: number }
+      attempt_answer: {
+        Args: {
+          p_attempt_id: number
+          p_choice: string
+          p_flagged?: boolean
+          p_seq: number
+        }
+        Returns: number
+      }
+      attempt_beat_cap_seconds: { Args: never; Returns: number }
+      attempt_current: { Args: never; Returns: Json }
+      attempt_events_add: {
+        Args: { p_attempt_id: number; p_events: Json }
+        Returns: undefined
+      }
+      attempt_finalize: {
+        Args: { p_attempt_id: number; p_by: string }
+        Returns: undefined
+      }
+      attempt_flag: {
+        Args: { p_attempt_id: number; p_flagged: boolean; p_seq: number }
+        Returns: number
+      }
+      attempt_heartbeat: {
+        Args: { p_attempt_id: number; p_seq?: number }
+        Returns: number
+      }
+      attempt_pause: {
+        Args: { p_attempt_id: number; p_seq?: number }
+        Returns: undefined
+      }
+      attempt_payload: { Args: { p_attempt_id: number }; Returns: Json }
+      attempt_result: { Args: { p_attempt_id: number }; Returns: Json }
+      attempt_sketch_save: {
+        Args: {
+          p_attempt_id: number
+          p_data: Json
+          p_layer: string
+          p_seq: number
+        }
+        Returns: undefined
+      }
+      attempt_sketches_load: { Args: { p_attempt_id: number }; Returns: Json }
+      attempt_start: { Args: { p_exam_id: number }; Returns: Json }
+      attempt_submit: { Args: { p_attempt_id: number }; Returns: Json }
+      attempt_touch: { Args: { p_attempt_id: number }; Returns: number }
       bank_by_topic: {
         Args: { p_subject_id?: number }
         Returns: {
@@ -828,6 +1472,156 @@ export type Database = {
       }
       clear_queue: { Args: never; Returns: Json }
       enqueue_questions: { Args: { p_ids: number[] }; Returns: number }
+      exam_autofill_pick: {
+        Args: { p_cells: Json; p_exam_id: number; p_unused_only?: boolean }
+        Returns: {
+          category_id: number
+          difficulty: number
+          question_id: number
+        }[]
+      }
+      exam_create: {
+        Args: { p_template_id: number }
+        Returns: {
+          access_rule: string | null
+          created_at: string
+          created_by: string | null
+          current_version_id: number | null
+          draft_updated_at: string
+          id: number
+          is_visible: boolean
+          program_id: number
+          seq: number
+          template_id: number
+          title: string
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "exams"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      exam_draft_items: {
+        Args: { p_exam_id: number }
+        Returns: {
+          answer: string
+          category_id: number
+          changed_since_publish: boolean
+          difficulty: number
+          figures: Json
+          item_position: number
+          options: Json
+          question_id: number
+          section_position: number
+          status: string
+          stem: string
+          usage_count: number
+        }[]
+      }
+      exam_has_figures: { Args: { p_figures: Json }; Returns: boolean }
+      exam_like_pattern: { Args: { p_search: string }; Returns: string }
+      exam_publish: {
+        Args: { p_assets?: Json; p_exam_id: number }
+        Returns: {
+          duration_seconds: number
+          exam_id: number
+          id: number
+          max_score: number
+          published_at: string
+          published_by: string | null
+          question_count: number
+          rules: Json
+          version_no: number
+        }
+        SetofOptions: {
+          from: "*"
+          to: "exam_versions"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      exam_question_facets: {
+        Args: {
+          p_exam_id?: number
+          p_figures?: string
+          p_search?: string
+          p_subject_id: number
+          p_unused_only?: boolean
+        }
+        Returns: {
+          category_id: number
+          difficulty: number
+          n: number
+        }[]
+      }
+      exam_question_search: {
+        Args: {
+          p_after_id?: number
+          p_category_ids?: number[]
+          p_difficulties?: number[]
+          p_exam_id?: number
+          p_figures?: string
+          p_limit?: number
+          p_search?: string
+          p_subject_id: number
+          p_unused_only?: boolean
+        }
+        Returns: {
+          answer: string
+          book_id: number
+          category_id: number
+          difficulty: number
+          figures: Json
+          id: number
+          in_exam: boolean
+          options: Json
+          page_number: number
+          q_no: number
+          stem: string
+          usage_count: number
+        }[]
+      }
+      exam_set_items: {
+        Args: {
+          p_exam_id: number
+          p_question_ids: number[]
+          p_section_position: number
+        }
+        Returns: undefined
+      }
+      exam_snapshot_options: {
+        Args: { p_options: Json; p_urls: Json }
+        Returns: Json
+      }
+      exam_template_save: {
+        Args: { p_id: number; p_sections: Json; p_template: Json }
+        Returns: {
+          allow_retake: boolean
+          archived_at: string | null
+          base_score: number
+          created_at: string
+          duration_seconds: number
+          id: number
+          min_score: number
+          name: string
+          name_pattern: string
+          navigation: string
+          pause_on_exit: boolean
+          program_id: number
+          reveal_answers: string
+          scoring_method: string
+          sort_order: number
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "exam_templates"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       finish_questions_worker: {
         Args: { p_ids: number[]; p_worker_id: string }
         Returns: number
@@ -841,6 +1635,18 @@ export type Database = {
       ops_spend_daily: { Args: { p_days?: number }; Returns: Json }
       ops_spend_today: { Args: never; Returns: number }
       ops_summary_today: { Args: never; Returns: Json }
+      placement_answer: {
+        Args: { p_choice: string; p_question_id: number }
+        Returns: undefined
+      }
+      placement_finalize: {
+        Args: { p_answers: Json; p_user: string }
+        Returns: Json
+      }
+      placement_skip: { Args: never; Returns: Json }
+      placement_start: { Args: never; Returns: Json }
+      placement_state: { Args: never; Returns: Json }
+      placement_submit: { Args: { p_answers?: Json }; Returns: Json }
       question_flag_counts: {
         Args: { p_book_id?: number; p_status?: string }
         Returns: {
@@ -860,6 +1666,29 @@ export type Database = {
       renew_claims_worker: {
         Args: { p_ids: number[]; p_lease: string; p_worker_id: string }
         Returns: number
+      }
+      student_exams: {
+        Args: never
+        Returns: {
+          answered: number
+          attempt_count: number
+          attempt_id: number
+          best_score: number
+          correct: number
+          duration_seconds: number
+          id: number
+          max_score: number
+          program_name: string
+          published_at: string
+          question_count: number
+          score: number
+          sections: Json
+          seq: number
+          status: string
+          template_name: string
+          title: string
+          version_no: number
+        }[]
       }
     }
     Enums: {
