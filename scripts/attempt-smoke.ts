@@ -51,7 +51,7 @@ try {
   await admin.from('profiles').update({ full_name: 'Smoke', goal_score: 450, grade: '11', onboarded_at: new Date().toISOString(), level: 'intermediate', placement_at: new Date().toISOString() }).eq('id', uid)
   const student = createClient<Database>(url, env.VITE_SUPABASE_ANON_KEY!, { auth: { persistSession: false } })
   const { data: link } = await admin.auth.admin.generateLink({ type: 'magiclink', email: EMAIL })
-  const v = await student.auth.verifyOtp({ email: EMAIL, token: link!.properties.email_otp, type: 'email' })
+  const v = await student.auth.verifyOtp({ email: EMAIL, token: link!.properties?.email_otp ?? '', type: 'email' })
   ok('student signed in', !v.error, v.error?.message)
 
   // ── start ──────────────────────────────────────────────────────────────
@@ -83,7 +83,8 @@ try {
   for (let seq = 21; seq <= 24; seq++) await student.rpc('attempt_answer', { p_attempt_id: attemptId, p_seq: seq, p_choice: wrongOf(seq) })
   // change one, clear one, flag one
   await student.rpc('attempt_answer', { p_attempt_id: attemptId, p_seq: 25, p_choice: 'C' })
-  await student.rpc('attempt_answer', { p_attempt_id: attemptId, p_seq: 25, p_choice: null })
+  // The generated type says string; null is what "cleared" is.
+  await student.rpc('attempt_answer', { p_attempt_id: attemptId, p_seq: 25, p_choice: null as unknown as string })
   const flag = await student.rpc('attempt_flag', { p_attempt_id: attemptId, p_seq: 26, p_flagged: true })
   ok('flag', !flag.error, flag.error?.message)
   const bad = await student.rpc('attempt_answer', { p_attempt_id: attemptId, p_seq: 99, p_choice: 'A' })
