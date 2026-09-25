@@ -1310,6 +1310,7 @@ export type Database = {
       }
       attempt_payload: { Args: { p_attempt_id: number }; Returns: Json }
       attempt_result: { Args: { p_attempt_id: number }; Returns: Json }
+      attempt_review: { Args: { p_attempt_id: number }; Returns: Json }
       attempt_sketch_save: {
         Args: {
           p_attempt_id: number
