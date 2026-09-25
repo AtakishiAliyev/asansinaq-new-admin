@@ -605,6 +605,90 @@ at the Edge Function's door; that was the last trace of that provider in the
 reading path, and the survey script had to translate a second time to send the
 same request from Node.
 
+## Exams (denemes)
+
+The bank exists to be assembled into mock exams, and `/exams` is where that
+happens. **The system is program-agnostic from its first table**: YÖS ships
+first with Matematik only, SAT and DİM are expected later, and nothing in a
+table, a column or a function names a program — "TR-YÖS" reaches the screen
+only through `programs.name` and a template's name pattern. What differs
+between programs is DATA, and it lives in a TEMPLATE (`exam_templates` +
+`exam_template_sections`, edited at `/exams/templates`): ordered sections,
+each one subject with a question count, points per correct answer and a
+wrong-answer penalty ratio; the time limit; navigation; whether the clock
+pauses when a student leaves; retakes; when answers are shown; a base and a
+minimum score; and the `{nn}` name pattern. The vocabulary is IMS QTI's —
+test, sections, item references, time limits, outcome rules — so a new
+program is a filled form, not a change to the code.
+
+**The YÖS rules, as agreed with the product owner (2026-09-24):** Mantık 40
+questions / 50 min, Matematik 30 / 30, Geometri 10 / 15. The full test is all
+three, 80 questions, on ONE 100-minute clock (not the 95 its parts add up to),
+free navigation, in that order. Scored out of 500: 100 given to everyone,
+then per section `net = correct − wrong/4`, floored at zero so one subject's
+wrong answers never eat another's points, times 4.75 (Mantık) or 5.25
+(Matematik, Geometri). A single-subject deneme has no base and is reported
+against its own maximum (Matematik: 157.5). Scoring is `scoring_method =
+'linear'`; a table-based method (SAT reports scaled scores) has a column
+waiting for it and is not built.
+
+**Draft, then immutable versions.** An exam has one draft (`exam_items`:
+section, position, question), edited freely and saved half a second after
+each change. Publishing (`exam_publish`) copies the draft AND a snapshot of
+every question as it stood — wording, options, answer, difficulty, topic —
+plus the template's rules into a new `exam_versions` row. Editing a published
+exam is simply publishing again: attempts (next phase) bind to a version, so
+a student mid-way finishes the one they started and the rules that scored
+them can never be changed under them, by a template edit or anything else.
+The snapshot, not the bank, is what a student is shown; a bank edit reaches
+students only through a new version, and the builder marks a slot "bankda
+dəyişib" when the bank row is newer than the current version's copy. The one
+planned exception, answer-key corrections propagating into published versions
+and re-scoring past attempts, arrives with attempts.
+
+**Publishing is two steps and only the second is a transaction.** The browser
+makes what only it can: every figure plate rendered to SVG by
+`core/figures`, and every picture copied from the private `question-crops`
+bucket into the PUBLIC `exam-assets` bucket under a path unique to THAT
+publish — a version's pictures must never change afterwards, and a crop
+re-cut in place would otherwise change them under every version pointing at
+it. Then one database call re-checks the draft (every section exactly full,
+every question still approved, answered, and of its section's subject, every
+figure and picture option supplied) and writes the version, reading every
+word and answer from the bank itself — the browser supplies only the
+rendered assets. The student app therefore needs no figure renderer and no
+access to the private bucket. `question-crops` stays closed; what is public
+is exactly what has been published.
+
+**The builder is built for a bank of hundreds of thousands.** Search is a
+trigram index on `stem` (`pg_trgm`), paging is keyset ("the next 50 after id
+N", never OFFSET), and the counts beside every filter come from one
+server-side call per filter change (`exam_question_facets`: counts per topic
+× difficulty under every OTHER filter, so an option that leads nowhere says 0
+before it is pressed). The list is virtualised and driven from the keyboard
+(J/K, Enter, `/`). Filling a section by RECIPE — topics, a difficulty mix,
+whether questions another exam uses may come back — is planned in the
+browser against what the bank actually holds (`lib/recipe.ts`) and drawn at
+random on the server (`exam_autofill_pick`). The plan targets the whole
+SECTION: "20% hard" of thirty is six hard however many were hand-picked, and
+topics are balanced counting what is already there, one question at a time to
+the emptiest topic. A difficulty the bank has run out of in a topic is
+covered from its neighbour if allowed, and reported as a shortfall if not —
+before the draw, never after it. Duplicates across exams are WARNED, never
+refused (product decision); the same question twice in one exam is refused.
+
+Every exam function is `security invoker` and every exam table is admin-only
+under RLS, checked with a throwaway student session: a student reads nothing,
+creates nothing, searches nothing and cannot write to `exam-assets`. Students
+reach published versions only through functions: `student_exams()` lists the
+published, visible, open exams with what a card shows — no stem, option or
+answer — and the runner will hand out questions without `answer`, the way
+the placement test does. Not built yet:
+the student exam runner, attempts and scoring, answer-key re-scoring, the
+analytics page, and merging existing single-subject denemes into a full one
+(the full template exists; its Mantık and Geometri sections cannot be filled
+until those subjects have questions).
+
 ## Stack
 
 - React + TypeScript (strict) + Vite
@@ -652,6 +736,14 @@ same request from Node.
   read — a worker that can claim but not renew looks healthy until its lease
   expires and every row it held is paid for twice. It restores every row it
   touches and makes no model call.
+- `npm run smoke:exams` — round-trips the exam builder's database functions
+  against the LIVE project: creates an exam from a template, searches and
+  counts the bank, pages by keyset, draws a recipe, saves and over-fills a
+  section, refuses an incomplete publish, publishes twice and checks the
+  snapshot. Manual and outside the gate, like `smoke:queue`. It publishes
+  figure-free questions only, so nothing is copied into the public bucket,
+  and it deletes the exam it made whatever happens. Run it after any
+  migration touching the exam tables or functions.
 - `npm run ops:report` — what a run cost and what the money bought, read from
   `ops_log` against the LIVE project. `-- --hours 6`, `-- --since <iso>` or
   `-- --all`; the default window is the last hour. Reads only: it writes
@@ -661,6 +753,15 @@ same request from Node.
   window's spend over the questions STRUCTURED in that window — the ledger has
   no question id, because a batch is one call for many rows and the figure lane
   is many calls for one, so they are averages and are labelled as such.
+- `npm run dev:reset -- <e-poçt>` — puts ONE student account back before the
+  level test, so its screens can be walked again: `level`, `placement_score`
+  and `placement_at` are cleared and any half-finished attempt row is
+  deleted. With `--onboarding` it also clears the goal, the grade and
+  `onboarded_at`, replaying the flow from `/start`. Operator-run against the
+  LIVE project with the service key, and reachable from neither app — a
+  placement is one-shot by design (the server refuses a second draw), so
+  testing those screens on a real account means reaching past it from here.
+  It never deletes an account.
 - `npm run prune:storage` — lists every object in `question-crops` and `pdfs`
   that no row names any more, by kind and size; `-- --apply` deletes them.
   Operator-run against the LIVE project. An object is kept if a question's crop,
@@ -867,8 +968,13 @@ Supabase is the source of truth. This file may be outdated; the schema is not.
 
 ## Auth
 
-- Email OTP only — a six-digit code, no passwords. Signup is disabled; admins
-  are provisioned through the Auth admin API, never self-created.
+- Email OTP only — a six-digit code, no passwords. Admins are provisioned
+  through the Auth admin API, never self-created — but SIGNUP IS OPEN, because
+  the student app (`../testlab-front/`) shares this Supabase project and its
+  students sign themselves up. That changes nothing about admin access, which
+  never rested on signup being closed: an account that exists is not an
+  account that is allowed in. The login page's `shouldCreateUser: false` still
+  keeps a stranger's address from being emailed.
 - Access is an email allowlist, not roles. `public.admin_emails` holds the
   addresses and `public.is_admin()` is the single predicate **every** RLS policy
   resolves through, so removing a row revokes access on the next request rather
@@ -1029,16 +1135,34 @@ Decision rules:
 - `supabase/config.toml` is the source of truth for project settings, including
   auth. Change a setting there and run `config push` — never in the dashboard,
   or the repo and the project drift apart silently (it has happened twice).
-- Three auth settings are load-bearing for `is_admin()`. In `config.toml` they
-  read `[auth] enable_signup = false`, `[auth.email] enable_confirmations = true`
-  and `double_confirm_changes = true`. Do not relax one without re-auditing that
-  function.
+- Two auth settings are load-bearing for `is_admin()`. In `config.toml` they
+  read `[auth.email] enable_confirmations = true` and `double_confirm_changes =
+  true` — an address in `admin_emails` must be one the holder has proved they
+  own. Do not relax either without re-auditing that function. `[auth]
+  enable_signup` is `true` for the student app and is NOT one of them.
+- The auth config, the code-email template and the redirect allowlist are
+  shared with the student app. `SUPABASE_AUTH_STUDENT_REDIRECT_WILDCARD` is the
+  student origin and `config:push` requires it like the other two. The email
+  says "Asansinaq — giriş kodu", not "admin", because one template serves both
+  apps; the code sits in the subject so it shows in a notification unopened.
 - `[auth.email] enable_signup` is **not** a signup policy — it is the email
   provider switch. Setting it false disables logins entirely ("Email logins are
   disabled"). It must stay `true`; new accounts are blocked by `[auth]
   enable_signup = false` one level up.
 - Every table has RLS enabled. If a query fails with a permission error,
   the fix is a policy change — never a client-side workaround.
+- **Signup is open, so `authenticated` means "any student", not "an admin".**
+  Every RPC granted to `authenticated` is `security invoker` — it runs under
+  the caller's RLS and returns a student nothing — except `ops_spend_today`,
+  which is `security definer` and checks `is_admin()` itself. A NEW
+  `security definer` function must do the same, or it is a hole the moment it
+  is granted. `profiles` UPDATE is a column-level grant (`full_name`,
+  `goal_score`, `grade`, `onboarded_at`) so a column added later is
+  unwritable by its own student until named. This was checked with a
+  throwaway student session, not by reading the policies.
+- **`exam-assets` is the one PUBLIC bucket**, and it holds only what a
+  published exam version shows. Everything else — every crop of every book —
+  stays in the private `question-crops`, readable by admins alone.
 - Validate all external input (forms, URL params, API responses) with Zod.
 
 ## Showing work

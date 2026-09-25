@@ -36,6 +36,15 @@ const TaxonomyPage = lazy(async () => ({
 const OpsPage = lazy(async () => ({
   default: (await import('@/features/ops')).OpsPage,
 }))
+const ExamsPage = lazy(async () => ({
+  default: (await import('@/features/exams')).ExamsPage,
+}))
+const ExamBuilderPage = lazy(async () => ({
+  default: (await import('@/features/exams')).ExamBuilderPage,
+}))
+const TemplatesPage = lazy(async () => ({
+  default: (await import('@/features/exams')).TemplatesPage,
+}))
 
 export const router = createBrowserRouter([
   {
@@ -58,6 +67,10 @@ export const router = createBrowserRouter([
               { path: 'ready', element: <ReadyPage /> },
               { path: 'taxonomy', element: <TaxonomyPage /> },
               { path: 'ops', element: <OpsPage /> },
+              { path: 'exams', element: <ExamsPage /> },
+              // Before the id route, or "templates" would be read as an id.
+              { path: 'exams/templates', element: <TemplatesPage /> },
+              { path: 'exams/:examId', element: <ExamBuilderPage /> },
               { path: 'profile', element: <ProfilePage /> },
               // Unknown paths land inside the shell, one click from the nav.
               { path: '*', element: <NotFoundPage /> },

@@ -1,11 +1,13 @@
 import {
   CircleCheckBig,
+  ClipboardList,
   FileUp,
   LayoutDashboard,
   Library,
   ListChecks,
   ListTree,
   LogOut,
+  Settings2,
   User,
   Wallet,
 } from 'lucide-react'
@@ -24,6 +26,7 @@ import {
   SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
@@ -46,9 +49,27 @@ const NAV_ITEMS = [
   { to: '/ops', label: 'Xərclər', icon: Wallet },
 ]
 
+// The exam system is its own group: it is what the bank is FOR, and it will
+// grow (analytics next) while the bank's screens stay what they are. Named
+// "Denemələr", not after a program — the pages inside switch program.
+const EXAM_ITEMS = [
+  { to: '/exams', label: 'Denemələr', icon: ClipboardList },
+  { to: '/exams/templates', label: 'Şablonlar', icon: Settings2 },
+]
+
 // '/' would prefix-match every path, so the root item needs exact matching.
+// '/exams' would swallow '/exams/templates' the same way, so the exam items
+// match by the longest route that fits.
 function isNavActive(to: string, pathname: string) {
-  return to === '/' ? pathname === '/' : pathname.startsWith(to)
+  if (to === '/') return pathname === '/'
+  if (to === '/exams') {
+    return (
+      pathname === '/exams' ||
+      (pathname.startsWith('/exams/') &&
+        !pathname.startsWith('/exams/templates'))
+    )
+  }
+  return pathname.startsWith(to)
 }
 
 function initialsOf(name: string, email: string) {
@@ -89,6 +110,26 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               {NAV_ITEMS.map((item) => (
+                <SidebarMenuItem key={item.to}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={isNavActive(item.to, pathname)}
+                  >
+                    <NavLink to={item.to} onClick={() => setOpenMobile(false)}>
+                      <item.icon />
+                      <span>{item.label}</span>
+                    </NavLink>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+        <SidebarGroup>
+          <SidebarGroupLabel>Sınaqlar</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {EXAM_ITEMS.map((item) => (
                 <SidebarMenuItem key={item.to}>
                   <SidebarMenuButton
                     asChild

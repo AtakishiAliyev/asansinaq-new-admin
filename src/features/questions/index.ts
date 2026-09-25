@@ -17,3 +17,9 @@ export { useEnqueue } from '@/features/questions/api/queue'
 export { opDetectQuestions } from '@/features/questions/api/question-ops'
 export { isBudgetExhausted } from '@/features/questions/lib/rate-gate'
 export { cropKey, type QuestionRow } from '@/features/questions/schemas'
+export { signImageUrls, useSignedUrls } from '@/features/questions/api/questions'
+export {
+  parseFigures,
+  parseOptions,
+  type RowOption,
+} from '@/features/questions/lib/row'

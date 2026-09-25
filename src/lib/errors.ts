@@ -14,7 +14,7 @@ interface PostgrestErrorShape {
   hint: string | null
 }
 
-function isPostgrestError(error: unknown): error is PostgrestErrorShape {
+export function isPostgrestError(error: unknown): error is PostgrestErrorShape {
   return (
     typeof error === 'object' &&
     error !== null &&
@@ -25,8 +25,32 @@ function isPostgrestError(error: unknown): error is PostgrestErrorShape {
   )
 }
 
+/**
+ * An error whose message was WRITTEN for the operator, by us.
+ *
+ * The rule below — no raw server message reaches a user — stays whole. This
+ * is the one exception it needs: a database function of ours that refuses on
+ * purpose ("Bölmələr tam deyil: 1-ci bölmə 20/30") has already said, in the
+ * operator's language, exactly what to fix, and replacing that with "Baza
+ * sorğusu alınmadı" would throw the answer away. The api layer that calls
+ * such a function wraps its refusal in this, and only there — the global
+ * normaliser never guesses which server messages are safe to show.
+ */
+export class UserFacingError extends Error {
+  readonly underlying: unknown
+
+  constructor(message: string, underlying?: unknown) {
+    super(message)
+    this.name = 'UserFacingError'
+    this.underlying = underlying
+  }
+}
+
 // Raw server messages never reach users — they go into `cause` for logging.
 export function normalizeError(error: unknown): AppError {
+  if (error instanceof UserFacingError) {
+    return { code: 'user_facing', message: error.message, cause: error.underlying }
+  }
   if (error instanceof ZodError) {
     return {
       code: 'validation_error',
