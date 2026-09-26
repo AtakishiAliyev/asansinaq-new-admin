@@ -1877,6 +1877,28 @@ export type Database = {
           wrong_pct: number
         }[]
       }
+      analytics_roadmap: { Args: { p_roadmap_id: number }; Returns: Json }
+      analytics_roadmaps: {
+        Args: never
+        Returns: {
+          active_7d: number
+          avg_correct_pct: number
+          avg_progress_pct: number
+          completed: number
+          completion_pct: number
+          enrolled: number
+          last_activity_at: string
+          median_days: number
+          node_count: number
+          program_name: string
+          question_count: number
+          roadmap_id: number
+          stage_count: number
+          status: string
+          title: string
+          version_no: number
+        }[]
+      }
       analytics_student: { Args: { p_user_id: string }; Returns: Json }
       analytics_topics: {
         Args: { p_subject_id?: number }

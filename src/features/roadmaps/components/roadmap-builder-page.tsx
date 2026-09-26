@@ -29,6 +29,7 @@ import {
   Trash2,
   Upload,
   X,
+  BarChart3,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -260,6 +261,13 @@ function Header({
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-2">
+        {r.current ? (
+          <Button variant="outline" size="sm" asChild>
+            <Link to={`/roadmaps/analytics/${r.id}`}>
+              <BarChart3 data-icon="inline-start" /> Analitika
+            </Link>
+          </Button>
+        ) : null}
         <Button variant="outline" size="sm" onClick={onPreview}>
           <Eye data-icon="inline-start" /> Tələbə görünüşü
         </Button>

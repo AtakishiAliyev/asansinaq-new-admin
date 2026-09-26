@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { ArrowRight } from 'lucide-react'
-import { Link } from 'react-router'
+import { Link, useSearchParams } from 'react-router'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -33,40 +33,52 @@ import {
   ATTEMPTS_PAGE_SIZE,
   useAttemptRows,
   useDenemeler,
+  useRoadmapRows,
   useTopicAnalytics,
 } from '@/features/analytics/api/analytics'
-import type { DenemeRow, TopicRow } from '@/features/analytics/schemas'
+import type {
+  DenemeRow,
+  RoadmapRow,
+  TopicRow,
+} from '@/features/analytics/schemas'
 import { ShareBar, Stat } from '@/features/analytics/components/bits'
 import { num, pct, seconds } from '@/features/analytics/lib/format'
 import { BarList, ShareBars } from '@/features/analytics/components/charts'
 import { StudentSheet } from '@/features/analytics/components/student-sheet'
 
-// The TR-YÖS denemeler as a whole, in three views: the denemeler side by
-// side (which is worked most, which is hardest), the topics they cover,
-// and the sittings one by one with the student behind each. The bank's
-// own view of a question lives with the question (Hazır suallar); this
-// page is about the CONTEXT — the exam — not the item.
-type Tab = 'denemeler' | 'topics' | 'attempts'
+// The CONTEXTS as a whole — the TR-YÖS denemeler in three views (the
+// denemeler side by side, the topics they cover, the sittings one by one
+// with the student behind each) and the roadmaps in a fourth (who joined,
+// who finished, how far the rest got). The bank's own view of a question
+// lives with the question (Hazır suallar); this page is about where a
+// question was met, not the item. The tab lives in the URL so a detail
+// page can send the reader back to the right one.
+type Tab = 'denemeler' | 'topics' | 'attempts' | 'roadmaps'
 const TABS: { key: Tab; label: string }[] = [
   { key: 'denemeler', label: 'Denemeler' },
   { key: 'topics', label: 'Mövzular' },
   { key: 'attempts', label: 'Cəhdlər' },
+  { key: 'roadmaps', label: 'Yol xəritələri' },
 ]
 
 export function AnalyticsPage() {
-  usePageTitle('TR-YÖS analitikası')
-  const [tab, setTab] = useState<Tab>('denemeler')
+  usePageTitle('Analitika')
+  const [params, setParams] = useSearchParams()
+  const asked = params.get('tab')
+  const tab: Tab = TABS.some((t) => t.key === asked)
+    ? (asked as Tab)
+    : 'denemeler'
+  const setTab = (t: Tab) =>
+    setParams(t === 'denemeler' ? {} : { tab: t }, { replace: true })
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
       <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">
-          TR-YÖS analitikası
-        </h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Analitika</h1>
         <p className="text-muted-foreground text-sm">
-          Denemelerin özü haqqında: hansı çox işlənir, hansı çətindir, tələbələr
-          harada boş buraxır. Bir sualın bütün kontekstlər üzrə rəqəmləri isə
-          sualın öz səhifəsindədir.
+          Denemelər və yol xəritələri haqqında: hansı çox işlənir, hansı
+          çətindir, tələbələr harada dayanır. Bir sualın bütün kontekstlər üzrə
+          rəqəmləri isə sualın öz səhifəsindədir.
         </p>
       </header>
 
@@ -94,6 +106,8 @@ export function AnalyticsPage() {
         <DenemelerTab />
       ) : tab === 'topics' ? (
         <TopicsTab />
+      ) : tab === 'roadmaps' ? (
+        <RoadmapsTab />
       ) : (
         <AttemptsTab />
       )}
@@ -696,5 +710,191 @@ function AttemptsTab() {
 
       <StudentSheet userId={student} onClose={() => setStudent(null)} />
     </div>
+  )
+}
+
+// ── roadmaps ─────────────────────────────────────────────────────────────────
+// One row per published road. The number that matters here is not a score
+// but how many of those who joined got to the end, and how far the rest
+// got; the road's own page has the funnel that says where they stop.
+function RoadmapsTab() {
+  const rows = useRoadmapRows()
+  if (rows.isPending) return <Skeleton className="h-64" />
+  if (rows.isError) {
+    return (
+      <QueryErrorAlert
+        error={rows.error}
+        onRetry={() => rows.refetch()}
+        isRetrying={rows.isFetching}
+      />
+    )
+  }
+  const list = rows.data ?? []
+  const joined = list.filter((r) => r.enrolled > 0)
+  const totalEnrolled = joined.reduce((s, r) => s + r.enrolled, 0)
+  const most = joined.length
+    ? joined.reduce((m, r) => (r.enrolled > m.enrolled ? r : m))
+    : null
+  const bestFinish = joined.filter((r) => r.completion_pct !== null)
+  const best = bestFinish.length
+    ? bestFinish.reduce((m, r) =>
+        (r.completion_pct ?? -1) > (m.completion_pct ?? -1) ? r : m,
+      )
+    : null
+  const hardestRows = joined.filter((r) => r.avg_correct_pct !== null)
+  const hardest = hardestRows.length
+    ? hardestRows.reduce((m, r) =>
+        (r.avg_correct_pct ?? 101) < (m.avg_correct_pct ?? 101) ? r : m,
+      )
+    : null
+
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <RoadmapHighlight
+          label="Qoşulan, cəmi"
+          value={num(totalEnrolled)}
+          hint={`${joined.length} yol gəzilir`}
+        />
+        <RoadmapHighlight
+          label="Ən çox qoşulan"
+          value={most?.title ?? '—'}
+          hint={most ? `${num(most.enrolled)} tələbə` : undefined}
+          to={most?.roadmap_id}
+        />
+        <RoadmapHighlight
+          label="Ən çox bitirilən"
+          value={best?.title ?? '—'}
+          hint={best ? `tamamlama ${pct(best.completion_pct)}` : undefined}
+          to={best?.roadmap_id}
+        />
+        <RoadmapHighlight
+          label="Ən çətin"
+          value={hardest?.title ?? '—'}
+          hint={
+            hardest ? `orta doğru ${pct(hardest.avg_correct_pct)}` : undefined
+          }
+          to={hardest?.roadmap_id}
+        />
+      </div>
+
+      {list.length === 0 ? (
+        <p className="text-muted-foreground text-sm">
+          Hələ dərc olunmuş yol xəritəsi yoxdur.
+        </p>
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle>Yol xəritələri</CardTitle>
+            <CardDescription>
+              Dərc olunmuş hər yol; sətrə bas — addım-addım axın.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Yol</TableHead>
+                  <TableHead>Proqram</TableHead>
+                  <TableHead className="text-right">Addım</TableHead>
+                  <TableHead className="text-right">Qoşulan</TableHead>
+                  <TableHead className="text-right">Tamamlayan</TableHead>
+                  <TableHead className="text-right">Orta irəliləyiş</TableHead>
+                  <TableHead className="text-right">Orta doğru</TableHead>
+                  <TableHead className="text-right">7 gündə aktiv</TableHead>
+                  <TableHead>Son aktivlik</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {list.map((r: RoadmapRow) => (
+                  <TableRow key={r.roadmap_id} className="cursor-pointer">
+                    <TableCell className="font-medium">
+                      <Link
+                        to={`/roadmaps/analytics/${r.roadmap_id}`}
+                        className="hover:underline"
+                      >
+                        {r.title}
+                      </Link>
+                      {r.status === 'archived' ? (
+                        <span className="text-muted-foreground">
+                          {' '}
+                          · arxivdə
+                        </span>
+                      ) : null}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {r.program_name}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {num(r.node_count)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {num(r.enrolled)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {num(r.completed)}
+                      {r.completion_pct !== null ? (
+                        <span className="text-muted-foreground">
+                          {' '}
+                          · {pct(r.completion_pct)}
+                        </span>
+                      ) : null}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {pct(r.avg_progress_pct)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {pct(r.avg_correct_pct)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {num(r.active_7d)}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground whitespace-nowrap">
+                      {r.last_activity_at
+                        ? new Date(r.last_activity_at).toLocaleDateString(
+                            'az-AZ',
+                          )
+                        : '—'}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  )
+}
+
+function RoadmapHighlight({
+  label,
+  value,
+  hint,
+  to,
+}: {
+  label: string
+  value: string
+  hint?: string
+  to?: number
+}) {
+  const body = (
+    <Card
+      className={cn(
+        'h-full gap-1 py-4',
+        to && 'hover:bg-accent/50 transition-colors',
+      )}
+    >
+      <CardContent className="px-4">
+        <Stat label={label} value={value} hint={hint} />
+      </CardContent>
+    </Card>
+  )
+  return to ? (
+    <Link to={`/roadmaps/analytics/${to}`} className="block">
+      {body}
+    </Link>
+  ) : (
+    body
   )
 }

@@ -722,7 +722,19 @@ log (`open` from the browser, `answer` / `change` / `clear` from
 event cannot charge a night). Existing sittings were backfilled by the same
 function. So a QUESTION's analytics is one query over one table whatever
 contexts it appears in, and a CONTEXT's analytics is a GROUP BY on the
-same table — a topic test or a roadmap only has to write the same rows.
+same table — a topic test or a roadmap only has to write the same rows. Roadmaps are contexts of their own
+(2026-09-27, migration `20260927100000_roadmap_analytics.sql`):
+`analytics_roadmaps()` is one row per published road (joined, finished,
+average progress, correct share, active in 7 days, median days to finish)
+and `analytics_roadmap(id)` one road in depth — the FUNNEL down the
+current version's nodes (started / finished / left open, correct share,
+time per node), the days, the twelve hardest questions on the road and
+the last fifty walkers. Both read what the student side already writes
+(`user_roadmaps`, `user_roadmap_nodes`, `question_responses` with
+`context_kind = 'roadmap'`); nothing new is recorded. The hub's "Yol
+xəritələri" tab (`/exams/analytics?tab=roadmaps` — the tab is in the URL)
+lists the roads, `/roadmaps/analytics/:id` is the road, and the builder's
+header links there once a version is published.
 
 Reads are `analytics_*` functions (`20260926110000_analytics.sql`), each
 `security definer` behind `analytics_guard()` (admins only), computed on

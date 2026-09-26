@@ -1,5 +1,6 @@
 export { AnalyticsPage } from '@/features/analytics/components/analytics-page'
 export { DenemeAnalyticsPage } from '@/features/analytics/components/deneme-analytics-page'
+export { RoadmapAnalyticsPage } from '@/features/analytics/components/roadmap-analytics-page'
 export { AnalyticsOverview } from '@/features/analytics/components/overview-block'
 export { QuestionAnalytics } from '@/features/analytics/components/question-analytics'
 export { useQuestionStats } from '@/features/analytics/api/analytics'

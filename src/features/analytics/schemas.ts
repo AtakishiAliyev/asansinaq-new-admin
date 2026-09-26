@@ -244,3 +244,101 @@ export const studentAnalyticsSchema = z.object({
   ),
 })
 export type StudentAnalytics = z.infer<typeof studentAnalyticsSchema>
+
+// ── roadmaps ────────────────────────────────────────────────────────────────
+
+export const roadmapRowSchema = z.object({
+  roadmap_id: num,
+  title: z.string(),
+  program_name: z.string(),
+  status: z.string(),
+  version_no: num,
+  stage_count: num,
+  node_count: num,
+  question_count: num,
+  enrolled: num,
+  completed: num,
+  completion_pct: pct,
+  avg_progress_pct: pct,
+  active_7d: num,
+  avg_correct_pct: pct,
+  median_days: pct,
+  last_activity_at: z.string().nullable(),
+})
+export type RoadmapRow = z.infer<typeof roadmapRowSchema>
+
+export const roadmapFunnelNodeSchema = z.object({
+  version_node_id: num,
+  stage_position: num,
+  stage_title: z.string(),
+  position: num,
+  title: z.string(),
+  kind: z.string(),
+  question_count: num,
+  started: num,
+  completed: num,
+  avg_correct_pct: pct,
+  avg_time_seconds: pct,
+})
+export type RoadmapFunnelNode = z.infer<typeof roadmapFunnelNodeSchema>
+
+export const roadmapHardItemSchema = z.object({
+  question_id: num,
+  node_title: z.string().nullable(),
+  stage_position: num.nullable(),
+  position: num.nullable(),
+  category_name: z.string().nullable(),
+  responses: num,
+  correct_pct: num,
+  wrong_pct: num,
+  blank_pct: num,
+  avg_time: pct,
+  answer: z.string(),
+  choices: z.record(z.string(), num),
+  open_reports: num,
+})
+export type RoadmapHardItem = z.infer<typeof roadmapHardItemSchema>
+
+export const roadmapStudentSchema = z.object({
+  user_id: z.string(),
+  full_name: z.string(),
+  version_id: num,
+  version_no: num,
+  started_at: z.string(),
+  completed_at: z.string().nullable(),
+  done_nodes: num,
+  node_count: num,
+  last_at: z.string().nullable(),
+  current_node_title: z.string().nullable(),
+})
+export type RoadmapStudent = z.infer<typeof roadmapStudentSchema>
+
+export const roadmapAnalyticsSchema = z.object({
+  roadmap_id: num,
+  title: z.string(),
+  status: z.string(),
+  version_no: num.nullable(),
+  node_count: num.nullable(),
+  stage_count: num.nullable(),
+  enrolled: num,
+  completed: num,
+  completion_pct: pct,
+  avg_progress_pct: pct,
+  active_7d: num,
+  median_days: pct,
+  avg_correct_pct: pct,
+  avg_node_time_seconds: pct,
+  on_current_version: num,
+  funnel: z.array(roadmapFunnelNodeSchema),
+  by_day: z.array(
+    z.object({
+      day: z.string(),
+      enrolled: num,
+      nodes_completed: num,
+      completed: num,
+    }),
+  ),
+  hardest: z.array(roadmapHardItemSchema),
+  students: z.array(roadmapStudentSchema),
+})
+export type RoadmapAnalytics = z.infer<typeof roadmapAnalyticsSchema>

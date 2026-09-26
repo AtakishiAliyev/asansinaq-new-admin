@@ -11,6 +11,8 @@ import {
   questionStatsRowSchema,
   studentAnalyticsSchema,
   topicRowSchema,
+  roadmapAnalyticsSchema,
+  roadmapRowSchema,
 } from '@/features/analytics/schemas'
 
 // Every read is one `analytics_*` function on the server, admin-only by its
@@ -74,6 +76,35 @@ export function useDenemeler() {
       if (error) throw error
       return z.array(denemeRowSchema).parse(data)
     },
+    staleTime: STALE,
+  })
+}
+
+// The roads as contexts, the way the denemeler are: one row each, and one
+// road in depth with its funnel.
+export function useRoadmapRows() {
+  return useQuery({
+    queryKey: analyticsKeys.roadmaps(),
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('analytics_roadmaps')
+      if (error) throw error
+      return z.array(roadmapRowSchema).parse(data)
+    },
+    staleTime: STALE,
+  })
+}
+
+export function useRoadmapAnalytics(roadmapId: number) {
+  return useQuery({
+    queryKey: analyticsKeys.roadmap(roadmapId),
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('analytics_roadmap', {
+        p_roadmap_id: roadmapId,
+      })
+      if (error) throw error
+      return roadmapAnalyticsSchema.parse(data)
+    },
+    enabled: roadmapId > 0,
     staleTime: STALE,
   })
 }

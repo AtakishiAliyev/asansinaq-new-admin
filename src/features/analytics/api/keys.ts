@@ -12,4 +12,7 @@ export const analyticsKeys = {
     [...analyticsKeys.all, 'attempts', examId, page] as const,
   student: (userId: string) =>
     [...analyticsKeys.all, 'student', userId] as const,
+  roadmaps: () => [...analyticsKeys.all, 'roadmaps'] as const,
+  roadmap: (roadmapId: number) =>
+    [...analyticsKeys.all, 'roadmap', roadmapId] as const,
 }
