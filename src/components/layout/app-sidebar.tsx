@@ -10,6 +10,7 @@ import {
   Settings2,
   User,
   Wallet,
+  BarChart3,
 } from 'lucide-react'
 import { NavLink, useLocation } from 'react-router'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -55,6 +56,7 @@ const NAV_ITEMS = [
 const EXAM_ITEMS = [
   { to: '/exams', label: 'Denemələr', icon: ClipboardList },
   { to: '/exams/templates', label: 'Şablonlar', icon: Settings2 },
+  { to: '/exams/analytics', label: 'Analitika', icon: BarChart3 },
 ]
 
 // '/' would prefix-match every path, so the root item needs exact matching.
@@ -66,7 +68,8 @@ function isNavActive(to: string, pathname: string) {
     return (
       pathname === '/exams' ||
       (pathname.startsWith('/exams/') &&
-        !pathname.startsWith('/exams/templates'))
+        !pathname.startsWith('/exams/templates') &&
+        !pathname.startsWith('/exams/analytics'))
     )
   }
   return pathname.startsWith(to)

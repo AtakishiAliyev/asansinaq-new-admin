@@ -12,6 +12,7 @@ import {
 import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useBooks, type Book } from '@/features/books'
+import { AnalyticsOverview } from '@/features/analytics'
 import { TopicCoverage } from '@/features/dashboard/components/topic-coverage'
 import { usePageTitle } from '@/hooks/use-page-title'
 import { normalizeError } from '@/lib/errors'
@@ -156,6 +157,8 @@ export function DashboardPage() {
         <StatCard label="Tamamlanan" value={done.length} />
         <StatCard label="İşlənən səhifə" value={workedPages} />
       </div>
+
+      <AnalyticsOverview />
 
       <TopicCoverage />
 

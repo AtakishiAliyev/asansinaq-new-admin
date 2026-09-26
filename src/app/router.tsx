@@ -42,6 +42,12 @@ const ExamsPage = lazy(async () => ({
 const ExamBuilderPage = lazy(async () => ({
   default: (await import('@/features/exams')).ExamBuilderPage,
 }))
+const AnalyticsPage = lazy(async () => ({
+  default: (await import('@/features/analytics')).AnalyticsPage,
+}))
+const DenemeAnalyticsPage = lazy(async () => ({
+  default: (await import('@/features/analytics')).DenemeAnalyticsPage,
+}))
 const TemplatesPage = lazy(async () => ({
   default: (await import('@/features/exams')).TemplatesPage,
 }))
@@ -70,6 +76,11 @@ export const router = createBrowserRouter([
               { path: 'exams', element: <ExamsPage /> },
               // Before the id route, or "templates" would be read as an id.
               { path: 'exams/templates', element: <TemplatesPage /> },
+              { path: 'exams/analytics', element: <AnalyticsPage /> },
+              {
+                path: 'exams/analytics/:examId',
+                element: <DenemeAnalyticsPage />,
+              },
               { path: 'exams/:examId', element: <ExamBuilderPage /> },
               { path: 'profile', element: <ProfilePage /> },
               // Unknown paths land inside the shell, one click from the nav.

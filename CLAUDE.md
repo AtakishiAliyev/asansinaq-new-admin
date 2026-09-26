@@ -683,11 +683,43 @@ creates nothing, searches nothing and cannot write to `exam-assets`. Students
 reach published versions only through functions: `student_exams()` lists the
 published, visible, open exams with what a card shows — no stem, option or
 answer — and the runner will hand out questions without `answer`, the way
-the placement test does. Not built yet:
-the student exam runner, attempts and scoring, answer-key re-scoring, the
-analytics page, and merging existing single-subject denemes into a full one
-(the full template exists; its Mantık and Geometri sections cannot be filled
-until those subjects have questions).
+the placement test does. Not built yet: answer-key re-scoring, and merging
+existing single-subject denemes into a full one (the full template exists;
+its Mantık and Geometri sections cannot be filled until those subjects have
+questions).
+
+**Analytics (2026-09-26).** Every handed-in sitting writes one row per
+question into `question_responses` — the FACT table: bank `question_id`,
+student, `context_kind` (`deneme` today; `topic_test` / `roadmap` /
+`placement` reserved), the context id and seq, the item as it was (subject,
+category, difficulty, key), the choice, correct / blank, time on the
+question, changes, board use, and whether the student had seen this exam's
+key on an earlier attempt. `attempt_finalize` fills it through
+`attempt_record_responses`, which derives per-question time from the event
+log (`open` from the browser, `answer` / `change` / `clear` from
+`attempt_answer` on the server; a gap is capped at 5 minutes so a lost
+event cannot charge a night). Existing sittings were backfilled by the same
+function. So a QUESTION's analytics is one query over one table whatever
+contexts it appears in, and a CONTEXT's analytics is a GROUP BY on the
+same table — a topic test or a roadmap only has to write the same rows.
+
+Reads are `analytics_*` functions (`20260926110000_analytics.sql`), each
+`security definer` behind `analytics_guard()` (admins only), computed on
+request: `analytics_overview` (the İcmal block), `analytics_question_stats`
+(the two columns on Hazır suallar) and `analytics_question` (the fold under
+a question in the ready viewer: shares, A–E pull, time, board, the
+discrimination index — top 27% of a deneme's sittings minus the bottom
+27% — and the contexts it appeared in), `analytics_denemeler` /
+`analytics_deneme` / `analytics_topics` / `analytics_attempts` /
+`analytics_student` (the `/exams/analytics` page and its deneme detail
+and student sheet, `features/analytics`). "Suspicious key" is a rule, not
+a judgement: ≥ 10 sittings, under a quarter correct, one OTHER option
+chosen by at least half of those who answered. Students can say "sualda
+səhv var" from their review (`attempt_report` → `question_reports`); the
+admin resolves or dismisses it under the question. Product and funnel
+metrics are deliberately NOT here — the owner measures those with an
+external tool (Mixpanel); this is the learning and question-quality side
+that no external tool can see.
 
 ## Stack
 

@@ -15,9 +15,13 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { QueryErrorAlert } from '@/components/query-error-alert'
 import { usePageTitle } from '@/hooks/use-page-title'
 import { useBooks } from '@/features/books'
+import { useQuestionStats } from '@/features/analytics'
 import { useCategories } from '@/features/taxonomy'
 import { categoryLabel } from '@/features/questions/components/category-picker'
-import { DIFFICULTY_LABEL, DIFFICULTY_LEVELS } from '@/core/questions/difficulty'
+import {
+  DIFFICULTY_LABEL,
+  DIFFICULTY_LEVELS,
+} from '@/core/questions/difficulty'
 import {
   QUESTIONS_PAGE_SIZE,
   READY_FILTERS,
@@ -51,6 +55,7 @@ export function ReadyPage() {
   const questions = useQuestions(filters, page)
 
   const items = useMemo(() => questions.data?.items ?? [], [questions.data])
+  const stats = useQuestionStats(items.map((q) => q.id))
   const loaded = questions.data?.loaded ?? 0
   const total = questions.data?.total ?? 0
   const offset = questions.data?.offset ?? 0
@@ -111,7 +116,9 @@ export function ReadyPage() {
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      setFilters((f) => (f.search === searchText ? f : { ...f, search: searchText }))
+      setFilters((f) =>
+        f.search === searchText ? f : { ...f, search: searchText },
+      )
       setPage(0)
     }, SEARCH_DEBOUNCE_MS)
     return () => clearTimeout(timer)
@@ -131,7 +138,12 @@ export function ReadyPage() {
   // A page past the end returns nothing at all, and filters shrink the list
   // under us — a delete empties the last page of a narrow filter.
   useEffect(() => {
-    if (page > 0 && !questions.isFetching && !questions.isError && loaded === 0) {
+    if (
+      page > 0 &&
+      !questions.isFetching &&
+      !questions.isError &&
+      loaded === 0
+    ) {
       setPage((p) => Math.max(0, p - 1))
     }
   }, [page, loaded, questions.isFetching, questions.isError])
@@ -305,6 +317,7 @@ export function ReadyPage() {
             onToggleAll: toggleAll,
           }}
           categoryName={categoryName}
+          stats={stats.data}
           onOpen={(item) => setOpenId(item.id)}
         />
       )}

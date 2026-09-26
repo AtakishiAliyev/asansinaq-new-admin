@@ -956,6 +956,143 @@ export type Database = {
         }
         Relationships: []
       }
+      question_reports: {
+        Row: {
+          attempt_id: number | null
+          created_at: string
+          id: number
+          note: string
+          question_id: number | null
+          resolved_at: string | null
+          resolved_by: string | null
+          seq: number | null
+          status: string
+          user_id: string
+        }
+        Insert: {
+          attempt_id?: number | null
+          created_at?: string
+          id?: never
+          note: string
+          question_id?: number | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          seq?: number | null
+          status?: string
+          user_id: string
+        }
+        Update: {
+          attempt_id?: number | null
+          created_at?: string
+          id?: never
+          note?: string
+          question_id?: number | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          seq?: number | null
+          status?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "question_reports_attempt_id_fkey"
+            columns: ["attempt_id"]
+            isOneToOne: false
+            referencedRelation: "exam_attempts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "question_reports_question_id_fkey"
+            columns: ["question_id"]
+            isOneToOne: false
+            referencedRelation: "questions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      question_responses: {
+        Row: {
+          answer: string
+          answered_at: string | null
+          answers_seen_before: boolean
+          attempt_no: number
+          board_used: boolean
+          category_id: number | null
+          change_count: number
+          choice: string | null
+          context_attempt_id: number | null
+          context_id: number
+          context_kind: string
+          context_seq: number
+          context_version_id: number | null
+          difficulty: number | null
+          id: number
+          is_blank: boolean
+          is_correct: boolean
+          question_id: number | null
+          recorded_at: string
+          subject_id: number | null
+          time_seconds: number | null
+          user_id: string
+        }
+        Insert: {
+          answer: string
+          answered_at?: string | null
+          answers_seen_before?: boolean
+          attempt_no?: number
+          board_used?: boolean
+          category_id?: number | null
+          change_count?: number
+          choice?: string | null
+          context_attempt_id?: number | null
+          context_id: number
+          context_kind: string
+          context_seq: number
+          context_version_id?: number | null
+          difficulty?: number | null
+          id?: never
+          is_blank: boolean
+          is_correct: boolean
+          question_id?: number | null
+          recorded_at?: string
+          subject_id?: number | null
+          time_seconds?: number | null
+          user_id: string
+        }
+        Update: {
+          answer?: string
+          answered_at?: string | null
+          answers_seen_before?: boolean
+          attempt_no?: number
+          board_used?: boolean
+          category_id?: number | null
+          change_count?: number
+          choice?: string | null
+          context_attempt_id?: number | null
+          context_id?: number
+          context_kind?: string
+          context_seq?: number
+          context_version_id?: number | null
+          difficulty?: number | null
+          id?: never
+          is_blank?: boolean
+          is_correct?: boolean
+          question_id?: number | null
+          recorded_at?: string
+          subject_id?: number | null
+          time_seconds?: number | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "question_responses_question_id_fkey"
+            columns: ["question_id"]
+            isOneToOne: false
+            referencedRelation: "questions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       questions: {
         Row: {
           ai_category_confidence: number | null
@@ -1276,6 +1413,87 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      analytics_attempts: {
+        Args: {
+          p_exam_id?: number
+          p_limit?: number
+          p_offset?: number
+          p_user_id?: string
+        }
+        Returns: {
+          attempt_id: number
+          attempt_no: number
+          blank_count: number
+          correct_count: number
+          exam_id: number
+          exam_title: string
+          max_score: number
+          reviewed: boolean
+          score: number
+          student_name: string
+          submitted_at: string
+          submitted_by: string
+          time_used_seconds: number
+          total: number
+          user_id: string
+          wrong_count: number
+        }[]
+      }
+      analytics_deneme: { Args: { p_exam_id: number }; Returns: Json }
+      analytics_denemeler: {
+        Args: never
+        Returns: {
+          attempts: number
+          avg_pct: number
+          avg_score: number
+          avg_time_seconds: number
+          blank_pct: number
+          exam_id: number
+          kind: string
+          last_attempt_at: string
+          max_score: number
+          median_score: number
+          question_count: number
+          retake_pct: number
+          seq: number
+          students: number
+          timeout_pct: number
+          title: string
+        }[]
+      }
+      analytics_guard: { Args: never; Returns: undefined }
+      analytics_overview: { Args: never; Returns: Json }
+      analytics_question: { Args: { p_question_id: number }; Returns: Json }
+      analytics_question_stats: {
+        Args: { p_question_ids: number[] }
+        Returns: {
+          avg_time: number
+          blank_pct: number
+          correct_pct: number
+          open_reports: number
+          question_id: number
+          responses: number
+          suspicious: boolean
+          wrong_pct: number
+        }[]
+      }
+      analytics_student: { Args: { p_user_id: string }; Returns: Json }
+      analytics_topics: {
+        Args: { p_subject_id?: number }
+        Returns: {
+          avg_difficulty: number
+          avg_time: number
+          blank_pct: number
+          category_id: number
+          category_name: string
+          correct_pct: number
+          questions: number
+          responses: number
+          subject_id: number
+          subject_name: string
+          wrong_pct: number
+        }[]
+      }
       apply_answer_keys: { Args: { p_pairs: Json }; Returns: number }
       attempt_answer: {
         Args: {
@@ -1309,6 +1527,14 @@ export type Database = {
         Returns: undefined
       }
       attempt_payload: { Args: { p_attempt_id: number }; Returns: Json }
+      attempt_record_responses: {
+        Args: { p_attempt_id: number }
+        Returns: number
+      }
+      attempt_report: {
+        Args: { p_attempt_id: number; p_note: string; p_seq: number }
+        Returns: undefined
+      }
       attempt_result: { Args: { p_attempt_id: number }; Returns: Json }
       attempt_review: { Args: { p_attempt_id: number }; Returns: Json }
       attempt_sketch_save: {

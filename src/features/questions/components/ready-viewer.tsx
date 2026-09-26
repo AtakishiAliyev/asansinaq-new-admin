@@ -18,8 +18,12 @@ import {
   type QuestionListItem,
 } from '@/features/questions/api/questions'
 import { ANSWERS } from '@/features/questions/components/review-actions'
+import { QuestionAnalytics } from '@/features/analytics'
 import { CategoryPicker } from '@/features/questions/components/category-picker'
-import { DIFFICULTY_LABEL, DIFFICULTY_LEVELS } from '@/core/questions/difficulty'
+import {
+  DIFFICULTY_LABEL,
+  DIFFICULTY_LEVELS,
+} from '@/core/questions/difficulty'
 import {
   FlagBadges,
   VerifiedBadge,
@@ -59,7 +63,9 @@ function Field({
     <div className="flex flex-col gap-1">
       <span className="text-muted-foreground font-mono text-[10px] tracking-[0.12em] uppercase">
         {label}
-        {hint ? <span className="ml-1 normal-case opacity-70">{hint}</span> : null}
+        {hint ? (
+          <span className="ml-1 normal-case opacity-70">{hint}</span>
+        ) : null}
       </span>
       <div className="flex items-center gap-1">{children}</div>
     </div>
@@ -241,7 +247,9 @@ export function ReadyViewer({
                 A click writes the reviewer's, which then becomes effective. */}
             <Field
               label="Çətinlik"
-              hint={item.reviewer_difficulty === null ? 'AI-ın seçimi' : undefined}
+              hint={
+                item.reviewer_difficulty === null ? 'AI-ın seçimi' : undefined
+              }
             >
               {DIFFICULTY_LEVELS.map((d) => (
                 <Button
@@ -278,13 +286,19 @@ export function ReadyViewer({
           </Button>
         </div>
 
+        <div className="border-t pt-3">
+          <QuestionAnalytics questionId={item.id} collapsible />
+        </div>
+
         <div className="flex items-center justify-between">
           <Button
             variant="outline"
             size="icon"
             aria-label="Əvvəlki"
             aria-disabled={index <= 0}
-            className={index <= 0 ? 'pointer-events-none opacity-50' : undefined}
+            className={
+              index <= 0 ? 'pointer-events-none opacity-50' : undefined
+            }
             onClick={() => {
               const previous = items[index - 1]
               if (previous) onNavigate(previous.id)

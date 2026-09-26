@@ -14,6 +14,7 @@ import {
   type QuestionListItem,
 } from '@/features/questions/api/questions'
 import { parseFlags } from '@/features/questions/lib/row'
+import type { QuestionStatsRow } from '@/features/analytics'
 import { STATUS_LABEL } from '@/features/questions/lib/status'
 import { difficultyLabel } from '@/core/questions/difficulty'
 
@@ -77,6 +78,7 @@ export function QuestionsTable({
   offset = 0,
   selection,
   categoryName,
+  stats,
   onOpen,
 }: {
   items: QuestionListItem[]
@@ -93,6 +95,8 @@ export function QuestionsTable({
   selection?: TableSelection
   /** Resolves a category id to its label; only read by the ready variant. */
   categoryName?: (id: number | null) => string
+  /** How students met each question, keyed by id; only the ready variant reads it. */
+  stats?: Map<number, QuestionStatsRow>
   onOpen: (item: QuestionListItem) => void
 }) {
   const signed = useSignedUrls(items.map((i) => i.crop_path))
@@ -123,6 +127,8 @@ export function QuestionsTable({
             <>
               <TableHead>Mövzu</TableHead>
               <TableHead className="w-20 text-center">Çətinlik</TableHead>
+              <TableHead className="w-20 text-right">İşlənib</TableHead>
+              <TableHead className="w-20 text-right">Doğru</TableHead>
             </>
           ) : (
             <>
@@ -198,6 +204,41 @@ export function QuestionsTable({
                     ) : (
                       difficultyLabel(q.difficulty)
                     )}
+                  </TableCell>
+                  {/* Blank until a student has met the question: a zero
+                      would read as "nobody could", not "nobody has". */}
+                  <TableCell className="text-right text-sm tabular-nums">
+                    {stats?.get(q.id)?.responses ?? (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right text-sm tabular-nums">
+                    {(() => {
+                      const st = stats?.get(q.id)
+                      if (!st)
+                        return <span className="text-muted-foreground">—</span>
+                      return (
+                        <span
+                          className={cn(
+                            st.correct_pct < 25
+                              ? 'text-red-700'
+                              : 'text-emerald-700',
+                          )}
+                          title={
+                            st.suspicious
+                              ? 'Şübhəli açar — cavablayanların yarısı eyni yanlış variantı seçib'
+                              : st.open_reports
+                                ? `${st.open_reports} açıq bildiriş`
+                                : undefined
+                          }
+                        >
+                          {Math.round(st.correct_pct)}%
+                          {st.suspicious || st.open_reports ? (
+                            <span className="ml-1 text-amber-700">!</span>
+                          ) : null}
+                        </span>
+                      )
+                    })()}
                   </TableCell>
                 </>
               ) : (
