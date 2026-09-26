@@ -342,7 +342,11 @@ export function useSetNodeItems(id: number) {
     onMutate: ({ nodeId, questions }) => {
       client.setQueryData(roadmapKeys.nodeItems(nodeId), questions)
     },
-    onSuccess: invalidate,
+    onSuccess: (_r, { nodeId }) => {
+      invalidate()
+      // The bank's rows carry no status; the read back does.
+      void client.invalidateQueries({ queryKey: roadmapKeys.nodeItems(nodeId) })
+    },
   })
 }
 

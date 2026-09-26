@@ -1,4 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  closestCenter,
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
 import { Link, useParams } from 'react-router'
 import { toast } from 'sonner'
 import {
@@ -7,6 +23,7 @@ import {
   ArrowUp,
   Check,
   Eye,
+  GripVertical,
   Lock,
   Plus,
   Trash2,
@@ -857,12 +874,19 @@ function NodeColumn({
   const write = (list: BuilderQuestion[]) =>
     setItems.mutate({ nodeId: node.id, questions: list }, { onError: fail })
   const list = items.data ?? []
-  const moveItem = (i: number, d: -1 | 1) => {
-    const j = i + d
-    if (j < 0 || j >= list.length) return
-    const next = [...list]
-    ;[next[i], next[j]] = [next[j]!, next[i]!]
-    write(next)
+  // Drag to reorder, as in the deneme builder; the keyboard sensor makes
+  // the same move with Space and the arrows.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  )
+  const handleDragEnd = ({ active, over }: DragEndEvent) => {
+    if (!over || active.id === over.id) return
+    const from = list.findIndex((q) => q.id === active.id)
+    const to = list.findIndex((q) => q.id === over.id)
+    if (from >= 0 && to >= 0) write(arrayMove(list, from, to))
   }
 
   return (
@@ -933,74 +957,28 @@ function NodeColumn({
           ilə də əlavə olunur.
         </p>
       ) : (
-        <ol className="min-h-0 flex-1 overflow-y-auto p-3">
-          {list.map((q, i) => (
-            <li
-              key={q.id}
-              className="bg-background group mb-1.5 flex items-start gap-2 rounded-md border px-2 py-2 text-sm"
-            >
-              <span className="text-muted-foreground mt-0.5 w-5 shrink-0 text-right text-xs tabular-nums">
-                {i + 1}
-              </span>
-              <button
-                type="button"
-                onClick={() => setPreviewQ(q)}
-                className="flex min-w-0 flex-1 flex-col gap-1 text-left"
-              >
-                <span className="line-clamp-2 text-[13px] leading-snug [&_.katex]:text-[1em]">
-                  {q.stem.trim() ? (
-                    <StemText text={q.stem} />
-                  ) : (
-                    <span className="text-muted-foreground italic">
-                      şəkilli sual
-                    </span>
-                  )}
-                </span>
-                <span className="text-muted-foreground flex items-center gap-2 text-[11px]">
-                  <DifficultyDot value={q.difficulty} />
-                  <span>#{q.id}</span>
-                  {q.status !== 'approved' ? (
-                    <span className="text-destructive">təsdiqlənməyib</span>
-                  ) : null}
-                  {!q.answer ? (
-                    <span className="text-destructive">cavabsız</span>
-                  ) : null}
-                </span>
-              </button>
-              <div className="flex shrink-0 flex-col opacity-0 group-hover:opacity-100 focus-within:opacity-100">
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="size-6"
-                  aria-label="Yuxarı"
-                  disabled={i === 0}
-                  onClick={() => moveItem(i, -1)}
-                >
-                  <ArrowUp className="size-3" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="size-6"
-                  aria-label="Aşağı"
-                  disabled={i === list.length - 1}
-                  onClick={() => moveItem(i, 1)}
-                >
-                  <ArrowDown className="size-3" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="size-6"
-                  aria-label="Çıxar"
-                  onClick={() => write(list.filter((x) => x.id !== q.id))}
-                >
-                  <X className="size-3" />
-                </Button>
-              </div>
-            </li>
-          ))}
-        </ol>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext
+            items={list.map((q) => q.id)}
+            strategy={verticalListSortingStrategy}
+          >
+            <ol className="min-h-0 flex-1 overflow-y-auto p-3">
+              {list.map((q, i) => (
+                <NodeItemRow
+                  key={q.id}
+                  question={q}
+                  number={i + 1}
+                  onPreview={() => setPreviewQ(q)}
+                  onRemove={() => write(list.filter((x) => x.id !== q.id))}
+                />
+              ))}
+            </ol>
+          </SortableContext>
+        </DndContext>
       )}
       <QuestionDialog
         question={previewQ}
@@ -1008,6 +986,93 @@ function NodeColumn({
         onOpenChange={(o) => !o && setPreviewQ(null)}
       />
     </aside>
+  )
+}
+
+function NodeItemRow({
+  question: q,
+  number,
+  onPreview,
+  onRemove,
+}: {
+  question: BuilderQuestion
+  number: number
+  onPreview: () => void
+  onRemove: () => void
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: q.id })
+  // A question picked from the bank arrives without its status (the search
+  // row has none); only a KNOWN non-approved status is a problem.
+  const blocked = q.status !== undefined && q.status !== 'approved'
+  return (
+    <li
+      ref={setNodeRef}
+      style={{
+        transform: transform
+          ? `translate3d(${transform.x}px, ${transform.y}px, 0)`
+          : undefined,
+        transition,
+      }}
+      className={cn(
+        'bg-background group mb-1.5 flex items-start gap-2 rounded-md border px-2 py-2 text-sm',
+        isDragging && 'relative z-10 shadow-lg',
+        (blocked || !q.answer) && 'border-destructive/50',
+      )}
+    >
+      <button
+        ref={setActivatorNodeRef}
+        type="button"
+        aria-label={`${number}-ci sualı sürüşdür`}
+        className="text-muted-foreground hover:text-foreground mt-0.5 cursor-grab touch-none rounded p-0.5 active:cursor-grabbing"
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical className="size-4" />
+      </button>
+      <span className="text-muted-foreground mt-0.5 w-5 shrink-0 text-right text-xs tabular-nums">
+        {number}
+      </span>
+      <button
+        type="button"
+        onClick={onPreview}
+        className="flex min-w-0 flex-1 flex-col gap-1 text-left"
+      >
+        <span className="line-clamp-2 text-[13px] leading-snug [&_.katex]:text-[1em]">
+          {q.stem.trim() ? (
+            <StemText text={q.stem} />
+          ) : (
+            <span className="text-muted-foreground italic">şəkilli sual</span>
+          )}
+        </span>
+        <span className="text-muted-foreground flex items-center gap-2 text-[11px]">
+          <DifficultyDot value={q.difficulty} />
+          <span>#{q.id}</span>
+          {blocked ? (
+            <span className="text-destructive">təsdiqlənməyib</span>
+          ) : null}
+          {!q.answer ? (
+            <span className="text-destructive">cavabsız</span>
+          ) : null}
+        </span>
+      </button>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        className="size-6 shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+        aria-label="Çıxar"
+        onClick={onRemove}
+      >
+        <X className="size-3" />
+      </Button>
+    </li>
   )
 }
 
