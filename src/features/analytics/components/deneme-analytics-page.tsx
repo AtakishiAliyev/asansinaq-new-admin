@@ -27,12 +27,17 @@ import {
 } from '@/features/analytics/api/analytics'
 import type { DenemeItem } from '@/features/analytics/schemas'
 import {
+  Columns,
+  ShareBars,
+  TipRow,
+} from '@/features/analytics/components/charts'
+import {
   ChoiceBars,
   ShareBar,
   Stat,
   SuspiciousBadge,
 } from '@/features/analytics/components/bits'
-import { num, pct, seconds } from '@/features/analytics/lib/format'
+import { dayLabel, num, pct, seconds } from '@/features/analytics/lib/format'
 
 // One deneme in depth: how its sittings went (the score distribution), how
 // each section went, and then the exam's own view of every question — in
@@ -57,7 +62,6 @@ export function DenemeAnalyticsPage() {
     )
   }
   const a = d.data
-  const maxBin = Math.max(1, ...a.histogram.map((h) => h.n))
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
@@ -122,31 +126,23 @@ export function DenemeAnalyticsPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div
-                  className="flex h-36 items-end gap-1"
-                  aria-label="Bal paylanması"
-                >
-                  {a.histogram.map((h) => (
-                    <div
-                      key={h.bin}
-                      className="flex flex-1 flex-col items-center gap-1"
-                      title={`${h.bin * 10}–${h.bin * 10 + 10}%: ${h.n} cəhd`}
-                    >
-                      <span className="text-muted-foreground text-[10px] tabular-nums">
-                        {h.n || ''}
-                      </span>
-                      <div className="bg-muted flex h-24 w-full items-end overflow-hidden rounded-sm">
-                        <span
-                          className="w-full bg-primary/80"
-                          style={{ height: `${(h.n / maxBin) * 100}%` }}
-                        />
-                      </div>
-                      <span className="text-muted-foreground text-[10px] tabular-nums">
-                        {h.bin * 10}
-                      </span>
-                    </div>
-                  ))}
-                </div>
+                <Columns
+                  ariaLabel="Bal paylanması"
+                  height={170}
+                  points={a.histogram.map((h) => ({
+                    key: h.bin,
+                    label: `${h.bin * 10}–${h.bin * 10 + 10}`,
+                    value: h.n,
+                    tip: (
+                      <>
+                        <div className="font-medium">
+                          {h.bin * 10}–{h.bin * 10 + 10}% bal
+                        </div>
+                        <TipRow value={num(h.n)} label="cəhd" />
+                      </>
+                    ),
+                  }))}
+                />
               </CardContent>
             </Card>
 
@@ -158,58 +154,117 @@ export function DenemeAnalyticsPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <table className="w-full text-sm">
-                  <thead className="text-muted-foreground text-xs">
-                    <tr>
-                      <th className="pb-1 text-left font-medium">Bölmə</th>
-                      <th className="pb-1 text-right font-medium">Doğru</th>
-                      <th className="pb-1 text-right font-medium">Səhv</th>
-                      <th className="pb-1 text-right font-medium">Boş</th>
-                      <th className="pb-1 text-right font-medium">Net</th>
-                      <th className="pb-1 text-right font-medium">Bal</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {a.sections.map((s) => (
-                      <tr key={s.position} className="border-t">
-                        <td className="py-1.5 font-medium">{s.subject_name}</td>
-                        <td className="py-1.5 text-right text-emerald-700 tabular-nums">
-                          {num(s.avg_correct, 1)}
-                        </td>
-                        <td className="py-1.5 text-right text-red-700 tabular-nums">
-                          {num(s.avg_wrong, 1)}
-                        </td>
-                        <td className="text-muted-foreground py-1.5 text-right tabular-nums">
-                          {num(s.avg_blank, 1)}
-                        </td>
-                        <td className="py-1.5 text-right tabular-nums">
-                          {num(s.avg_net, 2)}
-                        </td>
-                        <td className="py-1.5 text-right font-medium tabular-nums">
-                          {num(s.avg_points, 1)}
-                          <span className="text-muted-foreground font-normal">
-                            {' '}
-                            / {num(s.max_points, 1)}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {a.by_day.length > 1 ? (
-                  <p className="text-muted-foreground mt-4 text-xs">
-                    {a.by_day.length} gündə işlənib:{' '}
-                    {a.by_day
-                      .map(
-                        (b) =>
-                          `${new Date(b.day).toLocaleDateString('az-AZ', { day: 'numeric', month: 'short' })} (${b.n})`,
-                      )
-                      .join(', ')}
-                  </p>
-                ) : null}
+                <ShareBars
+                  ariaLabel="Bölmə üzrə orta doğru, səhv və boş payı"
+                  labelWidth={120}
+                  rows={a.sections.map((sec) => {
+                    const total =
+                      (sec.avg_correct ?? 0) +
+                        (sec.avg_wrong ?? 0) +
+                        (sec.avg_blank ?? 0) || 1
+                    return {
+                      key: sec.position,
+                      label: sec.subject_name,
+                      correct: (100 * (sec.avg_correct ?? 0)) / total,
+                      wrong: (100 * (sec.avg_wrong ?? 0)) / total,
+                      blank: (100 * (sec.avg_blank ?? 0)) / total,
+                      hint: `orta ${num(sec.avg_points, 1)} / ${num(sec.max_points, 1)} bal · net ${num(sec.avg_net, 2)}`,
+                    }
+                  })}
+                />
+                <p className="text-muted-foreground mt-3 text-xs">
+                  {a.sections
+                    .map(
+                      (sec) =>
+                        `${sec.subject_name}: ${num(sec.avg_correct, 1)} doğru · ${num(sec.avg_wrong, 1)} səhv · ${num(sec.avg_blank, 1)} boş · ${num(sec.avg_points, 1)} / ${num(sec.max_points, 1)} bal`,
+                    )
+                    .join('  ·  ')}
+                </p>
               </CardContent>
             </Card>
           </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Sual üzrə doğru cavab payı</CardTitle>
+              <CardDescription>
+                Bu denemedəki sıra ilə; qırmızı — dörddə birdən az doğru.
+                Sütunun üstünə gəl: mövzu, paylanma, vaxt.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Columns
+                ariaLabel="Sual üzrə doğru cavab payı"
+                max={100}
+                unit="%"
+                height={190}
+                labelEvery={
+                  a.items.length > 40 ? 5 : a.items.length > 20 ? 2 : 1
+                }
+                points={a.items.map((it) => ({
+                  key: it.seq,
+                  label: String(it.seq),
+                  value: it.correct_pct,
+                  tone: it.correct_pct < 25 ? 'bad' : 'ok',
+                  tip: (
+                    <>
+                      <div className="font-medium">
+                        Sual {it.seq} · {it.category_name ?? '—'}
+                      </div>
+                      <TipRow
+                        value={`${Math.round(it.correct_pct)}%`}
+                        label="doğru"
+                        swatch="bg-emerald-600"
+                      />
+                      <TipRow
+                        value={`${Math.round(it.wrong_pct)}%`}
+                        label="səhv"
+                        swatch="bg-red-600"
+                      />
+                      <TipRow
+                        value={`${Math.round(it.blank_pct)}%`}
+                        label="boş"
+                        swatch="bg-zinc-400"
+                      />
+                      <div className="text-muted-foreground mt-0.5">
+                        {seconds(it.avg_time)} · açar {it.answer}
+                        {it.suspicious ? ' · şübhəli açar' : ''}
+                      </div>
+                    </>
+                  ),
+                }))}
+              />
+            </CardContent>
+          </Card>
+
+          {a.by_day.length > 1 ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Günlər üzrə cəhdlər</CardTitle>
+                <CardDescription>Nə vaxt işlənib.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Columns
+                  ariaLabel="Günlər üzrə cəhd sayı"
+                  height={140}
+                  points={a.by_day.map((b) => ({
+                    key: b.day,
+                    label: dayLabel(b.day),
+                    value: b.n,
+                    tip: (
+                      <>
+                        <div className="font-medium">
+                          {new Date(b.day).toLocaleDateString('az-AZ')}
+                        </div>
+                        <TipRow value={num(b.n)} label="cəhd" />
+                        <TipRow value={pct(b.avg_pct)} label="orta bal" />
+                      </>
+                    ),
+                  }))}
+                />
+              </CardContent>
+            </Card>
+          ) : null}
 
           <Card className="py-0">
             <CardHeader className="pt-6">

@@ -8,6 +8,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { QueryErrorAlert } from '@/components/query-error-alert'
 import { useStudentAnalytics } from '@/features/analytics/api/analytics'
+import { ShareBars, TrendLine } from '@/features/analytics/components/charts'
 import { ShareBar, Stat } from '@/features/analytics/components/bits'
 import { num, pct, seconds } from '@/features/analytics/lib/format'
 
@@ -25,7 +26,10 @@ export function StudentSheet({
   const s = useStudentAnalytics(userId)
   return (
     <Sheet open={userId !== null} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-2xl">
+      <SheetContent
+        side="right"
+        className="w-full overflow-y-auto sm:max-w-2xl"
+      >
         {s.isPending ? (
           <div className="flex flex-col gap-4 p-6">
             <Skeleton className="h-8 w-48" />
@@ -91,6 +95,25 @@ export function StudentSheet({
                 wrong={s.data.wrong_pct ?? 0}
                 blank={s.data.blank_pct ?? 0}
               />
+
+              {s.data.attempts.length >= 2 ? (
+                <div className="flex flex-col gap-2">
+                  <p className="text-muted-foreground font-mono text-[11px] tracking-[0.14em] uppercase">
+                    Bal trendi
+                  </p>
+                  <TrendLine
+                    ariaLabel="Cəhdlər üzrə bal, maksimumun faizi ilə"
+                    points={s.data.attempts.map((a, i) => ({
+                      key: a.id,
+                      label: `${i + 1}`,
+                      value: a.max_score
+                        ? (100 * (a.score ?? 0)) / a.max_score
+                        : 0,
+                      hint: `${a.title}${a.attempt_no > 1 ? ` · ${a.attempt_no}-ci` : ''} · ${num(a.score, 1)} bal`,
+                    }))}
+                  />
+                </div>
+              ) : null}
 
               <div className="flex flex-col gap-2">
                 <p className="text-muted-foreground font-mono text-[11px] tracking-[0.14em] uppercase">
@@ -180,30 +203,18 @@ export function StudentSheet({
                     Hələ 3 cavabdan çox toplanan mövzu yoxdur.
                   </p>
                 ) : (
-                  <ul className="flex flex-col gap-2">
-                    {s.data.topics.map((t) => (
-                      <li key={t.category_id} className="flex flex-col gap-1">
-                        <div className="flex items-baseline justify-between gap-3 text-sm">
-                          <span className="truncate">
-                            {t.name}{' '}
-                            <span className="text-muted-foreground text-xs">
-                              {t.subject_name}
-                            </span>
-                          </span>
-                          <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
-                            {num(t.responses)} cavab · doğru{' '}
-                            {pct(t.correct_pct)} · boş {pct(t.blank_pct)}
-                          </span>
-                        </div>
-                        <ShareBar
-                          compact
-                          correct={t.correct_pct}
-                          wrong={100 - t.correct_pct - t.blank_pct}
-                          blank={t.blank_pct}
-                        />
-                      </li>
-                    ))}
-                  </ul>
+                  <ShareBars
+                    ariaLabel="Mövzu üzrə doğru, səhv və boş payı"
+                    labelWidth={160}
+                    rows={s.data.topics.map((t) => ({
+                      key: t.category_id,
+                      label: t.name,
+                      correct: t.correct_pct,
+                      wrong: 100 - t.correct_pct - t.blank_pct,
+                      blank: t.blank_pct,
+                      hint: `${t.subject_name} · ${num(t.responses)} cavab`,
+                    }))}
+                  />
                 )}
               </div>
             </div>

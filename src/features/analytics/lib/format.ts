@@ -18,3 +18,24 @@ export function seconds(v: number | null | undefined): string {
   const s = Math.round(v % 60)
   return m ? `${m} dəq ${s} san` : `${s} san`
 }
+
+const MONTHS = [
+  'yan',
+  'fev',
+  'mar',
+  'apr',
+  'may',
+  'iyn',
+  'iyl',
+  'avq',
+  'sen',
+  'okt',
+  'noy',
+  'dek',
+]
+
+/** "24 sen" — Chromium's az-AZ locale has no month names, so they are ours. */
+export function dayLabel(iso: string): string {
+  const d = new Date(iso)
+  return `${d.getDate()} ${MONTHS[d.getMonth()]}`
+}

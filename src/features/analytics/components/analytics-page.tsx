@@ -2,7 +2,13 @@ import { useMemo, useState } from 'react'
 import { ArrowRight } from 'lucide-react'
 import { Link } from 'react-router'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
 import {
   Select,
   SelectContent,
@@ -32,6 +38,7 @@ import {
 import type { DenemeRow, TopicRow } from '@/features/analytics/schemas'
 import { ShareBar, Stat } from '@/features/analytics/components/bits'
 import { num, pct, seconds } from '@/features/analytics/lib/format'
+import { BarList, ShareBars } from '@/features/analytics/components/charts'
 import { StudentSheet } from '@/features/analytics/components/student-sheet'
 
 // The TR-YÖS denemeler as a whole, in three views: the denemeler side by
@@ -165,6 +172,54 @@ function DenemelerTab() {
           to={easiest?.exam_id}
         />
       </div>
+
+      {sat.length ? (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>Cəhd sayı</CardTitle>
+              <CardDescription>
+                Deneme üzrə təhvil verilmiş cəhdlər.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <BarList
+                ariaLabel="Deneme üzrə cəhd sayı"
+                labelWidth={150}
+                rows={sat.map((r) => ({
+                  key: r.exam_id,
+                  label: r.title,
+                  value: r.attempts,
+                  hint: `${num(r.students)} tələbə`,
+                }))}
+              />
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Orta bal</CardTitle>
+              <CardDescription>
+                Maksimumun faizi ilə — aşağı olan daha çətindir.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <BarList
+                ariaLabel="Deneme üzrə orta bal"
+                labelWidth={150}
+                max={100}
+                unit="%"
+                format={(v) => String(Math.round(v))}
+                rows={sat.map((r) => ({
+                  key: r.exam_id,
+                  label: r.title,
+                  value: r.avg_pct ?? 0,
+                  hint: `orta ${num(r.avg_score, 1)} / ${num(r.max_score, 1)}`,
+                }))}
+              />
+            </CardContent>
+          </Card>
+        </div>
+      ) : null}
 
       <Card className="py-0">
         <CardContent className="px-0">
@@ -391,6 +446,29 @@ function TopicsTab() {
           Hələ mövzu üzrə cavab yoxdur.
         </p>
       ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle>Mövzu üzrə nəticə</CardTitle>
+            <CardDescription>
+              Zəifdən güclüyə; hər sətir mövzunun bütün cavablarıdır.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ShareBars
+              ariaLabel="Mövzu üzrə doğru, səhv və boş payı"
+              rows={rows.map((t) => ({
+                key: t.category_id,
+                label: t.category_name,
+                correct: t.correct_pct,
+                wrong: t.wrong_pct,
+                blank: t.blank_pct,
+                hint: `${t.subject_name} · ${num(t.responses)} cavab · ${num(t.questions)} sual`,
+              }))}
+            />
+          </CardContent>
+        </Card>
+      )}
+      {rows.length === 0 ? null : (
         <Card className="py-0">
           <CardContent className="px-0">
             <Table>

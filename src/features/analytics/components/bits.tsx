@@ -25,7 +25,7 @@ export function Stat({
       </span>
       <span
         className={cn(
-          'text-2xl font-semibold tracking-tight tabular-nums',
+          'text-2xl font-semibold tracking-tight',
           tone === 'ok' && 'text-emerald-700',
           tone === 'bad' && 'text-red-700',
           tone === 'muted' && 'text-muted-foreground',
