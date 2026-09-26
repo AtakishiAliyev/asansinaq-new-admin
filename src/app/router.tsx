@@ -42,6 +42,12 @@ const ExamsPage = lazy(async () => ({
 const ExamBuilderPage = lazy(async () => ({
   default: (await import('@/features/exams')).ExamBuilderPage,
 }))
+const RoadmapsPage = lazy(async () => ({
+  default: (await import('@/features/roadmaps')).RoadmapsPage,
+}))
+const RoadmapBuilderPage = lazy(async () => ({
+  default: (await import('@/features/roadmaps')).RoadmapBuilderPage,
+}))
 const AnalyticsPage = lazy(async () => ({
   default: (await import('@/features/analytics')).AnalyticsPage,
 }))
@@ -76,6 +82,8 @@ export const router = createBrowserRouter([
               { path: 'exams', element: <ExamsPage /> },
               // Before the id route, or "templates" would be read as an id.
               { path: 'exams/templates', element: <TemplatesPage /> },
+              { path: 'roadmaps', element: <RoadmapsPage /> },
+              { path: 'roadmaps/:roadmapId', element: <RoadmapBuilderPage /> },
               { path: 'exams/analytics', element: <AnalyticsPage /> },
               {
                 path: 'exams/analytics/:examId',

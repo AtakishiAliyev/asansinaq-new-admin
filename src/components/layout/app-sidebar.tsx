@@ -11,6 +11,7 @@ import {
   User,
   Wallet,
   BarChart3,
+  Route,
 } from 'lucide-react'
 import { NavLink, useLocation } from 'react-router'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -56,6 +57,7 @@ const NAV_ITEMS = [
 const EXAM_ITEMS = [
   { to: '/exams', label: 'Denemələr', icon: ClipboardList },
   { to: '/exams/templates', label: 'Şablonlar', icon: Settings2 },
+  { to: '/roadmaps', label: 'Yol xəritələri', icon: Route },
   { to: '/exams/analytics', label: 'Analitika', icon: BarChart3 },
 ]
 

@@ -338,8 +338,10 @@ export type Database = {
           current_seq: number
           exam_id: number
           id: number
+          kind: string
           last_seen_at: string
           max_score: number | null
+          roadmap_node_id: number | null
           score: number | null
           section_scores: Json | null
           started_at: string
@@ -360,8 +362,10 @@ export type Database = {
           current_seq?: number
           exam_id: number
           id?: never
+          kind?: string
           last_seen_at?: string
           max_score?: number | null
+          roadmap_node_id?: number | null
           score?: number | null
           section_scores?: Json | null
           started_at?: string
@@ -382,8 +386,10 @@ export type Database = {
           current_seq?: number
           exam_id?: number
           id?: never
+          kind?: string
           last_seen_at?: string
           max_score?: number | null
+          roadmap_node_id?: number | null
           score?: number | null
           section_scores?: Json | null
           started_at?: string
@@ -402,6 +408,13 @@ export type Database = {
             columns: ["exam_id"]
             isOneToOne: false
             referencedRelation: "exams"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "exam_attempts_roadmap_node_id_fkey"
+            columns: ["roadmap_node_id"]
+            isOneToOne: false
+            referencedRelation: "roadmap_version_nodes"
             referencedColumns: ["id"]
           },
           {
@@ -641,7 +654,7 @@ export type Database = {
       }
       exam_versions: {
         Row: {
-          duration_seconds: number
+          duration_seconds: number | null
           exam_id: number
           id: number
           max_score: number
@@ -652,7 +665,7 @@ export type Database = {
           version_no: number
         }
         Insert: {
-          duration_seconds: number
+          duration_seconds?: number | null
           exam_id: number
           id?: never
           max_score: number
@@ -663,7 +676,7 @@ export type Database = {
           version_no: number
         }
         Update: {
-          duration_seconds?: number
+          duration_seconds?: number | null
           exam_id?: number
           id?: never
           max_score?: number
@@ -699,9 +712,10 @@ export type Database = {
           draft_updated_at: string
           id: number
           is_visible: boolean
+          kind: string
           program_id: number
-          seq: number
-          template_id: number
+          seq: number | null
+          template_id: number | null
           title: string
           updated_at: string
         }
@@ -713,9 +727,10 @@ export type Database = {
           draft_updated_at?: string
           id?: never
           is_visible?: boolean
+          kind?: string
           program_id: number
-          seq: number
-          template_id: number
+          seq?: number | null
+          template_id?: number | null
           title: string
           updated_at?: string
         }
@@ -727,9 +742,10 @@ export type Database = {
           draft_updated_at?: string
           id?: never
           is_visible?: boolean
+          kind?: string
           program_id?: number
-          seq?: number
-          template_id?: number
+          seq?: number | null
+          template_id?: number | null
           title?: string
           updated_at?: string
         }
@@ -1023,6 +1039,7 @@ export type Database = {
           context_attempt_id: number | null
           context_id: number
           context_kind: string
+          context_node_id: number | null
           context_seq: number
           context_version_id: number | null
           difficulty: number | null
@@ -1047,6 +1064,7 @@ export type Database = {
           context_attempt_id?: number | null
           context_id: number
           context_kind: string
+          context_node_id?: number | null
           context_seq: number
           context_version_id?: number | null
           difficulty?: number | null
@@ -1071,6 +1089,7 @@ export type Database = {
           context_attempt_id?: number | null
           context_id?: number
           context_kind?: string
+          context_node_id?: number | null
           context_seq?: number
           context_version_id?: number | null
           difficulty?: number | null
@@ -1304,6 +1323,299 @@ export type Database = {
           },
         ]
       }
+      roadmap_node_items: {
+        Row: {
+          node_id: number
+          position: number
+          question_id: number
+        }
+        Insert: {
+          node_id: number
+          position: number
+          question_id: number
+        }
+        Update: {
+          node_id?: number
+          position?: number
+          question_id?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "roadmap_node_items_node_id_fkey"
+            columns: ["node_id"]
+            isOneToOne: false
+            referencedRelation: "roadmap_nodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "roadmap_node_items_question_id_fkey"
+            columns: ["question_id"]
+            isOneToOne: false
+            referencedRelation: "questions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      roadmap_nodes: {
+        Row: {
+          exam_id: number | null
+          id: number
+          kind: string
+          position: number
+          stage_id: number
+          title: string
+        }
+        Insert: {
+          exam_id?: number | null
+          id?: never
+          kind?: string
+          position: number
+          stage_id: number
+          title: string
+        }
+        Update: {
+          exam_id?: number | null
+          id?: never
+          kind?: string
+          position?: number
+          stage_id?: number
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "roadmap_nodes_exam_id_fkey"
+            columns: ["exam_id"]
+            isOneToOne: false
+            referencedRelation: "exams"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "roadmap_nodes_stage_id_fkey"
+            columns: ["stage_id"]
+            isOneToOne: false
+            referencedRelation: "roadmap_stages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      roadmap_stages: {
+        Row: {
+          id: number
+          position: number
+          roadmap_id: number
+          title: string
+        }
+        Insert: {
+          id?: never
+          position: number
+          roadmap_id: number
+          title: string
+        }
+        Update: {
+          id?: never
+          position?: number
+          roadmap_id?: number
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "roadmap_stages_roadmap_id_fkey"
+            columns: ["roadmap_id"]
+            isOneToOne: false
+            referencedRelation: "roadmaps"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      roadmap_version_nodes: {
+        Row: {
+          exam_id: number
+          exam_version_id: number
+          id: number
+          kind: string
+          node_id: number | null
+          position: number
+          question_count: number
+          stage_position: number
+          stage_title: string
+          title: string
+          version_id: number
+        }
+        Insert: {
+          exam_id: number
+          exam_version_id: number
+          id?: never
+          kind: string
+          node_id?: number | null
+          position: number
+          question_count: number
+          stage_position: number
+          stage_title: string
+          title: string
+          version_id: number
+        }
+        Update: {
+          exam_id?: number
+          exam_version_id?: number
+          id?: never
+          kind?: string
+          node_id?: number | null
+          position?: number
+          question_count?: number
+          stage_position?: number
+          stage_title?: string
+          title?: string
+          version_id?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "roadmap_version_nodes_exam_id_fkey"
+            columns: ["exam_id"]
+            isOneToOne: false
+            referencedRelation: "exams"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "roadmap_version_nodes_exam_version_id_fkey"
+            columns: ["exam_version_id"]
+            isOneToOne: false
+            referencedRelation: "exam_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "roadmap_version_nodes_node_id_fkey"
+            columns: ["node_id"]
+            isOneToOne: false
+            referencedRelation: "roadmap_nodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "roadmap_version_nodes_version_id_fkey"
+            columns: ["version_id"]
+            isOneToOne: false
+            referencedRelation: "roadmap_versions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      roadmap_versions: {
+        Row: {
+          description: string
+          id: number
+          node_count: number
+          published_at: string
+          published_by: string | null
+          question_count: number
+          roadmap_id: number
+          stage_count: number
+          title: string
+          version_no: number
+        }
+        Insert: {
+          description?: string
+          id?: never
+          node_count: number
+          published_at?: string
+          published_by?: string | null
+          question_count: number
+          roadmap_id: number
+          stage_count: number
+          title: string
+          version_no: number
+        }
+        Update: {
+          description?: string
+          id?: never
+          node_count?: number
+          published_at?: string
+          published_by?: string | null
+          question_count?: number
+          roadmap_id?: number
+          stage_count?: number
+          title?: string
+          version_no?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "roadmap_versions_published_by_fkey"
+            columns: ["published_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "roadmap_versions_roadmap_id_fkey"
+            columns: ["roadmap_id"]
+            isOneToOne: false
+            referencedRelation: "roadmaps"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      roadmaps: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          current_version_id: number | null
+          description: string
+          draft_updated_at: string
+          id: number
+          program_id: number
+          sort_order: number
+          status: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          current_version_id?: number | null
+          description?: string
+          draft_updated_at?: string
+          id?: never
+          program_id: number
+          sort_order?: number
+          status?: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          current_version_id?: number | null
+          description?: string
+          draft_updated_at?: string
+          id?: never
+          program_id?: number
+          sort_order?: number
+          status?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "roadmaps_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "roadmaps_current_version_fkey"
+            columns: ["current_version_id"]
+            isOneToOne: false
+            referencedRelation: "roadmap_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "roadmaps_program_id_fkey"
+            columns: ["program_id"]
+            isOneToOne: false
+            referencedRelation: "programs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       subjects: {
         Row: {
           created_at: string
@@ -1335,6 +1647,94 @@ export type Database = {
             columns: ["program_id"]
             isOneToOne: false
             referencedRelation: "programs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_roadmap_nodes: {
+        Row: {
+          attempt_id: number | null
+          completed_at: string | null
+          started_at: string
+          user_roadmap_id: number
+          version_node_id: number
+        }
+        Insert: {
+          attempt_id?: number | null
+          completed_at?: string | null
+          started_at?: string
+          user_roadmap_id: number
+          version_node_id: number
+        }
+        Update: {
+          attempt_id?: number | null
+          completed_at?: string | null
+          started_at?: string
+          user_roadmap_id?: number
+          version_node_id?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_roadmap_nodes_attempt_id_fkey"
+            columns: ["attempt_id"]
+            isOneToOne: false
+            referencedRelation: "exam_attempts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_roadmap_nodes_user_roadmap_id_fkey"
+            columns: ["user_roadmap_id"]
+            isOneToOne: false
+            referencedRelation: "user_roadmaps"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_roadmap_nodes_version_node_id_fkey"
+            columns: ["version_node_id"]
+            isOneToOne: false
+            referencedRelation: "roadmap_version_nodes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_roadmaps: {
+        Row: {
+          completed_at: string | null
+          id: number
+          roadmap_id: number
+          started_at: string
+          user_id: string
+          version_id: number
+        }
+        Insert: {
+          completed_at?: string | null
+          id?: never
+          roadmap_id: number
+          started_at?: string
+          user_id: string
+          version_id: number
+        }
+        Update: {
+          completed_at?: string | null
+          id?: never
+          roadmap_id?: number
+          started_at?: string
+          user_id?: string
+          version_id?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_roadmaps_roadmap_id_fkey"
+            columns: ["roadmap_id"]
+            isOneToOne: false
+            referencedRelation: "roadmaps"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_roadmaps_version_id_fkey"
+            columns: ["version_id"]
+            isOneToOne: false
+            referencedRelation: "roadmap_versions"
             referencedColumns: ["id"]
           },
         ]
@@ -1503,6 +1903,10 @@ export type Database = {
           p_seq: number
         }
         Returns: number
+      }
+      attempt_answer_check: {
+        Args: { p_attempt_id: number; p_choice: string; p_seq: number }
+        Returns: Json
       }
       attempt_beat_cap_seconds: { Args: never; Returns: number }
       attempt_current: { Args: never; Returns: Json }
@@ -1717,9 +2121,10 @@ export type Database = {
           draft_updated_at: string
           id: number
           is_visible: boolean
+          kind: string
           program_id: number
-          seq: number
-          template_id: number
+          seq: number | null
+          template_id: number | null
           title: string
           updated_at: string
         }
@@ -1752,7 +2157,7 @@ export type Database = {
       exam_publish: {
         Args: { p_assets?: Json; p_exam_id: number }
         Returns: {
-          duration_seconds: number
+          duration_seconds: number | null
           exam_id: number
           id: number
           max_score: number
@@ -1894,6 +2299,120 @@ export type Database = {
         Args: { p_ids: number[]; p_lease: string; p_worker_id: string }
         Returns: number
       }
+      roadmap_archive: {
+        Args: { p_archived: boolean; p_roadmap_id: number }
+        Returns: undefined
+      }
+      roadmap_create: {
+        Args: { p_program_id: number; p_title: string }
+        Returns: {
+          created_at: string
+          created_by: string | null
+          current_version_id: number | null
+          description: string
+          draft_updated_at: string
+          id: number
+          program_id: number
+          sort_order: number
+          status: string
+          title: string
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "roadmaps"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      roadmap_detail: { Args: { p_roadmap_id: number }; Returns: Json }
+      roadmap_draft_questions: {
+        Args: { p_roadmap_id: number }
+        Returns: {
+          item_position: number
+          node_id: number
+          question_id: number
+        }[]
+      }
+      roadmap_node_add: {
+        Args: { p_kind?: string; p_stage_id: number; p_title: string }
+        Returns: {
+          exam_id: number | null
+          id: number
+          kind: string
+          position: number
+          stage_id: number
+          title: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "roadmap_nodes"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      roadmap_node_complete: {
+        Args: { p_attempt_id: number }
+        Returns: undefined
+      }
+      roadmap_node_delete: { Args: { p_node_id: number }; Returns: undefined }
+      roadmap_node_move: {
+        Args: { p_node_id: number; p_position: number; p_stage_id: number }
+        Returns: undefined
+      }
+      roadmap_node_set_items: {
+        Args: { p_node_id: number; p_question_ids: number[] }
+        Returns: undefined
+      }
+      roadmap_node_start: { Args: { p_version_node_id: number }; Returns: Json }
+      roadmap_publish: {
+        Args: { p_assets: Json; p_roadmap_id: number }
+        Returns: {
+          description: string
+          id: number
+          node_count: number
+          published_at: string
+          published_by: string | null
+          question_count: number
+          roadmap_id: number
+          stage_count: number
+          title: string
+          version_no: number
+        }
+        SetofOptions: {
+          from: "*"
+          to: "roadmap_versions"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      roadmap_publish_problems: {
+        Args: { p_roadmap_id: number }
+        Returns: string[]
+      }
+      roadmap_stage_add: {
+        Args: { p_roadmap_id: number; p_title: string }
+        Returns: {
+          id: number
+          position: number
+          roadmap_id: number
+          title: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "roadmap_stages"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      roadmap_stage_delete: { Args: { p_stage_id: number }; Returns: undefined }
+      roadmap_stage_reorder: {
+        Args: { p_roadmap_id: number; p_stage_ids: number[] }
+        Returns: undefined
+      }
+      roadmap_start: { Args: { p_roadmap_id: number }; Returns: Json }
+      roadmap_touch: { Args: { p_roadmap_id: number }; Returns: undefined }
+      roadmaps_list: { Args: never; Returns: Json }
       student_exams: {
         Args: never
         Returns: {

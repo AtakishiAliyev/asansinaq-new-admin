@@ -688,6 +688,27 @@ existing single-subject denemes into a full one (the full template exists;
 its Mantık and Geometri sections cannot be filled until those subjects have
 questions).
 
+**Roadmaps (2026-09-26).** `/roadmaps` — a linear learning path the admin
+draws through the bank: stages of nodes, each node a small test of
+hand-picked questions (`roadmaps` → `roadmap_stages` → `roadmap_nodes` →
+`roadmap_node_items`, edited only through `roadmap_*` functions so
+positions stay gapless). Publishing (`roadmap_publish`, after the browser
+renders figure plates exactly as for a deneme) takes a snapshot —
+`roadmap_versions` + `roadmap_version_nodes` — and gives every node a
+HIDDEN exam and version (`exams.kind = 'roadmap_node'`, no template, no
+seq, `is_visible = false`, rules `mode: practice / feedback: immediate /
+untimed / linear / no penalty`), so the student's runner, clock, result,
+review and the analytics fact table (`context_kind = 'roadmap'`) run
+unchanged. A student is bound to the version they started on
+(`user_roadmaps`); progress is `user_roadmap_nodes`, completed by
+`attempt_finalize` → `roadmap_node_complete`, and the CURRENT node is
+simply the first incomplete one — the server (`roadmap_node_start`) is the
+lock. The one-open-attempt rule applies to denemeler only. The builder
+(`features/roadmaps`) borrows the deneme builder's filter panel and
+results list; the node's list is ordered by arrows, not drag. Not built
+yet: roadmap analytics (the facts are already recorded), explanations on
+a verdict, a node linked to an existing deneme.
+
 **Analytics (2026-09-26).** Every handed-in sitting writes one row per
 question into `question_responses` — the FACT table: bank `question_id`,
 student, `context_kind` (`deneme` today; `topic_test` / `roadmap` /

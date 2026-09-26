@@ -29,7 +29,8 @@ export type AssetMap = Record<string, QuestionAssets>
 // it goes out, and a crop that is later re-cut in place would otherwise
 // change the picture under every version that pointed at it.
 export async function buildPublishAssets(
-  examId: number,
+  /** The exam's id — or any other scope, for a roadmap's publish. */
+  examId: number | string,
   questions: BuilderQuestion[],
   onProgress?: (done: number, total: number) => void,
 ): Promise<AssetMap> {
