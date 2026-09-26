@@ -617,13 +617,22 @@ export function TrendLine({
   const BOTTOM = 22
   const plotW = width - LEFT - RIGHT
   const plotH = height - TOP - BOTTOM
-  const step = niceStep(max, 4)
+  // The axis follows the data up to the ceiling: a student scoring 3% and
+  // then 8% has moved, and a fixed 0–100 axis would flatten that to a line
+  // on the floor. The ceiling stays honest — never past the maximum.
+  const peak = Math.max(...points.map((p) => p.value))
+  const axisMax = Math.min(
+    max,
+    Math.max(10, Math.ceil((peak * 1.25) / 10) * 10),
+  )
+  const step = niceStep(axisMax, 4)
   const ticks = Array.from(
-    { length: Math.floor(max / step) + 1 },
+    { length: Math.floor(axisMax / step) + 1 },
     (_, i) => i * step,
   )
   const x = (i: number) => LEFT + (i / (points.length - 1)) * plotW
-  const y = (v: number) => TOP + plotH - (Math.min(v, max) / max) * plotH
+  const y = (v: number) =>
+    TOP + plotH - (Math.min(v, axisMax) / axisMax) * plotH
   const d = points
     .map((p, i) => `${i ? 'L' : 'M'}${x(i)},${y(p.value)}`)
     .join(' ')

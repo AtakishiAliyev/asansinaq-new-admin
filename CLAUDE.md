@@ -716,7 +716,13 @@ and student sheet, `features/analytics`). "Suspicious key" is a rule, not
 a judgement: ≥ 10 sittings, under a quarter correct, one OTHER option
 chosen by at least half of those who answered. Students can say "sualda
 səhv var" from their review (`attempt_report` → `question_reports`); the
-admin resolves or dismisses it under the question. Product and funnel
+admin resolves or dismisses it under the question. The charts are the feature's own SVG kit
+(`components/charts.tsx`: bar list, columns, share bars, trend line), drawn
+to the dataviz method — one hue for magnitude (sky), the status trio for
+verdicts (emerald / red / zinc, a pair that survives red-green colour
+blindness), thin marks with a rounded data end, hairline solid gridlines,
+selective labels, a tooltip on every mark, and a table under every chart
+so nothing is gated behind hover. Product and funnel
 metrics are deliberately NOT here — the owner measures those with an
 external tool (Mixpanel); this is the learning and question-quality side
 that no external tool can see.
